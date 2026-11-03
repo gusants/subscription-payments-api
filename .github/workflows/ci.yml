@@ -50,3 +50,8 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Check OpenAPI spec is up to date
+        run: |
+          pnpm openapi:export
+          git diff --exit-code openapi.json

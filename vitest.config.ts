@@ -14,6 +14,7 @@ export default defineConfig({
       exclude: [
         'src/generated/**',
         'src/main.ts',
+        'src/tools/export-openapi.ts',
         'src/**/*.module.ts',
         'src/**/*.spec.ts',
         'src/**/testing/**',

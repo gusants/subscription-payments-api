@@ -1,0 +1,1010 @@
+{
+  "components": {
+    "schemas": {
+      "CreateCustomerDto": {
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["name", "email"],
+        "type": "object"
+      },
+      "CreatePlanDto": {
+        "properties": {
+          "amountCents": {
+            "exclusiveMinimum": true,
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "interval": {
+            "enum": ["monthly", "yearly"],
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["name", "amountCents", "interval"],
+        "type": "object"
+      },
+      "CreateSubscriptionDto": {
+        "properties": {
+          "customerId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "paymentMethod": {
+            "enum": ["card", "pix", "boleto"],
+            "type": "string"
+          },
+          "planId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["customerId", "planId", "paymentMethod"],
+        "type": "object"
+      },
+      "CustomerDetailResponseDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "subscriptions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "currentPeriodEnd": {
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "planId": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": ["incomplete", "active", "past_due", "canceled"],
+                  "type": "string"
+                }
+              },
+              "required": ["id", "planId", "status", "currentPeriodEnd"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "createdAt",
+          "updatedAt",
+          "subscriptions"
+        ],
+        "type": "object"
+      },
+      "CustomerListResponseDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "createdAt": {
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "type": "string"
+                }
+              },
+              "required": ["id", "name", "email", "createdAt", "updatedAt"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "meta": {
+            "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "page": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "total": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "totalPages": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              }
+            },
+            "required": ["page", "limit", "total", "totalPages"],
+            "type": "object"
+          }
+        },
+        "required": ["data", "meta"],
+        "type": "object"
+      },
+      "CustomerResponseDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "email", "createdAt", "updatedAt"],
+        "type": "object"
+      },
+      "ErrorResponseDto": {
+        "properties": {
+          "details": {
+            "items": {},
+            "type": "array"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "statusCode": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": ["statusCode", "error", "message"],
+        "type": "object"
+      },
+      "PlanListResponseDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "active": {
+                  "type": "boolean"
+                },
+                "amountCents": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                },
+                "createdAt": {
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "interval": {
+                  "enum": ["monthly", "yearly"],
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "amountCents",
+                "interval",
+                "active",
+                "createdAt",
+                "updatedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "meta": {
+            "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "page": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "total": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "totalPages": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              }
+            },
+            "required": ["page", "limit", "total", "totalPages"],
+            "type": "object"
+          }
+        },
+        "required": ["data", "meta"],
+        "type": "object"
+      },
+      "PlanResponseDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "amountCents": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "interval": {
+            "enum": ["monthly", "yearly"],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "amountCents",
+          "interval",
+          "active",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "SubscriptionResponseDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "canceledAt": {
+            "format": "date-time",
+            "nullable": true,
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "currentPeriodEnd": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "currentPeriodStart": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "customerId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "enum": ["card", "pix", "boleto"],
+            "type": "string"
+          },
+          "planId": {
+            "type": "string"
+          },
+          "status": {
+            "enum": ["incomplete", "active", "past_due", "canceled"],
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "customerId",
+          "planId",
+          "paymentMethod",
+          "status",
+          "currentPeriodStart",
+          "currentPeriodEnd",
+          "canceledAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "contact": {},
+    "description": "",
+    "title": "Subscription Payments API",
+    "version": "1.0"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/customers": {
+      "get": {
+        "operationId": "CustomersController_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subscriptionStatus",
+            "required": false,
+            "schema": {
+              "enum": ["incomplete", "active", "past_due", "canceled"],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerListResponseDto_Output"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": ["customers"]
+      },
+      "post": {
+        "operationId": "CustomersController_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCustomerDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerResponseDto_Output"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": ["customers"]
+      }
+    },
+    "/customers/{id}": {
+      "get": {
+        "operationId": "CustomersController_detail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerDetailResponseDto_Output"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": ["customers"]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "HealthController_check",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "responseTime": {
+                            "description": "Time the health indicator took to respond, in ms",
+                            "type": "number"
+                          },
+                          "status": {
+                            "enum": ["up", "degraded", "down"],
+                            "type": "string"
+                          }
+                        },
+                        "required": ["status"],
+                        "type": "object"
+                      },
+                      "example": {
+                        "database": {
+                          "responseTime": 12,
+                          "status": "up"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "additionalProperties": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "responseTime": {
+                            "description": "Time the health indicator took to respond, in ms",
+                            "type": "number"
+                          },
+                          "status": {
+                            "enum": ["up", "degraded", "down"],
+                            "type": "string"
+                          }
+                        },
+                        "required": ["status"],
+                        "type": "object"
+                      },
+                      "example": {},
+                      "nullable": true,
+                      "type": "object"
+                    },
+                    "info": {
+                      "additionalProperties": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "responseTime": {
+                            "description": "Time the health indicator took to respond, in ms",
+                            "type": "number"
+                          },
+                          "status": {
+                            "enum": ["up", "degraded", "down"],
+                            "type": "string"
+                          }
+                        },
+                        "required": ["status"],
+                        "type": "object"
+                      },
+                      "example": {
+                        "database": {
+                          "responseTime": 12,
+                          "status": "up"
+                        }
+                      },
+                      "nullable": true,
+                      "type": "object"
+                    },
+                    "status": {
+                      "enum": ["ok", "degraded"],
+                      "example": "ok",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The Health Check is successful"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "details": {
+                      "additionalProperties": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "responseTime": {
+                            "description": "Time the health indicator took to respond, in ms",
+                            "type": "number"
+                          },
+                          "status": {
+                            "enum": ["up", "degraded", "down"],
+                            "type": "string"
+                          }
+                        },
+                        "required": ["status"],
+                        "type": "object"
+                      },
+                      "example": {
+                        "database": {
+                          "responseTime": 12,
+                          "status": "up"
+                        },
+                        "redis": {
+                          "message": "Could not connect",
+                          "responseTime": 3005,
+                          "status": "down"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "additionalProperties": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "responseTime": {
+                            "description": "Time the health indicator took to respond, in ms",
+                            "type": "number"
+                          },
+                          "status": {
+                            "enum": ["up", "degraded", "down"],
+                            "type": "string"
+                          }
+                        },
+                        "required": ["status"],
+                        "type": "object"
+                      },
+                      "example": {
+                        "redis": {
+                          "message": "Could not connect",
+                          "responseTime": 3005,
+                          "status": "down"
+                        }
+                      },
+                      "nullable": true,
+                      "type": "object"
+                    },
+                    "info": {
+                      "additionalProperties": {
+                        "additionalProperties": true,
+                        "properties": {
+                          "responseTime": {
+                            "description": "Time the health indicator took to respond, in ms",
+                            "type": "number"
+                          },
+                          "status": {
+                            "enum": ["up", "degraded", "down"],
+                            "type": "string"
+                          }
+                        },
+                        "required": ["status"],
+                        "type": "object"
+                      },
+                      "example": {
+                        "database": {
+                          "responseTime": 12,
+                          "status": "up"
+                        }
+                      },
+                      "nullable": true,
+                      "type": "object"
+                    },
+                    "status": {
+                      "enum": ["error", "shutting_down"],
+                      "example": "error",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The Health Check is not successful"
+          }
+        },
+        "tags": ["Health"]
+      }
+    },
+    "/plans": {
+      "get": {
+        "operationId": "PlansController_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "active",
+            "required": false,
+            "schema": {
+              "enum": ["true", "false"],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanListResponseDto_Output"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": ["plans"]
+      },
+      "post": {
+        "operationId": "PlansController_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePlanDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanResponseDto_Output"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": ["plans"]
+      }
+    },
+    "/subscriptions": {
+      "post": {
+        "operationId": "SubscriptionsController_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSubscriptionDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionResponseDto_Output"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": ["subscriptions"]
+      }
+    },
+    "/subscriptions/{id}": {
+      "get": {
+        "operationId": "SubscriptionsController_detail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionResponseDto_Output"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": ["subscriptions"]
+      }
+    },
+    "/subscriptions/{id}/cancel": {
+      "post": {
+        "operationId": "SubscriptionsController_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionResponseDto_Output"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": ["subscriptions"]
+      }
+    }
+  },
+  "servers": [],
+  "tags": []
+}
