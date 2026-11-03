@@ -17,7 +17,7 @@ import { RedisModule } from './shared/redis/redis.module.js';
     LoggingModule,
     DatabaseModule,
     RedisModule,
-    GatewayModule,
+    GatewayModule.register(),
     HttpModule,
     HealthModule,
     PlansModule,

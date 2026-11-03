@@ -1,8 +1,10 @@
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, type DynamicModule } from '@nestjs/common';
 import { resolve } from 'node:path';
 import { ConfigService } from '@nestjs/config';
 import { Clock, SystemClock } from '../shared/clock/index.js';
 import type { Env } from '../shared/config/env.schema.js';
+import { FakeGatewayController } from './fake/fake-gateway.controller.js';
+import { isFakeGatewayControllerEnabled } from './fake/fake-gateway-routes.js';
 import { FakeGatewayAdapter } from './fake/fake-gateway.adapter.js';
 import { FakeGatewayStore } from './fake/fake-gateway.store.js';
 import { PaymentGateway } from './payment-gateway.port.js';
@@ -36,4 +38,13 @@ import { PaymentGateway } from './payment-gateway.port.js';
   ],
   exports: [PaymentGateway, FakeGatewayStore],
 })
-export class GatewayModule {}
+export class GatewayModule {
+  static register(env: Record<string, unknown> = process.env): DynamicModule {
+    return {
+      module: GatewayModule,
+      controllers: isFakeGatewayControllerEnabled(env)
+        ? [FakeGatewayController]
+        : [],
+    };
+  }
+}

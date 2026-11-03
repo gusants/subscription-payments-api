@@ -1093,6 +1093,18 @@
         "tags": ["charges"]
       }
     },
+    "/fake-gateway/reset": {
+      "post": {
+        "operationId": "FakeGatewayController_reset",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "Development only: empties the fake gateway data file"
+          }
+        },
+        "tags": ["fake-gateway"]
+      }
+    },
     "/health": {
       "get": {
         "operationId": "HealthController_check",

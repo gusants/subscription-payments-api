@@ -5,6 +5,8 @@ import { sortKeys } from './sort-keys.js';
 
 const OUTPUT_FILE = resolve(process.cwd(), 'openapi.json');
 
+process.env['NODE_ENV'] = 'development';
+process.env['PAYMENT_GATEWAY'] = 'fake';
 process.env['DATABASE_URL'] ??=
   'postgresql://openapi:openapi@localhost:5432/openapi';
 process.env['REDIS_HOST'] ??= 'localhost';
