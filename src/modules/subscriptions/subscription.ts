@@ -31,7 +31,7 @@ export type NewSubscription = Pick<
 >;
 
 export interface StatusChange {
-  from: SubscriptionStatus;
+  fromAnyOf: readonly SubscriptionStatus[];
   to: SubscriptionStatus;
   canceledAt?: Date;
 }

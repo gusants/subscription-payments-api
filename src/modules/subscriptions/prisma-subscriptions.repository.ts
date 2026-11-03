@@ -23,10 +23,10 @@ export class PrismaSubscriptionsRepository extends SubscriptionsRepository {
 
   async changeStatus(
     id: string,
-    { from, to, canceledAt }: StatusChange,
+    { fromAnyOf, to, canceledAt }: StatusChange,
   ): Promise<Subscription | null> {
     const { count } = await this.prisma.subscription.updateMany({
-      where: { id, status: from },
+      where: { id, status: { in: [...fromAnyOf] } },
       data: { status: to, ...(canceledAt && { canceledAt }) },
     });
     return count === 0 ? null : this.findById(id);

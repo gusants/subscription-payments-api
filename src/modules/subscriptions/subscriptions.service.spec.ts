@@ -147,6 +147,21 @@ describe('SubscriptionsService', () => {
       );
     });
 
+    it('cancels when the status moved to another cancellable one after it was read', async () => {
+      await seed();
+      const created = await service.create(input);
+      const staleRead = { ...created, status: 'active' as const };
+      await subscriptions.changeStatus(created.id, {
+        fromAnyOf: ['incomplete'],
+        to: 'past_due',
+      });
+      vi.spyOn(subscriptions, 'findById').mockResolvedValueOnce(staleRead);
+
+      await expect(service.cancel(created.id)).resolves.toMatchObject({
+        status: 'canceled',
+      });
+    });
+
     it('answers ConflictError when the status changed after it was read', async () => {
       await seed();
       const { id } = await service.create(input);

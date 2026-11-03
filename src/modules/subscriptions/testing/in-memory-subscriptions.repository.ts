@@ -27,10 +27,12 @@ export class InMemorySubscriptionsRepository extends SubscriptionsRepository {
 
   changeStatus(
     id: string,
-    { from, to, canceledAt }: StatusChange,
+    { fromAnyOf, to, canceledAt }: StatusChange,
   ): Promise<Subscription | null> {
     const found = this.subscriptions.get(id);
-    if (found?.status !== from) return Promise.resolve(null);
+    if (!found || !fromAnyOf.includes(found.status)) {
+      return Promise.resolve(null);
+    }
     const updated: Subscription = {
       ...found,
       status: to,

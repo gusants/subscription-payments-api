@@ -3,7 +3,11 @@ import {
   type SubscriptionStatus,
 } from '../subscription-status.js';
 import { InvalidTransitionError } from './invalid-transition.error.js';
-import { assertTransition, canTransition } from './subscription-transitions.js';
+import {
+  assertTransition,
+  canTransition,
+  statusesAllowedToTransitionTo,
+} from './subscription-transitions.js';
 
 type Pair = [SubscriptionStatus, SubscriptionStatus];
 
@@ -39,6 +43,14 @@ describe('subscription transitions', () => {
       expect(canTransition(from, to)).toBe(false);
       expect(() => assertTransition(from, to)).toThrow(InvalidTransitionError);
     });
+  });
+
+  it.each([
+    ['canceled', ['incomplete', 'active', 'past_due']],
+    ['active', ['incomplete', 'past_due']],
+    ['incomplete', []],
+  ] as const)('lists the statuses allowed to move to %s', (to, expected) => {
+    expect(statusesAllowedToTransitionTo(to)).toEqual(expected);
   });
 
   it('describes the rejected transition in the error message', () => {

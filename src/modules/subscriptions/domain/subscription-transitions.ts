@@ -1,4 +1,7 @@
-import type { SubscriptionStatus } from '../subscription-status.js';
+import {
+  SUBSCRIPTION_STATUSES,
+  type SubscriptionStatus,
+} from '../subscription-status.js';
 import { InvalidTransitionError } from './invalid-transition.error.js';
 
 const ALLOWED_TRANSITIONS: Readonly<
@@ -15,6 +18,12 @@ export function canTransition(
   to: SubscriptionStatus,
 ): boolean {
   return ALLOWED_TRANSITIONS[from].includes(to);
+}
+
+export function statusesAllowedToTransitionTo(
+  to: SubscriptionStatus,
+): SubscriptionStatus[] {
+  return SUBSCRIPTION_STATUSES.filter((from) => canTransition(from, to));
 }
 
 export function assertTransition(

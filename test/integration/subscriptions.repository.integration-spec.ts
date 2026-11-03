@@ -139,7 +139,7 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
       const created = await repository.create(newSubscription());
 
       const changed = await repository.changeStatus(created.id, {
-        from: 'incomplete',
+        fromAnyOf: ['incomplete'],
         to: 'active',
       });
 
@@ -147,12 +147,27 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
       expect(changed?.canceledAt).toBeNull();
     });
 
+    it('moves the status when it matches any of the allowed from-statuses', async () => {
+      const created = await repository.create({
+        ...newSubscription(),
+        status: 'past_due',
+      });
+
+      const changed = await repository.changeStatus(created.id, {
+        fromAnyOf: ['incomplete', 'active', 'past_due'],
+        to: 'canceled',
+        canceledAt: new Date('2026-02-10T12:00:00.000Z'),
+      });
+
+      expect(changed).toMatchObject({ status: 'canceled' });
+    });
+
     it('stamps canceledAt when provided', async () => {
       const created = await repository.create(newSubscription());
       const canceledAt = new Date('2026-02-10T12:00:00.000Z');
 
       const changed = await repository.changeStatus(created.id, {
-        from: 'incomplete',
+        fromAnyOf: ['incomplete'],
         to: 'canceled',
         canceledAt,
       });
@@ -164,7 +179,7 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
       const created = await repository.create(newSubscription());
 
       const changed = await repository.changeStatus(created.id, {
-        from: 'active',
+        fromAnyOf: ['active'],
         to: 'canceled',
         canceledAt: new Date(),
       });
@@ -176,7 +191,7 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
     it('returns null for an unknown id', async () => {
       expect(
         await repository.changeStatus('sub_missing', {
-          from: 'incomplete',
+          fromAnyOf: ['incomplete'],
           to: 'active',
         }),
       ).toBeNull();
@@ -185,7 +200,7 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
     it('lets only one of two concurrent changes win', async () => {
       const created = await repository.create(newSubscription());
       const change = {
-        from: 'incomplete',
+        fromAnyOf: ['incomplete'],
         to: 'canceled',
         canceledAt: new Date(),
       } as const;

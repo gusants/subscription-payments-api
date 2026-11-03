@@ -8,7 +8,11 @@ import {
 import { generateId, ID_PREFIXES } from '../../shared/ids/index.js';
 import { CustomersRepository } from '../customers/customers.repository.js';
 import { PlansRepository } from '../plans/plans.repository.js';
-import { assertTransition, computePeriodEnd } from './domain/index.js';
+import {
+  assertTransition,
+  computePeriodEnd,
+  statusesAllowedToTransitionTo,
+} from './domain/index.js';
 import type { PaymentMethod, Subscription } from './subscription.js';
 import { SubscriptionsRepository } from './subscriptions.repository.js';
 
@@ -59,10 +63,10 @@ export class SubscriptionsService {
   }
 
   async cancel(id: string): Promise<Subscription> {
-    const { status: from } = await this.getById(id);
-    assertTransition(from, 'canceled');
+    const { status } = await this.getById(id);
+    assertTransition(status, 'canceled');
     const canceled = await this.subscriptions.changeStatus(id, {
-      from,
+      fromAnyOf: statusesAllowedToTransitionTo('canceled'),
       to: 'canceled',
       canceledAt: this.clock.now(),
     });
