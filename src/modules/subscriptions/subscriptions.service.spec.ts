@@ -7,6 +7,7 @@ import {
   ServiceUnavailableError,
   UnprocessableError,
 } from '../../shared/errors/index.js';
+import { ChargeProcessor } from '../charges/charge-processor.js';
 import { InMemoryBillingRepository } from '../charges/testing/in-memory-billing.repository.js';
 import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
 import type { PlanInterval } from '../plans/plan.js';
@@ -42,6 +43,7 @@ describe('SubscriptionsService', () => {
       plans,
       gateway,
       clock,
+      new ChargeProcessor(billing, gateway, clock),
     );
   });
 

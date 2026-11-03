@@ -3,7 +3,9 @@ import { PrismaService } from '../../shared/database/prisma.service.js';
 import { ConflictError } from '../../shared/errors/index.js';
 import type { NewSubscription } from '../subscriptions/subscription.js';
 import { BillingRepository } from './billing.repository.js';
+import type { ChargeStatus } from './charge-status.js';
 import type {
+  Charge,
   ChargeOutcomeRecord,
   NewCharge,
   SubscriptionWithCharge,
@@ -23,6 +25,19 @@ export class PrismaBillingRepository extends BillingRepository {
       subscription: await tx.subscription.create({ data: subscription }),
       charge: await tx.charge.create({ data: charge }),
     }));
+  }
+
+  async markChargePending(
+    id: string,
+    fromAnyOf: readonly ChargeStatus[],
+  ): Promise<Charge | null> {
+    const { count } = await this.prisma.charge.updateMany({
+      where: { id, status: { in: [...fromAnyOf] } },
+      data: { status: 'pending' },
+    });
+    return count === 0
+      ? null
+      : this.prisma.charge.findUniqueOrThrow({ where: { id } });
   }
 
   recordChargeOutcome({
@@ -46,11 +61,13 @@ export class PrismaBillingRepository extends BillingRepository {
         );
       }
       await tx.paymentAttempt.create({ data: attempt });
-      const { fromAnyOf, to, canceledAt } = subscription.change;
-      await tx.subscription.updateMany({
-        where: { id: subscription.id, status: { in: [...fromAnyOf] } },
-        data: { status: to, ...(canceledAt && { canceledAt }) },
-      });
+      if (subscription.change) {
+        const { fromAnyOf, to, canceledAt } = subscription.change;
+        await tx.subscription.updateMany({
+          where: { id: subscription.id, status: { in: [...fromAnyOf] } },
+          data: { status: to, ...(canceledAt && { canceledAt }) },
+        });
+      }
       return {
         subscription: await tx.subscription.findUniqueOrThrow({
           where: { id: subscription.id },

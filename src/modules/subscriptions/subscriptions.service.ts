@@ -1,8 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import {
   GatewayUnavailableError,
   PaymentGateway,
-  type GatewayCharge,
 } from '../../gateway/index.js';
 import { Clock } from '../../shared/clock/index.js';
 import {
@@ -14,11 +13,7 @@ import {
 import { generateId, ID_PREFIXES } from '../../shared/ids/index.js';
 import { BillingRepository } from '../charges/billing.repository.js';
 import type { Charge, ChargeSummary } from '../charges/charge.js';
-import {
-  assertTransition as assertChargeTransition,
-  toChargeOutcome,
-  type ChargeOutcome,
-} from '../charges/domain/index.js';
+import { ChargeProcessor } from '../charges/charge-processor.js';
 import type { Customer } from '../customers/customer.js';
 import { CustomersRepository } from '../customers/customers.repository.js';
 import type { Plan } from '../plans/plan.js';
@@ -33,7 +28,6 @@ import type {
   PaymentMethod,
   Subscription,
 } from './subscription.js';
-import type { SubscriptionStatus } from './subscription-status.js';
 import { SubscriptionsRepository } from './subscriptions.repository.js';
 
 interface CreateSubscriptionBase {
@@ -52,13 +46,6 @@ export interface CreatedSubscription {
   latestCharge: ChargeSummary | null;
 }
 
-const SUBSCRIPTION_STATUS_AFTER_FIRST_CHARGE: Readonly<
-  Record<ChargeOutcome['chargeStatus'], SubscriptionStatus>
-> = {
-  paid: 'active',
-  failed: 'past_due',
-};
-
 const summarize = (
   { id, status, amountCents }: Charge,
   failureReason: ChargeSummary['failureReason'] = null,
@@ -66,8 +53,6 @@ const summarize = (
 
 @Injectable()
 export class SubscriptionsService {
-  private readonly logger = new Logger(SubscriptionsService.name);
-
   constructor(
     private readonly subscriptions: SubscriptionsRepository,
     private readonly billing: BillingRepository,
@@ -75,6 +60,7 @@ export class SubscriptionsService {
     private readonly plans: PlansRepository,
     private readonly gateway: PaymentGateway,
     private readonly clock: Clock,
+    private readonly chargeProcessor: ChargeProcessor,
   ) {}
 
   async create(input: CreateSubscriptionInput): Promise<CreatedSubscription> {
@@ -144,16 +130,15 @@ export class SubscriptionsService {
         periodStart: newSubscription.currentPeriodStart,
         periodEnd: newSubscription.currentPeriodEnd,
       });
-    const gatewayCharge = await this.requestGatewayCharge(
+    const processed = await this.chargeProcessor.process({
       charge,
+      subscription,
       gatewayCustomerId,
-      input.cardToken,
-    );
-    const outcome = gatewayCharge && toChargeOutcome(gatewayCharge);
-    if (!gatewayCharge || !outcome) {
-      return { subscription, latestCharge: summarize(charge) };
-    }
-    return this.settleFirstCharge(subscription, charge, gatewayCharge, outcome);
+    });
+    return {
+      subscription: processed.subscription,
+      latestCharge: summarize(processed.charge, processed.failureReason),
+    };
   }
 
   private newSubscription(
@@ -195,65 +180,5 @@ export class SubscriptionsService {
       }
       throw error;
     }
-  }
-
-  private async requestGatewayCharge(
-    charge: Charge,
-    gatewayCustomerId: string,
-    cardToken: string,
-  ): Promise<GatewayCharge | null> {
-    try {
-      return await this.gateway.createCharge({
-        gatewayCustomerId,
-        amountCents: charge.amountCents,
-        method: 'card',
-        cardToken,
-        externalRef: charge.id,
-      });
-    } catch (error) {
-      if (error instanceof GatewayUnavailableError) {
-        this.logger.warn(
-          `Gateway unavailable for charge ${charge.id}; left pending for reconciliation`,
-        );
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  private async settleFirstCharge(
-    subscription: Subscription,
-    charge: Charge,
-    gatewayCharge: GatewayCharge,
-    outcome: ChargeOutcome,
-  ): Promise<CreatedSubscription> {
-    const subscriptionStatus =
-      SUBSCRIPTION_STATUS_AFTER_FIRST_CHARGE[outcome.chargeStatus];
-    assertChargeTransition(charge.status, outcome.chargeStatus);
-    assertTransition(subscription.status, subscriptionStatus);
-    const settled = await this.billing.recordChargeOutcome({
-      charge: {
-        id: charge.id,
-        fromAnyOf: [charge.status],
-        to: outcome.chargeStatus,
-        gatewayChargeId: gatewayCharge.id,
-        paidAt: outcome.chargeStatus === 'paid' ? this.clock.now() : null,
-      },
-      attempt: {
-        id: generateId(ID_PREFIXES.paymentAttempt),
-        chargeId: charge.id,
-        gatewayChargeId: gatewayCharge.id,
-        result: outcome.attemptResult,
-        failureReason: outcome.failureReason,
-      },
-      subscription: {
-        id: subscription.id,
-        change: { fromAnyOf: [subscription.status], to: subscriptionStatus },
-      },
-    });
-    return {
-      subscription: settled.subscription,
-      latestCharge: summarize(settled.charge, outcome.failureReason),
-    };
   }
 }

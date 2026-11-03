@@ -300,4 +300,89 @@ describe('PrismaBillingRepository (integration)', () => {
       expect(await prisma.paymentAttempt.count()).toBe(1);
     });
   });
+
+  describe('markChargePending', () => {
+    async function seedFailedCharge() {
+      const subscription = newSubscription();
+      const charge = firstChargeOf(subscription);
+      await repository.createSubscriptionWithFirstCharge(subscription, charge);
+      await repository.recordChargeOutcome(
+        outcomeRecord(subscription.id, charge.id, {
+          charge: {
+            id: charge.id,
+            fromAnyOf: ['pending'],
+            to: 'failed',
+            gatewayChargeId: 'gch_1',
+            paidAt: null,
+          },
+          attempt: {
+            id: generateId(ID_PREFIXES.paymentAttempt),
+            chargeId: charge.id,
+            gatewayChargeId: 'gch_1',
+            result: 'declined',
+            failureReason: 'insufficient_funds',
+          },
+          subscription: {
+            id: subscription.id,
+            change: { fromAnyOf: ['incomplete'], to: 'past_due' },
+          },
+        }),
+      );
+      return { subscription, charge };
+    }
+
+    it('reopens a failed charge as pending keeping its attempt count', async () => {
+      const { charge } = await seedFailedCharge();
+
+      const reopened = await repository.markChargePending(charge.id, [
+        'failed',
+      ]);
+
+      expect(reopened).toMatchObject({ status: 'pending', attemptCount: 1 });
+    });
+
+    it('returns null and changes nothing when the charge is not in an allowed status', async () => {
+      const { charge } = await seedFailedCharge();
+
+      const reopened = await repository.markChargePending(charge.id, ['paid']);
+
+      expect(reopened).toBeNull();
+      expect(
+        (await prisma.charge.findUniqueOrThrow({ where: { id: charge.id } }))
+          .status,
+      ).toBe('failed');
+    });
+
+    it('lets only one of several concurrent reopenings win', async () => {
+      const { charge } = await seedFailedCharge();
+
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () =>
+          repository.markChargePending(charge.id, ['failed']),
+        ),
+      );
+
+      expect(results.filter(Boolean)).toHaveLength(1);
+    });
+  });
+
+  describe('recordChargeOutcome without a subscription change', () => {
+    it('settles the charge and leaves the subscription untouched', async () => {
+      const subscription = {
+        ...newSubscription(),
+        status: 'past_due' as const,
+      };
+      const charge = firstChargeOf(subscription);
+      await repository.createSubscriptionWithFirstCharge(subscription, charge);
+
+      const settled = await repository.recordChargeOutcome(
+        outcomeRecord(subscription.id, charge.id, {
+          subscription: { id: subscription.id, change: null },
+        }),
+      );
+
+      expect(settled.charge.status).toBe('paid');
+      expect(settled.subscription.status).toBe('past_due');
+    });
+  });
 });

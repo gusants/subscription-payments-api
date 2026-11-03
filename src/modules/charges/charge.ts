@@ -56,7 +56,7 @@ export interface ChargeSettlement {
 export interface ChargeOutcomeRecord {
   charge: ChargeSettlement;
   attempt: NewPaymentAttempt;
-  subscription: { id: string; change: StatusChange };
+  subscription: { id: string; change: StatusChange | null };
 }
 
 export interface SubscriptionWithCharge {
@@ -69,4 +69,18 @@ export interface ChargeSummary {
   status: ChargeStatus;
   amountCents: number;
   failureReason: GatewayFailureReason | null;
+}
+
+export interface ChargeWithAttempts extends Charge {
+  attempts: PaymentAttempt[];
+}
+
+export interface ChargeWithSubscription {
+  charge: Charge;
+  subscription: Subscription;
+}
+
+export interface ChargePage {
+  items: ChargeWithAttempts[];
+  total: number;
 }

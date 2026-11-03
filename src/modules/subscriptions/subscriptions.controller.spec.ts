@@ -1,4 +1,5 @@
 import { StubPaymentGateway } from '../../gateway/testing/stub-payment-gateway.js';
+import { ChargeProcessor } from '../charges/charge-processor.js';
 import { InMemoryBillingRepository } from '../charges/testing/in-memory-billing.repository.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import { NotFoundError } from '../../shared/errors/index.js';
@@ -26,14 +27,18 @@ describe('SubscriptionsController', () => {
       interval: 'monthly',
     });
     const subscriptions = new InMemorySubscriptionsRepository();
+    const billing = new InMemoryBillingRepository(subscriptions);
+    const gateway = new StubPaymentGateway();
+    const clock = new FixedClock(new Date('2026-11-03T10:00:00.000Z'));
     controller = new SubscriptionsController(
       new SubscriptionsService(
         subscriptions,
-        new InMemoryBillingRepository(subscriptions),
+        billing,
         customers,
         plans,
-        new StubPaymentGateway(),
-        new FixedClock(new Date('2026-11-03T10:00:00.000Z')),
+        gateway,
+        clock,
+        new ChargeProcessor(billing, gateway, clock),
       ),
     );
   });

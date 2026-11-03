@@ -2,6 +2,7 @@ import { ConflictError } from '../../../shared/errors/index.js';
 import type { NewSubscription } from '../../subscriptions/subscription.js';
 import { InMemorySubscriptionsRepository } from '../../subscriptions/testing/in-memory-subscriptions.repository.js';
 import { BillingRepository } from '../billing.repository.js';
+import type { ChargeStatus } from '../charge-status.js';
 import type {
   Charge,
   ChargeOutcomeRecord,
@@ -38,6 +39,23 @@ export class InMemoryBillingRepository extends BillingRepository {
     return { subscription: created, charge: { ...createdCharge } };
   }
 
+  markChargePending(
+    id: string,
+    fromAnyOf: readonly ChargeStatus[],
+  ): Promise<Charge | null> {
+    const found = this.stored.get(id);
+    if (!found || !fromAnyOf.includes(found.status)) {
+      return Promise.resolve(null);
+    }
+    const reopened: Charge = {
+      ...found,
+      status: 'pending',
+      updatedAt: new Date(),
+    };
+    this.stored.set(id, reopened);
+    return Promise.resolve({ ...reopened });
+  }
+
   async recordChargeOutcome({
     charge,
     attempt,
@@ -57,7 +75,12 @@ export class InMemoryBillingRepository extends BillingRepository {
     };
     this.stored.set(settled.id, settled);
     this.recorded.push({ ...attempt, createdAt: new Date() });
-    await this.subscriptions.changeStatus(subscription.id, subscription.change);
+    if (subscription.change) {
+      await this.subscriptions.changeStatus(
+        subscription.id,
+        subscription.change,
+      );
+    }
     const current = await this.subscriptions.findById(subscription.id);
     if (!current) {
       throw new ConflictError(`Subscription ${subscription.id} not found`);
