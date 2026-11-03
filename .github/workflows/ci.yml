@@ -42,6 +42,9 @@ jobs:
       - name: Unit tests with coverage
         run: pnpm test:cov
 
+      - name: Integration tests (Testcontainers)
+        run: pnpm test:integration
+
       - name: E2E tests (Testcontainers)
         run: pnpm test:e2e
 

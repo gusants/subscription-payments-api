@@ -29,6 +29,21 @@ describe('HTTP setup (e2e)', () => {
     expect(response.body.paths).toHaveProperty('/health');
   });
 
+  it.each([
+    ['/plans', ['get', 'post']],
+    ['/customers', ['get', 'post']],
+    ['/customers/{id}', ['get']],
+    ['/subscriptions', ['post']],
+    ['/subscriptions/{id}', ['get']],
+    ['/subscriptions/{id}/cancel', ['post']],
+  ])('documents %s with its methods', async (path, methods) => {
+    const response = await request(app.getHttpServer())
+      .get('/docs-json')
+      .expect(200);
+
+    expect(Object.keys(response.body.paths[path]).sort()).toEqual(methods);
+  });
+
   it('serves the Swagger UI', async () => {
     await request(app.getHttpServer()).get('/docs').expect(200);
   });

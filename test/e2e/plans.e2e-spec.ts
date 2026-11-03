@@ -91,6 +91,26 @@ describe('Plans (e2e)', () => {
       });
     });
 
+    it('returns an empty page beyond the last page keeping the meta', async () => {
+      await createPlan({ name: 'A', amountCents: 100, interval: 'monthly' });
+
+      const response = await request(app.getHttpServer())
+        .get('/plans?page=3&limit=2')
+        .expect(200);
+
+      expect(response.body.data).toEqual([]);
+      expect(response.body.meta).toEqual({
+        page: 3,
+        limit: 2,
+        total: 1,
+        totalPages: 1,
+      });
+    });
+
+    it.each(['limit=101', 'page=0'])('rejects %s with 400', async (query) => {
+      await request(app.getHttpServer()).get(`/plans?${query}`).expect(400);
+    });
+
     it('filters by active', async () => {
       const kept = await createPlan({
         name: 'Kept',

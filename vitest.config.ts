@@ -25,6 +25,12 @@ export default defineConfig({
         branches: 80,
         functions: 80,
         lines: 80,
+        'src/modules/**/domain/**': {
+          statements: 90,
+          branches: 90,
+          functions: 90,
+          lines: 90,
+        },
       },
     },
   },

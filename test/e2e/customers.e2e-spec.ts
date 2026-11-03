@@ -214,12 +214,15 @@ describe('Customers (e2e)', () => {
       expect(names(response.body)).toEqual(['Ana']);
     });
 
-    it.each(['subscriptionStatus=paused', 'limit=0', 'search='])(
-      'rejects invalid query %s with 400',
-      async (query) => {
-        await http().get(`/customers?${query}`).expect(400);
-      },
-    );
+    it.each([
+      'subscriptionStatus=paused',
+      'limit=0',
+      'limit=101',
+      'page=0',
+      'search=',
+    ])('rejects invalid query %s with 400', async (query) => {
+      await http().get(`/customers?${query}`).expect(400);
+    });
   });
 
   describe('GET /customers/:id', () => {
