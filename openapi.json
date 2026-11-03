@@ -18,7 +18,7 @@
         "properties": {
           "amountCents": {
             "exclusiveMinimum": true,
-            "maximum": 9007199254740991,
+            "maximum": 2147483647,
             "minimum": 0,
             "type": "integer"
           },

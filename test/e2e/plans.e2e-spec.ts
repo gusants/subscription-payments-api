@@ -58,6 +58,7 @@ describe('Plans (e2e)', () => {
       { name: '   ', amountCents: 1000, interval: 'monthly' },
       { name: 'Basic', amountCents: 0, interval: 'monthly' },
       { name: 'Basic', amountCents: 10.5, interval: 'monthly' },
+      { name: 'Basic', amountCents: 3_000_000_000, interval: 'monthly' },
       { name: 'Basic', amountCents: 1000, interval: 'weekly' },
       {},
     ])('rejects invalid body %j with 400', async (body) => {

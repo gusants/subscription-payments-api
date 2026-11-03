@@ -1,5 +1,7 @@
 export const PLAN_INTERVALS = ['monthly', 'yearly'] as const;
 
+export const MAX_AMOUNT_CENTS = 2_147_483_647;
+
 export type PlanInterval = (typeof PLAN_INTERVALS)[number];
 
 export interface Plan {
