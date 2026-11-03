@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+src/generated
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.git
+_local
+test
+*.log
