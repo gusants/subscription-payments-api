@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
-import { ConflictError } from '../../shared/errors/index.js';
+import { ConflictError, NotFoundError } from '../../shared/errors/index.js';
 import {
   isPrismaError,
   PRISMA_UNIQUE_CONSTRAINT_VIOLATION,
@@ -20,6 +20,7 @@ const customerFields = {
   id: true,
   name: true,
   email: true,
+  gatewayCustomerId: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.CustomerSelect;
@@ -44,6 +45,21 @@ export class PrismaCustomersRepository extends CustomersRepository {
       }
       throw error;
     }
+  }
+
+  async assignGatewayCustomerId(
+    id: string,
+    gatewayCustomerId: string,
+  ): Promise<string> {
+    await this.prisma.customer.updateMany({
+      where: { id, gatewayCustomerId: null },
+      data: { gatewayCustomerId },
+    });
+    const customer = await this.findById(id);
+    if (!customer?.gatewayCustomerId) {
+      throw new NotFoundError(`Customer ${id} not found`);
+    }
+    return customer.gatewayCustomerId;
   }
 
   findById(id: string): Promise<Customer | null> {

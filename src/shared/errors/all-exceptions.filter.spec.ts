@@ -11,6 +11,7 @@ import { Prisma } from '../../generated/prisma/client.js';
 import { AllExceptionsFilter } from './all-exceptions.filter.js';
 import { ConflictError } from './conflict.error.js';
 import { NotFoundError } from './not-found.error.js';
+import { ServiceUnavailableError } from './service-unavailable.error.js';
 import { UnprocessableError } from './unprocessable.error.js';
 
 describe('AllExceptionsFilter', () => {
@@ -61,6 +62,19 @@ describe('AllExceptionsFilter', () => {
         statusCode: 422,
         error: 'Unprocessable Entity',
         message: 'Plan is inactive',
+      },
+    });
+  });
+
+  it('maps ServiceUnavailableError to 503', () => {
+    filter.catch(new ServiceUnavailableError('Gateway is down'), host);
+
+    expect(replied()).toEqual({
+      status: 503,
+      body: {
+        statusCode: 503,
+        error: 'Service Unavailable',
+        message: 'Gateway is down',
       },
     });
   });

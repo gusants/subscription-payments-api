@@ -1,4 +1,7 @@
+import { toChargeSummaryResponse } from '../charges/charge-presenter.js';
+import type { CreatedSubscriptionResponse } from './dto/created-subscription-response.dto.js';
 import type { SubscriptionResponse } from './dto/subscription-response.dto.js';
+import type { CreatedSubscription } from './subscriptions.service.js';
 import type { Subscription } from './subscription.js';
 
 export function toSubscriptionResponse(
@@ -16,5 +19,15 @@ export function toSubscriptionResponse(
     canceledAt: subscription.canceledAt?.toISOString() ?? null,
     createdAt: subscription.createdAt.toISOString(),
     updatedAt: subscription.updatedAt.toISOString(),
+  };
+}
+
+export function toCreatedSubscriptionResponse({
+  subscription,
+  latestCharge,
+}: CreatedSubscription): CreatedSubscriptionResponse {
+  return {
+    ...toSubscriptionResponse(subscription),
+    latestCharge: latestCharge ? toChargeSummaryResponse(latestCharge) : null,
   };
 }

@@ -1,4 +1,4 @@
-import { ConflictError } from '../../../shared/errors/index.js';
+import { ConflictError, NotFoundError } from '../../../shared/errors/index.js';
 import type {
   Customer,
   CustomerDetail,
@@ -26,9 +26,28 @@ export class InMemoryCustomersRepository extends CustomersRepository {
       );
     }
     const now = new Date();
-    const created: Customer = { ...customer, createdAt: now, updatedAt: now };
+    const created: Customer = {
+      ...customer,
+      gatewayCustomerId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
     this.customers.push(created);
     return Promise.resolve(created);
+  }
+
+  assignGatewayCustomerId(
+    id: string,
+    gatewayCustomerId: string,
+  ): Promise<string> {
+    const index = this.customers.findIndex((customer) => customer.id === id);
+    const customer = this.customers[index];
+    if (!customer) {
+      return Promise.reject(new NotFoundError(`Customer ${id} not found`));
+    }
+    const assigned = customer.gatewayCustomerId ?? gatewayCustomerId;
+    this.customers[index] = { ...customer, gatewayCustomerId: assigned };
+    return Promise.resolve(assigned);
   }
 
   findById(id: string): Promise<Customer | null> {

@@ -1,3 +1,5 @@
+import { StubPaymentGateway } from '../../gateway/testing/stub-payment-gateway.js';
+import { InMemoryBillingRepository } from '../charges/testing/in-memory-billing.repository.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import { NotFoundError } from '../../shared/errors/index.js';
 import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
@@ -23,11 +25,14 @@ describe('SubscriptionsController', () => {
       amountCents: 1990,
       interval: 'monthly',
     });
+    const subscriptions = new InMemorySubscriptionsRepository();
     controller = new SubscriptionsController(
       new SubscriptionsService(
-        new InMemorySubscriptionsRepository(),
+        subscriptions,
+        new InMemoryBillingRepository(subscriptions),
         customers,
         plans,
+        new StubPaymentGateway(),
         new FixedClock(new Date('2026-11-03T10:00:00.000Z')),
       ),
     );
@@ -49,7 +54,23 @@ describe('SubscriptionsController', () => {
       currentPeriodStart: '2026-11-03T10:00:00.000Z',
       currentPeriodEnd: '2026-12-03T10:00:00.000Z',
       canceledAt: null,
+      latestCharge: null,
     });
+  });
+
+  it('creates a card subscription exposing the charge outcome but never the card token', async () => {
+    const created = await controller.create({
+      customerId: 'cus_1',
+      planId: 'plan_1',
+      paymentMethod: 'card',
+      cardToken: 'tok_success',
+    });
+
+    expect(created).toMatchObject({
+      status: 'active',
+      latestCharge: { status: 'paid', amountCents: 1990 },
+    });
+    expect(JSON.stringify(created)).not.toContain('tok_success');
   });
 
   it('returns the detail', async () => {

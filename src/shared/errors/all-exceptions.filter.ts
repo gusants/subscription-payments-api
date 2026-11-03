@@ -17,6 +17,7 @@ import {
 import { ConflictError } from './conflict.error.js';
 import type { ErrorResponse } from './error-response.js';
 import { NotFoundError } from './not-found.error.js';
+import { ServiceUnavailableError } from './service-unavailable.error.js';
 import { UnprocessableError } from './unprocessable.error.js';
 
 @Catch()
@@ -49,6 +50,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
     if (exception instanceof UnprocessableError) {
       return build(HttpStatus.UNPROCESSABLE_ENTITY, exception.message);
+    }
+    if (exception instanceof ServiceUnavailableError) {
+      return build(HttpStatus.SERVICE_UNAVAILABLE, exception.message);
     }
     if (isPrismaError(exception, PRISMA_UNIQUE_CONSTRAINT_VIOLATION)) {
       return build(HttpStatus.CONFLICT, 'Resource already exists');

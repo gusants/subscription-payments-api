@@ -14,6 +14,105 @@
         "required": ["name", "email"],
         "type": "object"
       },
+      "CreatedSubscriptionResponseDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "billingAnchor": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "canceledAt": {
+            "format": "date-time",
+            "nullable": true,
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "currentPeriodEnd": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "currentPeriodStart": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "customerId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "latestCharge": {
+            "additionalProperties": false,
+            "description": "Outcome of the first charge. Null for pix and boleto, which are charged in a later phase",
+            "nullable": true,
+            "properties": {
+              "amountCents": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "failureReason": {
+                "description": "Present only when the gateway declined the charge",
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "paid",
+                  "failed",
+                  "expired",
+                  "uncollectible"
+                ],
+                "type": "string"
+              }
+            },
+            "required": ["id", "status", "amountCents"],
+            "type": "object"
+          },
+          "paymentMethod": {
+            "enum": ["card", "pix", "boleto"],
+            "type": "string"
+          },
+          "planId": {
+            "type": "string"
+          },
+          "status": {
+            "enum": ["incomplete", "active", "past_due", "canceled"],
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "customerId",
+          "planId",
+          "paymentMethod",
+          "status",
+          "billingAnchor",
+          "currentPeriodStart",
+          "currentPeriodEnd",
+          "canceledAt",
+          "createdAt",
+          "updatedAt",
+          "latestCharge"
+        ],
+        "type": "object"
+      },
       "CreatePlanDto": {
         "properties": {
           "amountCents": {
@@ -35,22 +134,51 @@
         "type": "object"
       },
       "CreateSubscriptionDto": {
-        "properties": {
-          "customerId": {
-            "minLength": 1,
-            "type": "string"
+        "oneOf": [
+          {
+            "properties": {
+              "cardToken": {
+                "description": "Gateway card token, charged immediately for the first period. Never returned by the API",
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              "customerId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "paymentMethod": {
+                "enum": ["card"],
+                "type": "string"
+              },
+              "planId": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": ["customerId", "planId", "paymentMethod", "cardToken"],
+            "type": "object"
           },
-          "paymentMethod": {
-            "enum": ["card", "pix", "boleto"],
-            "type": "string"
-          },
-          "planId": {
-            "minLength": 1,
-            "type": "string"
+          {
+            "description": "Pix and boleto create the subscription as incomplete without a charge; any cardToken sent is ignored",
+            "properties": {
+              "customerId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "paymentMethod": {
+                "enum": ["pix", "boleto"],
+                "type": "string"
+              },
+              "planId": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": ["customerId", "planId", "paymentMethod"],
+            "type": "object"
           }
-        },
-        "required": ["customerId", "planId", "paymentMethod"],
-        "type": "object"
+        ]
       },
       "CustomerDetailResponseDto_Output": {
         "additionalProperties": false,
@@ -884,7 +1012,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SubscriptionResponseDto_Output"
+                  "$ref": "#/components/schemas/CreatedSubscriptionResponseDto_Output"
                 }
               }
             },
@@ -911,6 +1039,16 @@
             "description": ""
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
             "content": {
               "application/json": {
                 "schema": {

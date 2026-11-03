@@ -6,6 +6,7 @@ describe('toCustomerDetailResponse', () => {
       id: 'cus_1',
       name: 'Ana',
       email: 'ana@example.com',
+      gatewayCustomerId: 'gcus_secret',
       createdAt: new Date('2026-11-03T10:00:00.000Z'),
       updatedAt: new Date('2026-11-03T11:00:00.000Z'),
       subscriptions: [

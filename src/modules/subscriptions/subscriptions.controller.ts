@@ -7,12 +7,19 @@ import {
   Param,
   Post,
 } from '@nestjs/common';
-import { ApiResponse, ApiTags } from '@nestjs/swagger';
-import { ZodResponse } from 'nestjs-zod';
+import { ApiBody, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ZodResponse, ZodValidationPipe } from 'nestjs-zod';
 import { ErrorResponseDto } from '../../shared/errors/error-response.js';
-import { CreateSubscriptionDto } from './dto/create-subscription.dto.js';
+import {
+  CreateSubscriptionDto,
+  type CreateSubscriptionBody,
+} from './dto/create-subscription.dto.js';
+import { CreatedSubscriptionResponseDto } from './dto/created-subscription-response.dto.js';
 import { SubscriptionResponseDto } from './dto/subscription-response.dto.js';
-import { toSubscriptionResponse } from './subscription-presenter.js';
+import {
+  toCreatedSubscriptionResponse,
+  toSubscriptionResponse,
+} from './subscription-presenter.js';
 import { SubscriptionsService } from './subscriptions.service.js';
 
 @ApiTags('subscriptions')
@@ -21,17 +28,26 @@ export class SubscriptionsController {
   constructor(private readonly subscriptions: SubscriptionsService) {}
 
   @Post()
-  @ZodResponse({ status: HttpStatus.CREATED, type: SubscriptionResponseDto })
+  @ApiBody({ type: CreateSubscriptionDto })
+  @ZodResponse({
+    status: HttpStatus.CREATED,
+    type: CreatedSubscriptionResponseDto,
+  })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, type: ErrorResponseDto })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, type: ErrorResponseDto })
   @ApiResponse({
     status: HttpStatus.UNPROCESSABLE_ENTITY,
     type: ErrorResponseDto,
   })
+  @ApiResponse({
+    status: HttpStatus.SERVICE_UNAVAILABLE,
+    type: ErrorResponseDto,
+  })
   async create(
-    @Body() body: CreateSubscriptionDto,
-  ): Promise<SubscriptionResponseDto> {
-    return toSubscriptionResponse(await this.subscriptions.create(body));
+    @Body(new ZodValidationPipe(CreateSubscriptionDto))
+    body: CreateSubscriptionBody,
+  ): Promise<CreatedSubscriptionResponseDto> {
+    return toCreatedSubscriptionResponse(await this.subscriptions.create(body));
   }
 
   @Get(':id')

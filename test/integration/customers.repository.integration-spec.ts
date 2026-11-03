@@ -1,4 +1,4 @@
-import { ConflictError } from '../../src/shared/errors/index.js';
+import { ConflictError, NotFoundError } from '../../src/shared/errors/index.js';
 import { PrismaService } from '../../src/shared/database/prisma.service.js';
 import { generateId, ID_PREFIXES } from '../../src/shared/ids/index.js';
 import { PrismaCustomersRepository } from '../../src/modules/customers/prisma-customers.repository.js';
@@ -75,6 +75,7 @@ describe('PrismaCustomersRepository (integration)', () => {
 
       expect(created).toEqual({
         ...input,
+        gatewayCustomerId: null,
         createdAt: expect.any(Date),
         updatedAt: expect.any(Date),
       });
@@ -96,6 +97,40 @@ describe('PrismaCustomersRepository (integration)', () => {
         .catch(() => undefined);
 
       expect(await prisma.customer.count()).toBe(1);
+    });
+  });
+
+  describe('assignGatewayCustomerId', () => {
+    it('stores the gateway customer id and returns it', async () => {
+      const customer = await repository.create(newCustomer('Ana'));
+
+      const assigned = await repository.assignGatewayCustomerId(
+        customer.id,
+        'gcus_1',
+      );
+
+      expect(assigned).toBe('gcus_1');
+      expect((await repository.findById(customer.id))?.gatewayCustomerId).toBe(
+        'gcus_1',
+      );
+    });
+
+    it('keeps the first id and returns it when another one was assigned already', async () => {
+      const customer = await repository.create(newCustomer('Ana'));
+      await repository.assignGatewayCustomerId(customer.id, 'gcus_first');
+
+      const assigned = await repository.assignGatewayCustomerId(
+        customer.id,
+        'gcus_second',
+      );
+
+      expect(assigned).toBe('gcus_first');
+    });
+
+    it('rejects an unknown customer with NotFoundError', async () => {
+      await expect(
+        repository.assignGatewayCustomerId('cus_missing', 'gcus_1'),
+      ).rejects.toBeInstanceOf(NotFoundError);
     });
   });
 

@@ -4,6 +4,7 @@ export interface Customer {
   id: string;
   name: string;
   email: string;
+  gatewayCustomerId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
