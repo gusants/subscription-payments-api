@@ -7,7 +7,7 @@ coverage
 .env.*
 !.env.example
 
-/generated/prisma
+/src/generated/prisma
 
 _local
 

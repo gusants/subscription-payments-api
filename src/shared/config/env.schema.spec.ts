@@ -1,0 +1,29 @@
+import { validateEnv } from './env.schema.js';
+
+const validEnv = {
+  DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
+  REDIS_HOST: 'localhost',
+};
+
+describe('validateEnv', () => {
+  it('applies defaults and coerces numeric values', () => {
+    expect(validateEnv({ ...validEnv, PORT: '4000' })).toEqual({
+      ...validEnv,
+      NODE_ENV: 'development',
+      PORT: 4000,
+      REDIS_PORT: 6379,
+    });
+  });
+
+  it('rejects a missing database url', () => {
+    expect(() => validateEnv({ REDIS_HOST: 'localhost' })).toThrow(
+      /DATABASE_URL/,
+    );
+  });
+
+  it('rejects an unknown NODE_ENV', () => {
+    expect(() => validateEnv({ ...validEnv, NODE_ENV: 'staging' })).toThrow(
+      /NODE_ENV/,
+    );
+  });
+});
