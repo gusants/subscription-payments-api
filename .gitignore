@@ -11,5 +11,8 @@ coverage
 
 _local
 
+/data/*
+!/data/.gitkeep
+
 .DS_Store
 *.log

@@ -11,6 +11,10 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      PAYMENT_GATEWAY: ${PAYMENT_GATEWAY:-fake}
+      FAKE_GATEWAY_DATA_FILE: /app/data/fake-gateway.json
+    volumes:
+      - fake-gateway-data:/app/data
     ports:
       - "${PORT:-3000}:3000"
     depends_on:
@@ -53,3 +57,4 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  fake-gateway-data:

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { GatewayModule } from './gateway/gateway.module.js';
 import { CustomersModule } from './modules/customers/customers.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { PlansModule } from './modules/plans/plans.module.js';
@@ -15,6 +16,7 @@ import { RedisModule } from './shared/redis/redis.module.js';
     LoggingModule,
     DatabaseModule,
     RedisModule,
+    GatewayModule,
     HttpModule,
     HealthModule,
     PlansModule,
