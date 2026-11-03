@@ -14,3 +14,13 @@ describe('generateId', () => {
     expect(ids.size).toBe(1000);
   });
 });
+
+describe('generateId ordering', () => {
+  it('keeps creation order for ids generated in the same millisecond', () => {
+    const ids = Array.from({ length: 1000 }, () =>
+      generateId(ID_PREFIXES.plan),
+    );
+
+    expect(ids).toEqual([...ids].sort());
+  });
+});

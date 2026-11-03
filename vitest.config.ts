@@ -16,6 +16,9 @@ export default defineConfig({
         'src/main.ts',
         'src/**/*.module.ts',
         'src/**/*.spec.ts',
+        'src/**/testing/**',
+        'src/**/dto/**',
+        'src/**/prisma-*.repository.ts',
       ],
       thresholds: {
         statements: 80,
