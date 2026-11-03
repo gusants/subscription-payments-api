@@ -13,7 +13,22 @@ describe('validateEnv', () => {
       PORT: 4000,
       LOG_LEVEL: 'info',
       REDIS_PORT: 6379,
+      PAYMENT_GATEWAY: 'fake',
+      FAKE_GATEWAY_DATA_FILE: 'data/fake-gateway.json',
     });
+  });
+
+  it('rejects an unknown payment gateway', () => {
+    expect(() =>
+      validateEnv({ ...validEnv, PAYMENT_GATEWAY: 'stripe' }),
+    ).toThrow(/PAYMENT_GATEWAY/);
+  });
+
+  it('accepts a custom fake gateway data file', () => {
+    expect(
+      validateEnv({ ...validEnv, FAKE_GATEWAY_DATA_FILE: '/tmp/gw.json' })
+        .FAKE_GATEWAY_DATA_FILE,
+    ).toBe('/tmp/gw.json');
   });
 
   it('rejects a missing database url', () => {

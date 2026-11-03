@@ -11,6 +11,8 @@ export const envSchema = z.object({
   DATABASE_URL: z.url(),
   REDIS_HOST: z.string().min(1),
   REDIS_PORT: z.coerce.number().int().positive().default(6379),
+  PAYMENT_GATEWAY: z.enum(['fake']).default('fake'),
+  FAKE_GATEWAY_DATA_FILE: z.string().min(1).default('data/fake-gateway.json'),
 });
 
 export type Env = z.infer<typeof envSchema>;
