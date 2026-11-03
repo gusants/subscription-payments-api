@@ -11,6 +11,7 @@ describe('validateEnv', () => {
       ...validEnv,
       NODE_ENV: 'development',
       PORT: 4000,
+      LOG_LEVEL: 'info',
       REDIS_PORT: 6379,
     });
   });
