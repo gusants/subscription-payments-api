@@ -9,5 +9,6 @@ export default defineConfig({
     globalSetup: ['./test/support/containers.global-setup.ts'],
     setupFiles: ['./test/support/containers.env.ts'],
     hookTimeout: 120_000,
+    fileParallelism: false,
   },
 });

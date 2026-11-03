@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CustomersModule } from './modules/customers/customers.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { PlansModule } from './modules/plans/plans.module.js';
 import { AppConfigModule } from './shared/config/app-config.module.js';
@@ -16,6 +17,7 @@ import { RedisModule } from './shared/redis/redis.module.js';
     HttpModule,
     HealthModule,
     PlansModule,
+    CustomersModule,
   ],
 })
 export class AppModule {}
