@@ -7,7 +7,7 @@ import { InvalidTransitionError } from './invalid-transition.error.js';
 const ALLOWED_TRANSITIONS: Readonly<
   Record<SubscriptionStatus, readonly SubscriptionStatus[]>
 > = {
-  incomplete: ['active', 'canceled'],
+  incomplete: ['active', 'past_due', 'canceled'],
   active: ['past_due', 'canceled'],
   past_due: ['active', 'canceled'],
   canceled: [],

@@ -13,6 +13,7 @@ type Pair = [SubscriptionStatus, SubscriptionStatus];
 
 const ALLOWED: Pair[] = [
   ['incomplete', 'active'],
+  ['incomplete', 'past_due'],
   ['incomplete', 'canceled'],
   ['active', 'past_due'],
   ['active', 'canceled'],
@@ -48,6 +49,7 @@ describe('subscription transitions', () => {
   it.each([
     ['canceled', ['incomplete', 'active', 'past_due']],
     ['active', ['incomplete', 'past_due']],
+    ['past_due', ['incomplete', 'active']],
     ['incomplete', []],
   ] as const)('lists the statuses allowed to move to %s', (to, expected) => {
     expect(statusesAllowedToTransitionTo(to)).toEqual(expected);
