@@ -11,6 +11,7 @@ import { Prisma } from '../../generated/prisma/client.js';
 import { AllExceptionsFilter } from './all-exceptions.filter.js';
 import { ConflictError } from './conflict.error.js';
 import { NotFoundError } from './not-found.error.js';
+import { UnprocessableError } from './unprocessable.error.js';
 
 describe('AllExceptionsFilter', () => {
   const response = { marker: 'response' };
@@ -48,6 +49,19 @@ describe('AllExceptionsFilter', () => {
     expect(replied()).toEqual({
       status: 409,
       body: { statusCode: 409, error: 'Conflict', message: 'Already active' },
+    });
+  });
+
+  it('maps UnprocessableError to 422', () => {
+    filter.catch(new UnprocessableError('Plan is inactive'), host);
+
+    expect(replied()).toEqual({
+      status: 422,
+      body: {
+        statusCode: 422,
+        error: 'Unprocessable Entity',
+        message: 'Plan is inactive',
+      },
     });
   });
 

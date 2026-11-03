@@ -44,6 +44,13 @@ export class PrismaCustomersRepository extends CustomersRepository {
     }
   }
 
+  findById(id: string): Promise<Customer | null> {
+    return this.prisma.customer.findUnique({
+      where: { id },
+      select: customerFields,
+    });
+  }
+
   findDetailById(id: string): Promise<CustomerDetail | null> {
     return this.prisma.customer.findUnique({
       where: { id },

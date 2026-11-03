@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CustomersModule } from './modules/customers/customers.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { PlansModule } from './modules/plans/plans.module.js';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module.js';
 import { AppConfigModule } from './shared/config/app-config.module.js';
 import { DatabaseModule } from './shared/database/database.module.js';
 import { HttpModule } from './shared/http/http.module.js';
@@ -18,6 +19,7 @@ import { RedisModule } from './shared/redis/redis.module.js';
     HealthModule,
     PlansModule,
     CustomersModule,
+    SubscriptionsModule,
   ],
 })
 export class AppModule {}

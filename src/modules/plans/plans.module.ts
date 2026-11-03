@@ -10,5 +10,6 @@ import { PrismaPlansRepository } from './prisma-plans.repository.js';
     PlansService,
     { provide: PlansRepository, useClass: PrismaPlansRepository },
   ],
+  exports: [PlansRepository],
 })
 export class PlansModule {}

@@ -21,6 +21,7 @@ describe('Plans (e2e)', () => {
   });
 
   beforeEach(async () => {
+    await prisma.subscription.deleteMany();
     await prisma.plan.deleteMany();
   });
 

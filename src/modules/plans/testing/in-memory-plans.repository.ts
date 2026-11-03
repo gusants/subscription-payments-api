@@ -22,6 +22,10 @@ export class InMemoryPlansRepository extends PlansRepository {
     return Promise.resolve(created);
   }
 
+  findById(id: string): Promise<Plan | null> {
+    return Promise.resolve(this.plans.find((plan) => plan.id === id) ?? null);
+  }
+
   list(filter: PlanFilter, { skip, take }: PageWindow): Promise<PlanPage> {
     const matching = this.plans
       .filter(

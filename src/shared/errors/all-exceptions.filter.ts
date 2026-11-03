@@ -13,6 +13,7 @@ import { Prisma } from '../../generated/prisma/client.js';
 import { ConflictError } from './conflict.error.js';
 import type { ErrorResponse } from './error-response.js';
 import { NotFoundError } from './not-found.error.js';
+import { UnprocessableError } from './unprocessable.error.js';
 
 const PRISMA_UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
 
@@ -43,6 +44,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
     if (exception instanceof ConflictError) {
       return build(HttpStatus.CONFLICT, exception.message);
+    }
+    if (exception instanceof UnprocessableError) {
+      return build(HttpStatus.UNPROCESSABLE_ENTITY, exception.message);
     }
     if (isUniqueConstraintViolation(exception)) {
       return build(HttpStatus.CONFLICT, 'Resource already exists');

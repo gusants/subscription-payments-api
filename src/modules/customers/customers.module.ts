@@ -10,5 +10,6 @@ import { PrismaCustomersRepository } from './prisma-customers.repository.js';
     CustomersService,
     { provide: CustomersRepository, useClass: PrismaCustomersRepository },
   ],
+  exports: [CustomersRepository],
 })
 export class CustomersModule {}

@@ -19,6 +19,10 @@ export class PrismaPlansRepository extends PlansRepository {
     return this.prisma.plan.create({ data: plan });
   }
 
+  findById(id: string): Promise<Plan | null> {
+    return this.prisma.plan.findUnique({ where: { id } });
+  }
+
   async list(
     filter: PlanFilter,
     { skip, take }: PageWindow,

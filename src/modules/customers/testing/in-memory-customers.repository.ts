@@ -31,6 +31,12 @@ export class InMemoryCustomersRepository extends CustomersRepository {
     return Promise.resolve(created);
   }
 
+  findById(id: string): Promise<Customer | null> {
+    return Promise.resolve(
+      this.customers.find((customer) => customer.id === id) ?? null,
+    );
+  }
+
   findDetailById(id: string): Promise<CustomerDetail | null> {
     const customer = this.customers.find((candidate) => candidate.id === id);
     if (!customer) return Promise.resolve(null);
