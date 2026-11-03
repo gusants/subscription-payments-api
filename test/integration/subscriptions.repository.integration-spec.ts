@@ -16,6 +16,8 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
   });
 
   beforeEach(async () => {
+    await prisma.paymentAttempt.deleteMany();
+    await prisma.charge.deleteMany();
     await prisma.subscription.deleteMany();
     await prisma.customer.deleteMany();
     await prisma.plan.deleteMany();
@@ -50,6 +52,7 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
     planId,
     paymentMethod: 'boleto',
     status: 'incomplete',
+    cardToken: null,
     billingAnchor: new Date('2026-01-31T00:00:00.000Z'),
     currentPeriodStart: new Date('2026-01-31T00:00:00.000Z'),
     currentPeriodEnd: new Date('2026-02-28T00:00:00.000Z'),

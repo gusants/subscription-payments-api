@@ -22,6 +22,8 @@ describe('Customers (e2e)', () => {
   });
 
   beforeEach(async () => {
+    await prisma.paymentAttempt.deleteMany();
+    await prisma.charge.deleteMany();
     await prisma.subscription.deleteMany();
     await prisma.customer.deleteMany();
     await prisma.plan.deleteMany();

@@ -48,6 +48,7 @@ export class SubscriptionsService {
       id: generateId(ID_PREFIXES.subscription),
       ...input,
       status: 'incomplete',
+      cardToken: null,
       billingAnchor,
       currentPeriodStart: billingAnchor,
       currentPeriodEnd: computePeriodEnd(billingAnchor, plan.interval, 1),

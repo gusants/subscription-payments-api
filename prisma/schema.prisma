@@ -33,6 +33,23 @@ enum SubscriptionStatus {
   @@map("subscription_status")
 }
 
+enum ChargeStatus {
+  pending
+  paid
+  failed
+  expired
+  uncollectible
+
+  @@map("charge_status")
+}
+
+enum PaymentAttemptResult {
+  succeeded
+  declined
+
+  @@map("payment_attempt_result")
+}
+
 model Plan {
   id            String         @id
   name          String
@@ -67,15 +84,54 @@ model Subscription {
   billingAnchor      DateTime           @map("billing_anchor") @db.Timestamptz(3)
   currentPeriodStart DateTime           @map("current_period_start") @db.Timestamptz(3)
   currentPeriodEnd   DateTime           @map("current_period_end") @db.Timestamptz(3)
+  cardToken          String?            @map("card_token")
   canceledAt         DateTime?          @map("canceled_at") @db.Timestamptz(3)
   createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
   customer           Customer           @relation(fields: [customerId], references: [id])
   plan               Plan               @relation(fields: [planId], references: [id])
+  charges            Charge[]
 
   @@index([customerId])
   @@index([status])
   @@index([planId])
   @@index([status, currentPeriodEnd])
   @@map("subscriptions")
+}
+
+model Charge {
+  id              String           @id
+  subscriptionId  String           @map("subscription_id")
+  amountCents     Int              @map("amount_cents")
+  method          PaymentMethod
+  status          ChargeStatus     @default(pending)
+  gatewayChargeId String?          @unique @map("gateway_charge_id")
+  attemptCount    Int              @default(0) @map("attempt_count")
+  nextRetryAt     DateTime?        @map("next_retry_at") @db.Timestamptz(3)
+  dueDate         DateTime         @map("due_date") @db.Timestamptz(3)
+  periodStart     DateTime         @map("period_start") @db.Timestamptz(3)
+  periodEnd       DateTime         @map("period_end") @db.Timestamptz(3)
+  paidAt          DateTime?        @map("paid_at") @db.Timestamptz(3)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  subscription    Subscription     @relation(fields: [subscriptionId], references: [id])
+  attempts        PaymentAttempt[]
+
+  @@unique([subscriptionId, periodStart])
+  @@index([subscriptionId])
+  @@index([status, nextRetryAt])
+  @@map("charges")
+}
+
+model PaymentAttempt {
+  id              String               @id
+  chargeId        String               @map("charge_id")
+  gatewayChargeId String               @map("gateway_charge_id")
+  result          PaymentAttemptResult
+  failureReason   String?              @map("failure_reason")
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  charge          Charge               @relation(fields: [chargeId], references: [id])
+
+  @@index([chargeId])
+  @@map("payment_attempts")
 }

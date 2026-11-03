@@ -7,6 +7,7 @@ const subscription: Subscription = {
   planId: 'plan_1',
   paymentMethod: 'pix',
   status: 'incomplete',
+  cardToken: null,
   billingAnchor: new Date('2026-10-03T10:00:00.000Z'),
   currentPeriodStart: new Date('2026-11-03T10:00:00.000Z'),
   currentPeriodEnd: new Date('2026-12-03T10:00:00.000Z'),

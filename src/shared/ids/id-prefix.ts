@@ -2,6 +2,8 @@ export const ID_PREFIXES = {
   plan: 'plan_',
   customer: 'cus_',
   subscription: 'sub_',
+  charge: 'ch_',
+  paymentAttempt: 'pa_',
   gatewayCustomer: 'gcus_',
   gatewayCharge: 'gch_',
 } as const;
