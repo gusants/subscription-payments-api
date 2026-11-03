@@ -9,6 +9,7 @@ export const subscriptionResponseSchema = z.object({
   planId: z.string(),
   paymentMethod: z.enum(PAYMENT_METHODS),
   status: z.enum(SUBSCRIPTION_STATUSES),
+  billingAnchor: z.iso.datetime(),
   currentPeriodStart: z.iso.datetime(),
   currentPeriodEnd: z.iso.datetime(),
   canceledAt: z.iso.datetime().nullable(),

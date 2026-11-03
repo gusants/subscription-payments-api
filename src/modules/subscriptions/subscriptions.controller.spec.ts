@@ -45,6 +45,7 @@ describe('SubscriptionsController', () => {
     expect(created).toMatchObject({
       ...body,
       status: 'incomplete',
+      billingAnchor: '2026-11-03T10:00:00.000Z',
       currentPeriodStart: '2026-11-03T10:00:00.000Z',
       currentPeriodEnd: '2026-12-03T10:00:00.000Z',
       canceledAt: null,

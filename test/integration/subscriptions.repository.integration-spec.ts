@@ -50,6 +50,7 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
     planId,
     paymentMethod: 'boleto',
     status: 'incomplete',
+    billingAnchor: new Date('2026-01-31T00:00:00.000Z'),
     currentPeriodStart: new Date('2026-01-31T00:00:00.000Z'),
     currentPeriodEnd: new Date('2026-02-28T00:00:00.000Z'),
   });
@@ -66,6 +67,58 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
         createdAt: expect.any(Date),
         updatedAt: expect.any(Date),
       });
+    });
+  });
+
+  describe('billingAnchor', () => {
+    it('keeps the anchor apart from the current period start', async () => {
+      const anchor = new Date('2026-01-31T10:30:15.123Z');
+      const input: NewSubscription = {
+        ...newSubscription(),
+        billingAnchor: anchor,
+        currentPeriodStart: new Date('2026-03-31T10:30:15.123Z'),
+        currentPeriodEnd: new Date('2026-04-30T10:30:15.123Z'),
+      };
+
+      const created = await repository.create(input);
+
+      expect(created.billingAnchor).toEqual(anchor);
+      expect((await repository.findById(created.id))?.billingAnchor).toEqual(
+        anchor,
+      );
+    });
+
+    it('rejects a subscription without a billing anchor at the database', async () => {
+      const { billingAnchor: _omitted, ...withoutAnchor } = newSubscription();
+
+      await expect(
+        prisma.$executeRaw`INSERT INTO subscriptions (id, customer_id, plan_id, payment_method, current_period_start, current_period_end, updated_at)
+          VALUES (${withoutAnchor.id}, ${customerId}, ${planId}, 'pix', now(), now(), now())`,
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('schema', () => {
+    it('stores every timestamp column with time zone', async () => {
+      const columns = await prisma.$queryRaw<{ data_type: string }[]>`
+        SELECT DISTINCT data_type FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name IN ('plans', 'customers', 'subscriptions')
+          AND data_type LIKE 'timestamp%'`;
+
+      expect(columns).toEqual([{ data_type: 'timestamp with time zone' }]);
+    });
+
+    it('indexes the plan and the status with period end lookups', async () => {
+      const indexes = await prisma.$queryRaw<{ indexname: string }[]>`
+        SELECT indexname FROM pg_indexes WHERE tablename = 'subscriptions'`;
+
+      expect(indexes.map(({ indexname }) => indexname)).toEqual(
+        expect.arrayContaining([
+          'subscriptions_plan_id_idx',
+          'subscriptions_status_current_period_end_idx',
+        ]),
+      );
     });
   });
 

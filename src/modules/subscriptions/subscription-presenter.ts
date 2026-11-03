@@ -10,6 +10,7 @@ export function toSubscriptionResponse(
     planId: subscription.planId,
     paymentMethod: subscription.paymentMethod,
     status: subscription.status,
+    billingAnchor: subscription.billingAnchor.toISOString(),
     currentPeriodStart: subscription.currentPeriodStart.toISOString(),
     currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
     canceledAt: subscription.canceledAt?.toISOString() ?? null,

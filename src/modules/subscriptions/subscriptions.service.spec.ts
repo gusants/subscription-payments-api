@@ -58,6 +58,7 @@ describe('SubscriptionsService', () => {
         ...input,
         status: 'incomplete',
         canceledAt: null,
+        billingAnchor: startedAt,
         currentPeriodStart: startedAt,
         currentPeriodEnd: new Date('2026-02-28T10:30:00.000Z'),
       });

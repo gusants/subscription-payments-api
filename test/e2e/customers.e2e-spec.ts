@@ -50,6 +50,7 @@ describe('Customers (e2e)', () => {
         planId,
         paymentMethod: 'pix',
         status,
+        billingAnchor: new Date('2026-11-03T00:00:00.000Z'),
         currentPeriodStart: new Date('2026-11-03T00:00:00.000Z'),
         currentPeriodEnd: new Date('2026-12-03T00:00:00.000Z'),
       },

@@ -10,6 +10,7 @@ export interface Subscription {
   planId: string;
   paymentMethod: PaymentMethod;
   status: SubscriptionStatus;
+  billingAnchor: Date;
   currentPeriodStart: Date;
   currentPeriodEnd: Date;
   canceledAt: Date | null;
@@ -24,6 +25,7 @@ export type NewSubscription = Pick<
   | 'planId'
   | 'paymentMethod'
   | 'status'
+  | 'billingAnchor'
   | 'currentPeriodStart'
   | 'currentPeriodEnd'
 >;

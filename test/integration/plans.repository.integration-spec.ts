@@ -47,6 +47,21 @@ describe('PrismaPlansRepository (integration)', () => {
     });
   });
 
+  describe('amount constraint', () => {
+    it('rejects a non-positive amount at the database', async () => {
+      await expect(
+        prisma.plan.create({
+          data: {
+            id: generateId(ID_PREFIXES.plan),
+            name: 'Free',
+            amountCents: 0,
+            interval: 'monthly',
+          },
+        }),
+      ).rejects.toThrow(/plans_amount_cents_positive/);
+    });
+  });
+
   describe('findById', () => {
     it('returns the stored plan', async () => {
       const created = await repository.create(newPlan('Basic'));

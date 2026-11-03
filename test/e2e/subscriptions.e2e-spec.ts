@@ -83,6 +83,7 @@ describe('Subscriptions (e2e)', () => {
         planId: plan.id,
         paymentMethod: 'card',
         status: 'incomplete',
+        billingAnchor: '2026-01-31T10:30:00.000Z',
         currentPeriodStart: '2026-01-31T10:30:00.000Z',
         currentPeriodEnd: '2026-02-28T10:30:00.000Z',
         canceledAt: null,

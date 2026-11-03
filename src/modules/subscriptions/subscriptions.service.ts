@@ -39,13 +39,14 @@ export class SubscriptionsService {
     if (!plan.active) {
       throw new UnprocessableError(`Plan ${plan.id} is not active`);
     }
-    const periodStart = this.clock.now();
+    const billingAnchor = this.clock.now();
     return this.subscriptions.create({
       id: generateId(ID_PREFIXES.subscription),
       ...input,
       status: 'incomplete',
-      currentPeriodStart: periodStart,
-      currentPeriodEnd: computePeriodEnd(periodStart, plan.interval),
+      billingAnchor,
+      currentPeriodStart: billingAnchor,
+      currentPeriodEnd: computePeriodEnd(billingAnchor, plan.interval, 1),
     });
   }
 
