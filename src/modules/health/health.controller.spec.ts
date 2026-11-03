@@ -1,4 +1,7 @@
+import { APP_FILTER } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
+import request from 'supertest';
+import { AllExceptionsFilter } from '../../shared/errors/all-exceptions.filter.js';
 import { HealthIndicatorService, TerminusModule } from '@nestjs/terminus';
 import { DatabaseHealthIndicator } from './database.health-indicator.js';
 import { HealthController } from './health.controller.js';
@@ -51,6 +54,41 @@ describe('HealthController', () => {
       response: {
         status: 'error',
         error: { redis: { status: 'down', message: 'unreachable' } },
+      },
+    });
+  });
+
+  it('keeps the health body on a 503 despite the global error filter', async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [TerminusModule.forRoot({ logger: false })],
+      controllers: [HealthController],
+      providers: [
+        { provide: APP_FILTER, useClass: AllExceptionsFilter },
+        {
+          provide: DatabaseHealthIndicator,
+          useValue: stubIndicator('database', true),
+        },
+        {
+          provide: RedisHealthIndicator,
+          useValue: stubIndicator('redis', false),
+        },
+      ],
+    }).compile();
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .get('/health')
+      .expect(503);
+    await app.close();
+
+    expect(response.body).toEqual({
+      status: 'error',
+      info: { database: { status: 'up' } },
+      error: { redis: { status: 'down', message: 'unreachable' } },
+      details: {
+        database: { status: 'up' },
+        redis: { status: 'down', message: 'unreachable' },
       },
     });
   });

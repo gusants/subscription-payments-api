@@ -1,9 +1,11 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, UseFilters } from '@nestjs/common';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 import { DatabaseHealthIndicator } from './database.health-indicator.js';
+import { HealthCheckExceptionFilter } from './health-check.exception-filter.js';
 import { RedisHealthIndicator } from './redis.health-indicator.js';
 
 @Controller('health')
+@UseFilters(HealthCheckExceptionFilter)
 export class HealthController {
   constructor(
     private readonly health: HealthCheckService,

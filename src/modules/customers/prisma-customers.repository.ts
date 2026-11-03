@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.js';
 import { ConflictError } from '../../shared/errors/index.js';
+import {
+  isPrismaError,
+  PRISMA_UNIQUE_CONSTRAINT_VIOLATION,
+} from '../../shared/database/prisma-error-codes.js';
 import { PrismaService } from '../../shared/database/prisma.service.js';
 import type {
   Customer,
@@ -11,8 +15,6 @@ import type {
   PageWindow,
 } from './customer.js';
 import { CustomersRepository } from './customers.repository.js';
-
-const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
 
 const customerFields = {
   id: true,
@@ -35,7 +37,7 @@ export class PrismaCustomersRepository extends CustomersRepository {
         select: customerFields,
       });
     } catch (error) {
-      if (isUniqueViolation(error)) {
+      if (isPrismaError(error, PRISMA_UNIQUE_CONSTRAINT_VIOLATION)) {
         throw new ConflictError(
           `Customer with email ${customer.email} already exists`,
         );
@@ -108,11 +110,4 @@ function toWhere({
 
 function escapeLikeWildcards(value: string): string {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === UNIQUE_CONSTRAINT_VIOLATION
-  );
 }

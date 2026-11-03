@@ -77,6 +77,24 @@ describe('AllExceptionsFilter', () => {
     expect(replied().body).toMatchObject({ error: 'Conflict' });
   });
 
+  it('maps Prisma foreign key violations to 404', () => {
+    const exception = new Prisma.PrismaClientKnownRequestError('fk', {
+      code: 'P2003',
+      clientVersion: 'test',
+    });
+
+    filter.catch(exception, host);
+
+    expect(replied()).toEqual({
+      status: 404,
+      body: {
+        statusCode: 404,
+        error: 'Not Found',
+        message: 'Referenced resource not found',
+      },
+    });
+  });
+
   it('does not map other Prisma errors to 409', () => {
     const exception = new Prisma.PrismaClientKnownRequestError('x', {
       code: 'P2025',

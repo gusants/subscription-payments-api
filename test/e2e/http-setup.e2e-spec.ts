@@ -59,4 +59,30 @@ describe('HTTP setup (e2e)', () => {
       message: 'Cannot GET /nope',
     });
   });
+
+  it('answers a malformed JSON body with the standard 400 error body', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/plans')
+      .set('Content-Type', 'application/json')
+      .send('{')
+      .expect(400);
+
+    expect(response.body).toEqual({
+      statusCode: 400,
+      error: 'Bad Request',
+      message: expect.any(String),
+    });
+  });
+
+  it('rejects a page beyond the supported range with 400', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/plans')
+      .query({ page: 1_000_000_000_000 })
+      .expect(400);
+
+    expect(response.body).toMatchObject({
+      statusCode: 400,
+      message: 'Validation failed',
+    });
+  });
 });

@@ -9,13 +9,15 @@ import {
 import { HttpAdapterHost } from '@nestjs/core';
 import { ZodValidationException } from 'nestjs-zod';
 import { ZodError } from 'zod';
-import { Prisma } from '../../generated/prisma/client.js';
+import {
+  isPrismaError,
+  PRISMA_FOREIGN_KEY_VIOLATION,
+  PRISMA_UNIQUE_CONSTRAINT_VIOLATION,
+} from '../database/prisma-error-codes.js';
 import { ConflictError } from './conflict.error.js';
 import type { ErrorResponse } from './error-response.js';
 import { NotFoundError } from './not-found.error.js';
 import { UnprocessableError } from './unprocessable.error.js';
-
-const PRISMA_UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -48,8 +50,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (exception instanceof UnprocessableError) {
       return build(HttpStatus.UNPROCESSABLE_ENTITY, exception.message);
     }
-    if (isUniqueConstraintViolation(exception)) {
+    if (isPrismaError(exception, PRISMA_UNIQUE_CONSTRAINT_VIOLATION)) {
       return build(HttpStatus.CONFLICT, 'Resource already exists');
+    }
+    if (isPrismaError(exception, PRISMA_FOREIGN_KEY_VIOLATION)) {
+      return build(HttpStatus.NOT_FOUND, 'Referenced resource not found');
     }
     return build(HttpStatus.INTERNAL_SERVER_ERROR, 'Internal server error');
   }
@@ -75,13 +80,6 @@ function messageOf(response: object, exception: HttpException): string {
     return message.join('; ');
   }
   return typeof message === 'string' ? message : exception.message;
-}
-
-function isUniqueConstraintViolation(exception: unknown): boolean {
-  return (
-    exception instanceof Prisma.PrismaClientKnownRequestError &&
-    exception.code === PRISMA_UNIQUE_CONSTRAINT_VIOLATION
-  );
 }
 
 function build(
