@@ -1,6 +1,7 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../generated/prisma/client.js';
 import { envSchema } from '../shared/config/env.schema.js';
+import { assertSeedAllowed } from './demo-seed/assert-seed-allowed.js';
 import { applyDemoSeed } from './demo-seed/apply-demo-seed.js';
 import { buildDemoSeed } from './demo-seed/build-demo-seed.js';
 
@@ -14,9 +15,11 @@ async function main(): Promise<void> {
   const { NODE_ENV, DATABASE_URL, RETRY_INTERVAL_UNIT } = SEED_ENV.parse(
     process.env,
   );
-  if (NODE_ENV === 'production') {
-    throw new Error('Refusing to seed demo data with NODE_ENV=production');
-  }
+  assertSeedAllowed({
+    nodeEnv: NODE_ENV,
+    databaseUrl: DATABASE_URL,
+    allowRemote: process.env.SEED_ALLOW_REMOTE === 'true',
+  });
   const prisma = new PrismaClient({
     adapter: new PrismaPg({ connectionString: DATABASE_URL }),
   });
