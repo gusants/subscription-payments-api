@@ -142,6 +142,7 @@ model Charge {
   attempts            PaymentAttempt[]
 
   @@index([status, nextRetryAt])
+  @@index([status, paidAt])
   @@map("charges")
 }
 
