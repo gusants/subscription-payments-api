@@ -6,7 +6,7 @@ import {
 import { Queue, Worker } from 'bullmq';
 import { BillingQueueConnection } from './billing-queue-connection.js';
 import { BILLING_QUEUE_PREFIX } from './billing-queue.constants.js';
-import { runWithinJobContext, type JobContext } from './job-context.js';
+import { processWithinJobContext, type JobContext } from './job-context.js';
 
 export interface RecurringJobDefinition {
   queueName: string;
@@ -37,7 +37,7 @@ export abstract class RecurringJobWorker
     this.queue = new Queue(queueName, options);
     this.worker = new Worker<Partial<JobContext>>(
       queueName,
-      (job) => runWithinJobContext(job.data, run),
+      (job) => processWithinJobContext(job, run),
       options,
     );
     this.worker.on('error', (error) =>

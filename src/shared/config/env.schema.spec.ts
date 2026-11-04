@@ -30,7 +30,15 @@ describe('validateEnv', () => {
       CHARGE_ATTEMPT_LEASE_SECONDS: 30,
       IDEMPOTENCY_TTL_SECONDS: 86400,
       IDEMPOTENCY_LOCK_TTL_SECONDS: 60,
+      OTEL_ENABLED: false,
+      OTEL_SERVICE_NAME: 'subscription-payments-api',
     });
+  });
+
+  it('rejects an OTLP endpoint that is not a URL', () => {
+    expect(() =>
+      validateEnv({ ...validEnv, OTEL_EXPORTER_OTLP_ENDPOINT: 'not a url' }),
+    ).toThrow(/OTEL_EXPORTER_OTLP_ENDPOINT/);
   });
 
   it('rejects an unknown payment gateway', () => {

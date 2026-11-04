@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import { runWithCorrelationId } from '../correlation/index.js';
-import { buildPinoHttpOptions, correlationMixin } from './pino-http-options.js';
+import { buildPinoHttpOptions, logContextMixin } from './pino-http-options.js';
 
 function ignoresRequestTo(url: string) {
   const options = buildPinoHttpOptions({
@@ -39,8 +39,8 @@ describe('buildPinoHttpOptions', () => {
   });
 
   it('stamps the correlation id of the current context on every line', () => {
-    expect(correlationMixin()).toEqual({});
-    expect(runWithCorrelationId('journey-0001', correlationMixin)).toEqual({
+    expect(logContextMixin()).toEqual({});
+    expect(runWithCorrelationId('journey-0001', logContextMixin)).toEqual({
       correlationId: 'journey-0001',
     });
   });

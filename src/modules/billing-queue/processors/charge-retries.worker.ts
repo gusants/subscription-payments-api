@@ -11,7 +11,10 @@ import {
   CHARGE_RETRIES_QUEUE,
 } from '../billing-queue.constants.js';
 import type { ChargeRetryJobData } from '../bullmq-billing-queue.js';
-import { runWithinJobContext } from '../job-context.js';
+import {
+  processWithinJobContext,
+  runWithinJobContext,
+} from '../job-context.js';
 import { ChargeRetriesProcessor } from './charge-retries.processor.js';
 
 @Injectable()
@@ -29,7 +32,7 @@ export class ChargeRetriesWorker
   onApplicationBootstrap(): void {
     this.worker = new Worker<ChargeRetryJobData>(
       CHARGE_RETRIES_QUEUE,
-      (job) => runWithinJobContext(job.data, () => this.processor.process(job)),
+      (job) => processWithinJobContext(job, () => this.processor.process(job)),
       { connection: this.connection.redis, prefix: BILLING_QUEUE_PREFIX },
     );
     this.worker.on('error', (error) =>

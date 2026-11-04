@@ -59,6 +59,39 @@ Each charge records the id it was created under in `charges.correlation_id` (nul
 
 Payment milestones are logged as structured events with a fixed `event` field (`src/modules/charges/payment-events.ts`): `charge.created` (`origin`: `first_period`, `renewal` or `reissue`), `charge.attempt.failed`, `charge.paid`, `charge.expired` (each with `source`: `charge_flow` or `webhook`), `charge.retry.scheduled` (`attempt`, `delayMs`, `runAt`), `charge.dunning_exhausted`, `charge.refund_required` (level `error`, with a `reason`), `subscription.status_changed` (`from`, `to`, `cause`), `webhook.received` and `webhook.duplicate_ignored`. They are written only after the change they describe is committed, and once: a settlement replayed by a second writer logs nothing.
 
+## Tracing
+
+OpenTelemetry tracing is off by default and costs nothing while off: `src/instrumentation.ts` is preloaded by every start script and by the Docker image (`node --import ./dist/instrumentation.js`), reads `OTEL_ENABLED` and returns without loading the SDK unless it is `true`. It runs before Nest, so it reads `process.env` directly, through the same Zod rules as the rest of the configuration (`src/shared/tracing/tracing-settings.ts`); the `start*` scripts pass `--env-file-if-exists=.env` to Node so a value set in `.env` is seen there too.
+
+When on, the SDK exports spans over OTLP/HTTP and instruments:
+
+- **http** (incoming and outgoing requests; `/health` is not traced) and **express** (route handlers, so the server span is named after the route);
+- **pg** and **ioredis**, only inside an operation that is already traced, so pool connections and BullMQ polling do not open traces of their own;
+- **BullMQ jobs**, by hand (`src/modules/billing-queue/job-tracing.ts`): publishing a retry opens a `publish charge-retries` producer span and stores its W3C context in the job's `traceCarrier`; the worker opens a `process <queue>` consumer span as a child of it, so a retry shows up in the trace of the request that scheduled it. Recurring sweeps and jobs enqueued without a carrier start a trace of their own. Consumer spans carry the job's correlation id as `app.correlation_id`.
+
+While a span is active, every log line also carries `trace_id` and `span_id`, next to `correlationId`.
+
+The code is ESM, so `require` hooks alone are not enough: `instrumentation.ts` registers the `import-in-the-middle` loader hook for the instrumented packages only (`ioredis` is ESM and is not traced without it) and waits for the loader to acknowledge them before the application is imported.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OTEL_ENABLED` | `false` | Turns tracing on |
+| `OTEL_SERVICE_NAME` | `subscription-payments-api` | `service.name` of the spans; give the worker process its own |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` (SDK default) | OTLP/HTTP collector base URL |
+
+Any other standard `OTEL_*` variable (sampling, `OTEL_LOG_LEVEL`, resource attributes) is honoured by the SDK.
+
+Jaeger runs locally behind the `observability` compose profile; the API in compose already points at it:
+
+```bash
+OTEL_ENABLED=true docker compose --profile observability up --build
+open http://localhost:16686
+# query API (Jaeger v2): /api/v3/services, /api/v3/traces?query.service_name=subscription-payments-api&query.start_time_min=...&query.start_time_max=...
+docker compose --profile observability down
+```
+
+For the API on the host, start only the dependencies and Jaeger (`docker compose --profile observability up -d postgres redis jaeger`) and run `OTEL_ENABLED=true pnpm start:dev`.
+
 ## Database
 
 Migrations live in `prisma/migrations`. The unique index `charges_subscription_id_period_start_key` on `charges` (`subscription_id`, `period_start`) is partial (`WHERE status <> 'expired'`) and is declared only in the migration `20261109120000_dunning_state_and_partial_period_unique`, not in `prisma/schema.prisma`: Prisma 7 expresses partial indexes only behind the `partialIndexes` preview feature, which this project does not enable. Prisma's introspection ignores the partial index, so `prisma migrate dev` and `prisma migrate diff` report no drift and do not try to drop it (checked against the migrated database). Do not recreate that index from the schema or edit it outside a migration; an integration test (`test/integration/charges.schema.integration-spec.ts`) reads `pg_indexes.indexdef` and fails if the predicate is lost.
@@ -73,7 +106,7 @@ BullMQ queues `charge-retries`, `subscription-renewals` and `charge-reconciliati
 
 Jobs keep the last 1000 completed (or 24h, whichever bound is hit first). Failed jobs are never removed: a job that exhausts its technical attempts stays in the failed set, which plays the dead-letter role and is visible in Bull Board.
 
-Retry job data is `{ chargeId, attempt, correlationId }` (plus a reserved `traceCarrier` for trace context): the correlation id of the charge travels with the job and the worker processes it within that id; jobs enqueued before the field existed get a generated one. The id is data only, never part of the job id, so two enqueues of the same retry under different ids still dedupe into one job (the first one's data wins). Every technical attempt that fails is logged as a warning within the job's id. The renewal and reconciliation sweeps run each execution within a fresh id, and each charge they touch within the id of that charge.
+Retry job data is `{ chargeId, attempt, correlationId }` (plus a `traceCarrier` with the W3C trace context when tracing is on, see Tracing): the correlation id of the charge travels with the job and the worker processes it within that id; jobs enqueued before the field existed get a generated one. The id is data only, never part of the job id, so two enqueues of the same retry under different ids still dedupe into one job (the first one's data wins). Every technical attempt that fails is logged as a warning within the job's id. The renewal and reconciliation sweeps run each execution within a fresh id, and each charge they touch within the id of that charge.
 
 - `WORKERS_ENABLED` (default true): when false the process only enqueues. `pnpm start:worker` (`pnpm start:worker:prod` after a build) boots the same modules as an application context, with no HTTP server and workers forced on, so workers can run in their own process: run the API with `WORKERS_ENABLED=false` and the worker separately. Mind the single-process fake gateway store (see Payment gateway): with the fake gateway the workers must stay in the API process.
 - `RETRY_INTERVAL_UNIT` (`days` default, or `minutes`; the Docker demo uses `minutes`): unit of the dunning calendar. With `NODE_ENV=production` the app refuses to boot on `minutes` unless `ALLOW_ACCELERATED_RETRIES=true` (set in the Docker demo), so a real deployment cannot compress the calendar by accident. Retries fall on D+1, D+3 and D+7, each measured from the original failure (not chained from the previous retry); after the third retry the charge is exhausted. Retry jobs get the deterministic id `retry:{chargeId}:{attempt}`, so scheduling the same retry twice yields one job.

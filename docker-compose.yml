@@ -20,6 +20,11 @@ services:
       RETRY_INTERVAL_UNIT: minutes
       ALLOW_ACCELERATED_RETRIES: "true"
       GATEWAY_WEBHOOK_SECRET: ${GATEWAY_WEBHOOK_SECRET:-dev-only-gateway-webhook-secret-change-me}
+      # Tracing stays off unless OTEL_ENABLED=true; the endpoint only answers with
+      # the observability profile up (OTEL_ENABLED=true docker compose --profile observability up).
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-subscription-payments-api}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     volumes:
       - fake-gateway-data:/app/data
     ports:
@@ -29,6 +34,18 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      jaeger:
+        condition: service_started
+        required: false
+
+  jaeger:
+    # Jaeger v2 all-in-one: OTLP receivers on 4317 (gRPC) and 4318 (HTTP), UI and query API on 16686.
+    image: jaegertracing/jaeger:2.22.0
+    profiles: [observability]
+    restart: unless-stopped
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
+      - "${OTLP_HTTP_PORT:-4318}:4318"
 
   postgres:
     image: postgres:17-alpine

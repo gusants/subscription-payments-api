@@ -4,6 +4,7 @@ import {
   correlationIdOfRequest,
   currentCorrelationId,
 } from '../correlation/index.js';
+import { activeTraceFields } from '../tracing/active-trace-fields.js';
 import { REDACT_PATHS, REDACTED } from './redact-paths.js';
 
 interface LoggingSettings {
@@ -16,9 +17,13 @@ const prettyTransport = {
   options: { singleLine: true, translateTime: 'SYS:HH:MM:ss.l' },
 };
 
-export function correlationMixin(): { correlationId?: string } {
+function correlationFields(): { correlationId?: string } {
   const correlationId = currentCorrelationId();
   return correlationId ? { correlationId } : {};
+}
+
+export function logContextMixin(): Record<string, string> {
+  return { ...correlationFields(), ...activeTraceFields() };
 }
 
 export function buildPinoHttpOptions({
@@ -30,7 +35,7 @@ export function buildPinoHttpOptions({
     level,
     autoLogging: { ignore: (request) => request.url === '/health' },
     genReqId: correlationIdOfRequest,
-    mixin: correlationMixin,
+    mixin: logContextMixin,
     redact: { paths: [...REDACT_PATHS], censor: REDACTED },
     ...(isDevelopment && { transport: prettyTransport }),
   };

@@ -31,4 +31,4 @@ USER node
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=5 \
   CMD wget -qO- http://127.0.0.1:3000/health || exit 1
-CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && exec node dist/main.js"]
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && exec node --import ./dist/instrumentation.js dist/main.js"]

@@ -14,6 +14,8 @@ export default defineConfig({
       exclude: [
         'src/generated/**',
         'src/main.ts',
+        'src/instrumentation.ts',
+        'src/shared/tracing/start-tracing.ts',
         'src/tools/export-openapi.ts',
         'src/**/*.module.ts',
         'src/**/*.spec.ts',

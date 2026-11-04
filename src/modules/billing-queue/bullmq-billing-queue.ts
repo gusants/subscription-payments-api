@@ -10,6 +10,7 @@ import {
 } from './billing-queue.options.js';
 import { retryJobId } from './domain/retry-job-id.js';
 import type { JobContext } from './job-context.js';
+import { tracePublish } from './job-tracing.js';
 
 export const CHARGE_RETRY_JOB_NAME = 'charge-retry';
 
@@ -67,6 +68,26 @@ export class BullMqBillingQueue extends BillingQueue {
     delayMs: number,
   ): Promise<void> {
     const jobId = retryJobId(data.chargeId, data.attempt);
+    await tracePublish(
+      {
+        queueName: CHARGE_RETRIES_QUEUE,
+        jobName: CHARGE_RETRY_JOB_NAME,
+        jobId,
+      },
+      (traceCarrier) =>
+        this.publish(
+          jobId,
+          { ...data, ...(traceCarrier && { traceCarrier }) },
+          delayMs,
+        ),
+    );
+  }
+
+  private async publish(
+    jobId: string,
+    data: ChargeRetryJobData,
+    delayMs: number,
+  ): Promise<void> {
     await this.discardCompletedJob(jobId);
     const job = await this.chargeRetries.add(CHARGE_RETRY_JOB_NAME, data, {
       ...CHARGE_RETRY_JOB_OPTIONS,

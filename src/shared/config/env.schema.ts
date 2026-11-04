@@ -68,6 +68,9 @@ export const envSchema = z.object({
   CHARGE_ATTEMPT_LEASE_SECONDS: z.coerce.number().int().positive().default(30),
   IDEMPOTENCY_TTL_SECONDS: z.coerce.number().int().positive().default(86400),
   IDEMPOTENCY_LOCK_TTL_SECONDS: z.coerce.number().int().positive().default(60),
+  OTEL_ENABLED: z.stringbool().default(false),
+  OTEL_SERVICE_NAME: z.string().min(1).default('subscription-payments-api'),
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.url().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

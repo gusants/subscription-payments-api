@@ -16,6 +16,7 @@ import { HttpModule } from './shared/http/http.module.js';
 import { LoggingModule } from './shared/logging/logging.module.js';
 import { CorrelationModule } from './shared/correlation/correlation.module.js';
 import { RedisModule } from './shared/redis/redis.module.js';
+import { TracingModule } from './shared/tracing/tracing.module.js';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { RedisModule } from './shared/redis/redis.module.js';
     ClockModule,
     LoggingModule,
     CorrelationModule,
+    TracingModule,
     DatabaseModule,
     RedisModule,
     IdempotencyModule,
