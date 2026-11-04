@@ -6,6 +6,7 @@ import { ChargesModule } from './modules/charges/charges.module.js';
 import { CustomerSummaryModule } from './modules/customer-summary/customer-summary.module.js';
 import { CustomersModule } from './modules/customers/customers.module.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { MetricsModule } from './modules/metrics/metrics.module.js';
 import { PlansModule } from './modules/plans/plans.module.js';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module.js';
 import { WebhooksModule } from './modules/webhooks/webhooks.module.js';
@@ -39,6 +40,7 @@ import { TracingModule } from './shared/tracing/tracing.module.js';
     CustomerSummaryModule,
     ChargesModule,
     SubscriptionsModule,
+    MetricsModule,
     WebhooksModule,
     BillingQueueModule.register(),
     BillingWorkersModule.register(),
