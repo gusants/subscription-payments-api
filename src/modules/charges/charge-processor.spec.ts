@@ -19,6 +19,7 @@ import { InvalidTransitionError } from '../subscriptions/domain/index.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
 import type { AttemptTarget } from './charge-processor.js';
 import { ChargeProcessor } from './charge-processor.js';
+import { ChargeSettlementConflictError } from './charge-settlement-conflict.error.js';
 import { InvalidChargeTransitionError } from './domain/index.js';
 import {
   buildChargeProcessor,
@@ -352,6 +353,73 @@ describe('ChargeProcessor', () => {
       expect(errorLog).toHaveBeenCalledWith(
         expect.stringMatching(/ch_1.*gch_.*sub_1/),
       );
+    });
+
+    describe('when another writer settled the charge differently during the gateway call', () => {
+      const settleElsewhere = (
+        to: 'paid' | 'expired',
+        gatewayChargeId: string,
+      ) =>
+        billing.recordChargeOutcome({
+          charge: {
+            id: 'ch_1',
+            fromAnyOf: ['pending'],
+            to,
+            gatewayChargeId,
+            paidAt: to === 'paid' ? periodStart : null,
+          },
+          attempt: null,
+          subscription: { id: 'sub_1', change: null },
+        });
+
+      const interceptGatewayCall = (
+        beforeAnswering: () => Promise<unknown>,
+      ) => {
+        const createCharge = gateway.createCharge.bind(gateway);
+        vi.spyOn(gateway, 'createCharge').mockImplementation(async (input) => {
+          const created = await createCharge(input);
+          await beforeAnswering();
+          return created;
+        });
+      };
+
+      it.each([
+        ['expired', 'gch_stale'],
+        ['paid', 'gch_other'],
+      ] as const)(
+        'logs an error asking for a refund when money was captured for a charge already %s',
+        async (settledStatus, gatewayChargeId) => {
+          const { target } = await seed();
+          interceptGatewayCall(() =>
+            settleElsewhere(settledStatus, gatewayChargeId),
+          );
+
+          await expect(processor.process(target)).rejects.toBeInstanceOf(
+            ChargeSettlementConflictError,
+          );
+
+          expect(errorLog).toHaveBeenCalledWith(
+            expect.stringMatching(
+              new RegExp(`ch_1.*sub_1.*${settledStatus}.*${gatewayChargeId}`),
+            ),
+          );
+        },
+      );
+
+      it('does not ask for a refund when the gateway declined the charge', async () => {
+        const { target } = await seed('tok_insufficient_funds');
+        gateway.respondWith({
+          status: 'failed',
+          failureReason: 'insufficient_funds',
+        });
+        interceptGatewayCall(() => settleElsewhere('expired', 'gch_stale'));
+
+        await expect(processor.process(target)).rejects.toBeInstanceOf(
+          ChargeSettlementConflictError,
+        );
+
+        expect(errorLog).not.toHaveBeenCalled();
+      });
     });
 
     it('rejects a pending charge that has no attempt key', async () => {

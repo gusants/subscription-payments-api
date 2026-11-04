@@ -6,6 +6,7 @@ import type {
   ChargeSettlementRecord,
   RecordedOutcome,
 } from './charge.js';
+import { ChargeSettlementConflictError } from './charge-settlement-conflict.error.js';
 import { toCharge } from './prisma-charge.mapper.js';
 
 function changeSubscription(
@@ -28,8 +29,15 @@ async function currentStateOfIdenticalSettlement(
   const settledIdentically =
     current?.status === expected.to &&
     current.gatewayChargeId === expected.gatewayChargeId;
-  if (!current || !settledIdentically) {
+  if (!current) {
     throw new ConflictError(`Charge ${expected.id} was modified concurrently`);
+  }
+  if (!settledIdentically) {
+    throw new ChargeSettlementConflictError(
+      current.id,
+      current.status,
+      current.gatewayChargeId,
+    );
   }
   return {
     subscriptionChangeApplied: true,

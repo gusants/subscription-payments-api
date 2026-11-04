@@ -20,7 +20,12 @@ import { statusesAllowedToTransitionTo as subscriptionStatusesAllowedToTransitio
 import type { Subscription } from '../subscriptions/subscription.js';
 import { BillingRepository } from './billing.repository.js';
 import { CHARGE_ATTEMPT_LEASE_MS } from './charge-attempt-lease.js';
-import type { Charge, ChargeSettlementRecord } from './charge.js';
+import { ChargeSettlementConflictError } from './charge-settlement-conflict.error.js';
+import type {
+  Charge,
+  ChargeSettlementRecord,
+  RecordedOutcome,
+} from './charge.js';
 import { ChargesRepository } from './charges.repository.js';
 import {
   assertBillable,
@@ -48,6 +53,16 @@ export interface ProcessedCharge {
 
 interface GatewayAttempt extends AttemptTarget {
   idempotencyKey: string;
+}
+
+function isCapturedAgainstSettledCharge(
+  { charge }: ChargeSettlementRecord,
+  { currentStatus }: ChargeSettlementConflictError,
+): boolean {
+  return (
+    charge.to === 'paid' &&
+    (currentStatus === 'expired' || currentStatus === 'paid')
+  );
 }
 
 function attemptKeyOf({ id, gatewayAttemptKey }: Charge): string {
@@ -309,16 +324,45 @@ export class ChargeProcessor {
     settlement: ChargeSettlementRecord,
     failureReason: GatewayFailureReason | null,
   ): Promise<ProcessedCharge> {
-    const recorded = await this.billing.recordChargeOutcome(settlement);
-    if (!recorded.subscriptionChangeApplied) {
-      this.logger.error(
-        `Charge ${settlement.charge.id} settled as ${settlement.charge.to} (gateway charge ${settlement.charge.gatewayChargeId}) but subscription ${settlement.subscription.id} did not move to ${settlement.subscription.change?.to}; its status is now ${recorded.subscription.status}`,
-      );
-    }
+    const recorded = await this.recordSettlement(settlement);
+    this.reportSettlement(settlement, recorded);
     return {
       charge: recorded.charge,
       subscription: recorded.subscription,
       failureReason,
     };
+  }
+
+  private async recordSettlement(
+    settlement: ChargeSettlementRecord,
+  ): Promise<RecordedOutcome> {
+    try {
+      return await this.billing.recordChargeOutcome(settlement);
+    } catch (error) {
+      if (
+        error instanceof ChargeSettlementConflictError &&
+        isCapturedAgainstSettledCharge(settlement, error)
+      ) {
+        this.logger.error(
+          `Gateway charge ${settlement.charge.gatewayChargeId} captured money for charge ${settlement.charge.id} (subscription ${settlement.subscription.id}) but the charge is already ${error.currentStatus} with gateway charge ${error.currentGatewayChargeId}; refund required`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  private reportSettlement(
+    { charge, subscription }: ChargeSettlementRecord,
+    recorded: RecordedOutcome,
+  ): void {
+    if (charge.to === 'paid' && recorded.subscription.status === 'canceled') {
+      this.logger.error(
+        `Charge ${charge.id} paid (gateway charge ${charge.gatewayChargeId}) on canceled subscription ${subscription.id}; refund required`,
+      );
+    } else if (!recorded.subscriptionChangeApplied) {
+      this.logger.error(
+        `Charge ${charge.id} settled as ${charge.to} (gateway charge ${charge.gatewayChargeId}) but subscription ${subscription.id} did not move to ${subscription.change?.to}; its status is now ${recorded.subscription.status}`,
+      );
+    }
   }
 }

@@ -18,6 +18,8 @@ export interface WebhookChargeEvent {
   type: GatewayEventType;
   gatewayChargeId: string;
   failureReason?: GatewayFailureReason;
+  amountCents: number;
+  gatewayCustomerId: string;
   paidAt?: Date;
   occurredAt: Date;
 }
@@ -47,6 +49,27 @@ function isAlreadyApplied(
   return charge.status === 'pending' && settlesAttempt && attemptRecorded;
 }
 
+function disagreesWithOurRecords(
+  { charge, gatewayCustomerId }: WebhookTarget,
+  event: WebhookChargeEvent,
+): boolean {
+  return (
+    event.amountCents !== charge.amountCents ||
+    event.gatewayCustomerId !== gatewayCustomerId
+  );
+}
+
+function capturesMoneyAlreadySettledElsewhere(
+  { charge }: WebhookTarget,
+  { type, gatewayChargeId }: WebhookChargeEvent,
+): boolean {
+  if (type !== 'charge.paid') return false;
+  return (
+    charge.status === 'expired' ||
+    (charge.status === 'paid' && charge.gatewayChargeId !== gatewayChargeId)
+  );
+}
+
 export function decideWebhookEffect({
   event,
   target,
@@ -54,11 +77,20 @@ export function decideWebhookEffect({
   attemptId,
 }: WebhookDecisionInput): WebhookDecision {
   if (!target) return { outcome: 'ignored_unknown_charge' };
+  if (disagreesWithOurRecords(target, event)) {
+    return { outcome: 'rejected_mismatch' };
+  }
   const to = CHARGE_STATUS_BY_EVENT[event.type];
   if (isAlreadyApplied(target, event, to)) {
     return { outcome: 'ignored_duplicate_state' };
   }
   const { charge, subscription } = target;
+  if (capturesMoneyAlreadySettledElsewhere(target, event)) {
+    return {
+      outcome: 'requires_refund',
+      refundRisk: { subscriptionId: subscription.id },
+    };
+  }
   if (!canTransition(charge.status, to)) {
     return { outcome: 'rejected_out_of_order' };
   }
@@ -79,6 +111,10 @@ export function decideWebhookEffect({
   }
   return {
     outcome: 'applied',
+    ...(to === 'paid' &&
+      subscription.status === 'canceled' && {
+        refundRisk: { subscriptionId: subscription.id },
+      }),
     settlement: {
       charge: {
         id: charge.id,

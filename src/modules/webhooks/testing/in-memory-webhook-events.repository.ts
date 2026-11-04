@@ -1,11 +1,13 @@
+import type { CustomersRepository } from '../../customers/customers.repository.js';
 import type { InMemoryBillingRepository } from '../../charges/testing/in-memory-billing.repository.js';
 import type { InMemorySubscriptionsRepository } from '../../subscriptions/testing/in-memory-subscriptions.repository.js';
-import type {
-  IncomingWebhookEvent,
-  WebhookDecider,
-  WebhookEventOutcome,
-  WebhookIngestion,
-  WebhookTarget,
+import {
+  toProcessedIngestion,
+  type IncomingWebhookEvent,
+  type WebhookDecider,
+  type WebhookEventOutcome,
+  type WebhookIngestion,
+  type WebhookTarget,
 } from '../webhook-event.js';
 import { WebhookEventsRepository } from '../webhook-events.repository.js';
 
@@ -22,6 +24,7 @@ export class InMemoryWebhookEventsRepository extends WebhookEventsRepository {
   constructor(
     private readonly billing: InMemoryBillingRepository,
     private readonly subscriptions: InMemorySubscriptionsRepository,
+    private readonly customers: CustomersRepository,
   ) {
     super();
   }
@@ -41,7 +44,7 @@ export class InMemoryWebhookEventsRepository extends WebhookEventsRepository {
       outcome: decision.outcome,
       processedAt: event.at,
     });
-    return { kind: 'processed', outcome: decision.outcome };
+    return toProcessedIngestion(decision);
   }
 
   events(): StoredWebhookEvent[] {
@@ -58,9 +61,11 @@ export class InMemoryWebhookEventsRepository extends WebhookEventsRepository {
       charge.subscriptionId,
     );
     if (!subscription) return null;
+    const customer = await this.customers.findById(subscription.customerId);
     return {
       charge,
       subscription,
+      gatewayCustomerId: customer?.gatewayCustomerId ?? null,
       attemptRecorded: this.billing
         .attempts()
         .some((attempt) => attempt.gatewayChargeId === gatewayChargeId),

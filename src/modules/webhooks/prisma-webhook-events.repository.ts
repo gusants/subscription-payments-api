@@ -2,11 +2,12 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../shared/database/prisma.service.js';
 import { applyChargeOutcome, toCharge } from '../charges/index.js';
-import type {
-  IncomingWebhookEvent,
-  WebhookDecider,
-  WebhookIngestion,
-  WebhookTarget,
+import {
+  toProcessedIngestion,
+  type IncomingWebhookEvent,
+  type WebhookDecider,
+  type WebhookIngestion,
+  type WebhookTarget,
 } from './webhook-event.js';
 import { WebhookEventsRepository } from './webhook-events.repository.js';
 
@@ -41,7 +42,7 @@ export class PrismaWebhookEventsRepository extends WebhookEventsRepository {
         where: { id: event.id },
         data: { processedAt: event.at, outcome: decision.outcome },
       });
-      return { kind: 'processed', outcome: decision.outcome };
+      return toProcessedIngestion(decision);
     });
   }
 
@@ -54,13 +55,16 @@ export class PrismaWebhookEventsRepository extends WebhookEventsRepository {
     if (!locked) return null;
     await tx.$queryRaw`
       SELECT id FROM subscriptions WHERE id = ${locked.subscription_id} FOR UPDATE`;
-    const { subscription, ...charge } = await tx.charge.findUniqueOrThrow({
-      where: { id: chargeId },
-      include: { subscription: true },
-    });
+    const { subscription: subscriptionWithCustomer, ...charge } =
+      await tx.charge.findUniqueOrThrow({
+        where: { id: chargeId },
+        include: { subscription: { include: { customer: true } } },
+      });
+    const { customer, ...subscription } = subscriptionWithCustomer;
     return {
       charge: toCharge(charge),
       subscription,
+      gatewayCustomerId: customer.gatewayCustomerId,
       attemptRecorded:
         (await tx.paymentAttempt.count({ where: { gatewayChargeId } })) > 0,
     };

@@ -165,7 +165,7 @@ describe('POST /webhooks/gateway processing (e2e)', () => {
     expect(await outcomes()).toEqual(['applied']);
   });
 
-  it('answers 200 and records rejected_out_of_order for a paid event after the charge expired', async () => {
+  it('answers 200 and records requires_refund for a paid event after the charge expired', async () => {
     const subscription = await subscribe('boleto');
     await http()
       .post(`/fake-gateway/charges/${subscription.latestCharge.id}/expire`)
@@ -177,11 +177,13 @@ describe('POST /webhooks/gateway processing (e2e)', () => {
       id: expired!.data.charge.id,
       externalRef: subscription.latestCharge.id,
       method: 'boleto',
+      customerId: expired!.data.charge.customerId,
+      amountCents: expired!.data.charge.amountCents,
     });
     await deliver(late).expect(200);
 
     expect(await outcomes()).toEqual(
-      expect.arrayContaining(['applied', 'rejected_out_of_order']),
+      expect.arrayContaining(['applied', 'requires_refund']),
     );
     expect(await chargeStatus(subscription.latestCharge.id)).toBe('expired');
     expect(await subscriptionStatus(subscription.id)).toBe('canceled');

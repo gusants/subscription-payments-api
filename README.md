@@ -91,13 +91,18 @@ Every gateway charge status change (card paid or failed on creation, pix or bole
 | Event | Charge state | Outcome and effect |
 |---|---|---|
 | any | unknown charge | `ignored_unknown_charge` |
-| `charge.paid` | `pending` | `applied`: charge `paid` (paid_at = event time), succeeded attempt, subscription `incomplete`/`past_due` to `active` |
+| any | `data.charge.amountCents` differs from our charge amount, or `data.charge.customerId` differs from the gateway customer of the subscription owner | `rejected_mismatch`, logged at ERROR, no effect |
+| `charge.paid` | `pending` | `applied`: charge `paid` (paid_at = the gateway charge `paidAt`, falling back to the event time), succeeded attempt, subscription `incomplete`/`past_due` to `active` |
+| `charge.paid` | `pending` on a `canceled` subscription | `applied`: charge `paid` (the money moved) and the subscription stays `canceled`; logged at ERROR with charge, subscription and gateway ids because a refund is due |
 | `charge.paid` | `paid` with the same gateway charge, or `pending` with that gateway charge already recorded as an attempt | `ignored_duplicate_state` |
+| `charge.paid` | `expired`, or `paid` with a different gateway charge (double capture) | `requires_refund`, logged at ERROR with charge, subscription and gateway ids, no effect (refunds are not implemented) |
 | `charge.failed` | `pending` | `applied`: charge `failed`, declined attempt with the reason, subscription to `past_due` |
 | `charge.failed` | `failed` with the same gateway charge, or `pending` with that gateway charge already recorded as an attempt | `ignored_duplicate_state` |
 | `charge.expired` | `pending` | `applied`: charge `expired`; subscription `incomplete` (first charge, never paid) to `canceled` with `canceled_at`, `active` (renewal) to `past_due`; no attempt |
 | `charge.expired` | `expired` with the same gateway charge | `ignored_duplicate_state` |
-| any | any other state (for example `expired` after `paid`, `paid` after `expired`) | `rejected_out_of_order`, logged at WARN, no effect |
+| any other event | any other state (for example `expired` after `paid`, `paid` after `failed`) | `rejected_out_of_order`, logged at WARN, no effect |
+
+The same expiry decision (charge `pending` to `expired` plus the subscription change above) is applied when `POST /charges/{id}/retry` reconciles a pending charge whose gateway charge is already `expired`. The charge flow applies the same guards: when it learns that the gateway paid a charge that a webhook already expired, or that was paid by another gateway charge, it logs an ERROR asking for a refund and answers `409`; when a webhook already settled the same outcome (same status and gateway charge) while the gateway call was in flight, it answers with the current state as a success.
 
 ## Idempotency
 

@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { GatewayWebhookPayload } from '../../gateway/index.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
+import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
 import { InMemoryBillingRepository } from '../charges/testing/in-memory-billing.repository.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
 import { InMemoryWebhookEventsRepository } from './testing/in-memory-webhook-events.repository.js';
@@ -32,7 +33,11 @@ describe('WebhooksController', () => {
     const subscriptions = new InMemorySubscriptionsRepository();
     const billing = new InMemoryBillingRepository(subscriptions);
     const processor = new WebhookEventProcessor(
-      new InMemoryWebhookEventsRepository(billing, subscriptions),
+      new InMemoryWebhookEventsRepository(
+        billing,
+        subscriptions,
+        new InMemoryCustomersRepository(),
+      ),
       new FixedClock(new Date('2026-03-01T12:00:00.000Z')),
     );
     controller = new WebhooksController(processor);

@@ -15,6 +15,7 @@ describe('decideWebhookEffect', () => {
   const now = new Date('2026-03-01T12:00:00.000Z');
   const occurredAt = new Date('2026-03-01T11:59:00.000Z');
   const EVENT_GATEWAY_CHARGE = 'gch_event';
+  const GATEWAY_CUSTOMER = 'gcus_1';
 
   const charge = (overrides: Partial<Charge> = {}): Charge => ({
     id: 'ch_1',
@@ -59,6 +60,7 @@ describe('decideWebhookEffect', () => {
       subscriptionStatus?: SubscriptionStatus;
       gatewayChargeId?: string | null;
       attemptRecorded?: boolean;
+      gatewayCustomerId?: string | null;
     } = {},
   ): WebhookTarget => ({
     charge: charge({
@@ -67,18 +69,25 @@ describe('decideWebhookEffect', () => {
     }),
     subscription: subscription(options.subscriptionStatus ?? 'incomplete'),
     attemptRecorded: options.attemptRecorded ?? false,
+    gatewayCustomerId:
+      options.gatewayCustomerId === undefined
+        ? GATEWAY_CUSTOMER
+        : options.gatewayCustomerId,
   });
 
   const decide = (
     type: GatewayEventType,
     webhookTarget: WebhookTarget | null,
     failureReason?: 'insufficient_funds',
+    eventCharge: { amountCents?: number; gatewayCustomerId?: string } = {},
   ) =>
     decideWebhookEffect({
       event: {
         type,
         gatewayChargeId: EVENT_GATEWAY_CHARGE,
         failureReason,
+        amountCents: eventCharge.amountCents ?? 1990,
+        gatewayCustomerId: eventCharge.gatewayCustomerId ?? GATEWAY_CUSTOMER,
         occurredAt,
       },
       target: webhookTarget,
@@ -88,9 +97,9 @@ describe('decideWebhookEffect', () => {
 
   const MATRIX: [GatewayEventType, ChargeStatus, OutcomeName][] = [
     ['charge.paid', 'pending', 'applied'],
-    ['charge.paid', 'paid', 'rejected_out_of_order'],
+    ['charge.paid', 'paid', 'requires_refund'],
     ['charge.paid', 'failed', 'rejected_out_of_order'],
-    ['charge.paid', 'expired', 'rejected_out_of_order'],
+    ['charge.paid', 'expired', 'requires_refund'],
     ['charge.paid', 'uncollectible', 'rejected_out_of_order'],
     ['charge.failed', 'pending', 'applied'],
     ['charge.failed', 'paid', 'rejected_out_of_order'],
@@ -165,6 +174,8 @@ describe('decideWebhookEffect', () => {
         event: {
           type: 'charge.paid',
           gatewayChargeId: EVENT_GATEWAY_CHARGE,
+          amountCents: 1990,
+          gatewayCustomerId: GATEWAY_CUSTOMER,
           paidAt,
           occurredAt,
         },
@@ -229,7 +240,7 @@ describe('decideWebhookEffect', () => {
       });
     });
 
-    it('keeps a canceled subscription canceled while still recording the payment', () => {
+    it('keeps a canceled subscription canceled while still recording the payment and flagging the refund risk', () => {
       const decision = decide(
         'charge.paid',
         target('pending', { subscriptionStatus: 'canceled' }),
@@ -237,11 +248,92 @@ describe('decideWebhookEffect', () => {
 
       expect(decision).toMatchObject({
         outcome: 'applied',
+        refundRisk: { subscriptionId: 'sub_1' },
         settlement: {
           charge: { to: 'paid' },
           subscription: { change: null },
         },
       });
+    });
+  });
+
+  it.each(['incomplete', 'active', 'past_due'] as const)(
+    'does not flag a refund risk when paying a %s subscription',
+    (subscriptionStatus) => {
+      const decision = decide(
+        'charge.paid',
+        target('pending', { subscriptionStatus }),
+      );
+
+      expect(decision).not.toHaveProperty('refundRisk');
+    },
+  );
+
+  describe('charge.paid that captures money for a charge settled elsewhere', () => {
+    it('requires a refund when the charge already expired', () => {
+      expect(decide('charge.paid', target('expired'))).toEqual({
+        outcome: 'requires_refund',
+        refundRisk: { subscriptionId: 'sub_1' },
+      });
+    });
+
+    it('requires a refund when the charge was already paid by a different gateway charge', () => {
+      const alreadyPaid = target('paid', { gatewayChargeId: 'gch_first' });
+
+      expect(decide('charge.paid', alreadyPaid)).toEqual({
+        outcome: 'requires_refund',
+        refundRisk: { subscriptionId: 'sub_1' },
+      });
+    });
+
+    it('does not require a refund for a failed charge, where the state machine rejects it', () => {
+      expect(decide('charge.paid', target('failed')).outcome).toBe(
+        'rejected_out_of_order',
+      );
+    });
+
+    it.each(['charge.failed', 'charge.expired'] as const)(
+      'does not require a refund for %s on an expired charge',
+      (type) => {
+        expect(decide(type, target('expired')).outcome).toBe(
+          'rejected_out_of_order',
+        );
+      },
+    );
+  });
+
+  describe('an event that disagrees with our records', () => {
+    it.each([
+      ['amount', { amountCents: 1991 }],
+      ['customer', { gatewayCustomerId: 'gcus_other' }],
+    ])('rejects a mismatching %s with no effect', (_name, eventCharge) => {
+      expect(
+        decide('charge.paid', target('pending'), undefined, eventCharge),
+      ).toEqual({ outcome: 'rejected_mismatch' });
+    });
+
+    it('rejects an event when our customer has no gateway customer to compare', () => {
+      const withoutGatewayCustomer = target('pending', {
+        gatewayCustomerId: null,
+      });
+
+      expect(decide('charge.paid', withoutGatewayCustomer).outcome).toBe(
+        'rejected_mismatch',
+      );
+    });
+
+    it('takes precedence over a duplicate state', () => {
+      const settled = target('paid', { gatewayChargeId: EVENT_GATEWAY_CHARGE });
+
+      expect(
+        decide('charge.paid', settled, undefined, { amountCents: 1 }).outcome,
+      ).toBe('rejected_mismatch');
+    });
+
+    it('still ignores an unknown charge first', () => {
+      expect(
+        decide('charge.paid', null, undefined, { amountCents: 1 }).outcome,
+      ).toBe('ignored_unknown_charge');
     });
   });
 

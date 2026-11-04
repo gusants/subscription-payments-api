@@ -2,6 +2,7 @@ import { ConflictError } from '../../../shared/errors/index.js';
 import type { NewSubscription } from '../../subscriptions/subscription.js';
 import { InMemorySubscriptionsRepository } from '../../subscriptions/testing/in-memory-subscriptions.repository.js';
 import { BillingRepository } from '../billing.repository.js';
+import { ChargeSettlementConflictError } from '../charge-settlement-conflict.error.js';
 import type { ChargeStatus } from '../charge-status.js';
 import type {
   AttachedGatewayCharge,
@@ -142,10 +143,15 @@ export class InMemoryBillingRepository extends BillingRepository {
       found.status === expected.to &&
       found.gatewayChargeId === expected.gatewayChargeId;
     const current = await this.subscriptions.findById(subscriptionId);
-    if (!settledIdentically || !current) {
-      throw new ConflictError(
-        `Charge ${expected.id} was modified concurrently`,
+    if (!settledIdentically) {
+      throw new ChargeSettlementConflictError(
+        found.id,
+        found.status,
+        found.gatewayChargeId,
       );
+    }
+    if (!current) {
+      throw new ConflictError(`Subscription ${subscriptionId} not found`);
     }
     return {
       subscription: current,

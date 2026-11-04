@@ -44,6 +44,7 @@ describe('PrismaWebhookEventsRepository (integration)', () => {
         id: generateId(ID_PREFIXES.customer),
         name: 'Ana',
         email: 'ana@example.com',
+        gatewayCustomerId: 'gcus_1',
       },
     });
     const plan = await prisma.plan.create({
@@ -184,12 +185,16 @@ describe('PrismaWebhookEventsRepository (integration)', () => {
     const processedOutcomes = results.map((result) =>
       result.kind === 'processed' ? result.outcome : result.kind,
     );
+    const loser = processedOutcomes.includes('requires_refund')
+      ? 'requires_refund'
+      : 'rejected_out_of_order';
+    expect(processedOutcomes).toHaveLength(2);
     expect(processedOutcomes).toEqual(
-      expect.arrayContaining(['applied', 'rejected_out_of_order']),
+      expect.arrayContaining(['applied', loser]),
     );
     expect(await prisma.webhookEvent.count()).toBe(2);
     expect(await outcomes()).toEqual(
-      expect.arrayContaining(['applied', 'rejected_out_of_order']),
+      expect.arrayContaining(['applied', loser]),
     );
     const charge = await chargeRow();
     const subscription = await subscriptionRow();
@@ -271,6 +276,59 @@ describe('PrismaWebhookEventsRepository (integration)', () => {
       outcome: 'ignored_duplicate_state',
     });
     expect(await prisma.paymentAttempt.count()).toBe(1);
+  });
+
+  it('persists requires_refund for a paid event on an expired charge and changes nothing', async () => {
+    await processor.process(event('charge.expired', 'evt_expired'));
+
+    const result = await processor.process(event('charge.paid', 'evt_paid'));
+
+    expect(result).toEqual({
+      kind: 'processed',
+      outcome: 'requires_refund',
+      refundRisk: { subscriptionId },
+    });
+    expect(await chargeRow()).toMatchObject({ status: 'expired' });
+    expect(await prisma.paymentAttempt.count()).toBe(0);
+    expect(await outcomes()).toEqual(
+      expect.arrayContaining(['applied', 'requires_refund']),
+    );
+  });
+
+  it('persists rejected_mismatch for an amount that differs from the charge and changes nothing', async () => {
+    const result = await processor.process(
+      event('charge.paid', 'evt_1', { amountCents: 1 }),
+    );
+
+    expect(result).toEqual({ kind: 'processed', outcome: 'rejected_mismatch' });
+    expect(await chargeRow()).toMatchObject({ status: 'pending' });
+    expect(await outcomes()).toEqual(['rejected_mismatch']);
+  });
+
+  it('rejects an event whose customer is not the gateway customer of the subscription owner', async () => {
+    const result = await processor.process(
+      event('charge.paid', 'evt_1', { customerId: 'gcus_other' }),
+    );
+
+    expect(result).toEqual({ kind: 'processed', outcome: 'rejected_mismatch' });
+    expect((await subscriptionRow()).status).toBe('incomplete');
+  });
+
+  it('records the payment of a canceled subscription as applied with a refund risk', async () => {
+    await prisma.subscription.update({
+      where: { id: subscriptionId },
+      data: { status: 'canceled', canceledAt: now },
+    });
+
+    const result = await processor.process(event('charge.paid', 'evt_1'));
+
+    expect(result).toEqual({
+      kind: 'processed',
+      outcome: 'applied',
+      refundRisk: { subscriptionId },
+    });
+    expect(await chargeRow()).toMatchObject({ status: 'paid' });
+    expect((await subscriptionRow()).status).toBe('canceled');
   });
 
   it('records an unknown charge as ignored without touching anything', async () => {

@@ -5,6 +5,7 @@ import type {
 } from '../../gateway/index.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import type { ChargeStatus } from '../charges/charge-status.js';
+import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
 import { InMemoryBillingRepository } from '../charges/testing/in-memory-billing.repository.js';
 import type { SubscriptionStatus } from '../subscriptions/subscription-status.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
@@ -17,6 +18,7 @@ describe('WebhookEventProcessor', () => {
   const eventTime = new Date('2026-03-01T11:30:00.000Z');
   let subscriptions: InMemorySubscriptionsRepository;
   let billing: InMemoryBillingRepository;
+  let customers: InMemoryCustomersRepository;
   let events: InMemoryWebhookEventsRepository;
   let processor: WebhookEventProcessor;
   let warn: ReturnType<typeof vi.spyOn>;
@@ -25,7 +27,12 @@ describe('WebhookEventProcessor', () => {
   beforeEach(() => {
     subscriptions = new InMemorySubscriptionsRepository();
     billing = new InMemoryBillingRepository(subscriptions);
-    events = new InMemoryWebhookEventsRepository(billing, subscriptions);
+    customers = new InMemoryCustomersRepository();
+    events = new InMemoryWebhookEventsRepository(
+      billing,
+      subscriptions,
+      customers,
+    );
     processor = new WebhookEventProcessor(events, new FixedClock(now));
     warn = vi
       .spyOn(Logger.prototype, 'warn')
@@ -42,6 +49,8 @@ describe('WebhookEventProcessor', () => {
   });
 
   async function seed(subscriptionStatus: SubscriptionStatus = 'incomplete') {
+    await customers.create({ id: 'cus_1', name: 'Ana', email: 'ana@e.com' });
+    await customers.assignGatewayCustomerId('cus_1', 'gcus_1');
     await billing.createSubscriptionWithFirstCharge(
       {
         id: 'sub_1',
@@ -268,7 +277,7 @@ describe('WebhookEventProcessor', () => {
     expect(chargeNow().status).toBe('pending');
   });
 
-  it('rejects a paid event after the charge expired, logging a warning and changing nothing', async () => {
+  it('flags a paid event after the charge expired as requiring a refund, logging an error and changing nothing', async () => {
     await seed();
     await processor.process(event('charge.expired', {}, 'evt_expired'));
 
@@ -278,13 +287,82 @@ describe('WebhookEventProcessor', () => {
 
     expect(result).toEqual({
       kind: 'processed',
-      outcome: 'rejected_out_of_order',
+      outcome: 'requires_refund',
+      refundRisk: { subscriptionId: 'sub_1' },
     });
     expect(chargeNow().status).toBe('expired');
     expect((await subscriptionNow()).status).toBe('canceled');
     expect(billing.attempts()).toEqual([]);
-    expect(recordedOutcomes()).toEqual(['applied', 'rejected_out_of_order']);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('evt_paid'));
+    expect(recordedOutcomes()).toEqual(['applied', 'requires_refund']);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringMatching(/evt_paid.*ch_1.*gch_1.*sub_1/),
+    );
+  });
+
+  it('flags a second paid gateway charge on an already paid charge as requiring a refund', async () => {
+    await seed();
+    await processor.process(event('charge.paid', {}, 'evt_first'));
+
+    const result = await processor.process(
+      event('charge.paid', { id: 'gch_second' }, 'evt_second'),
+    );
+
+    expect(result).toMatchObject({
+      kind: 'processed',
+      outcome: 'requires_refund',
+    });
+    expect(chargeNow()).toMatchObject({
+      status: 'paid',
+      gatewayChargeId: 'gch_1',
+    });
+    expect(billing.attempts()).toHaveLength(1);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringMatching(/evt_second.*gch_second.*sub_1/),
+    );
+  });
+
+  it('records the payment of a canceled subscription as applied but logs an error for the refund risk', async () => {
+    await seed('canceled');
+
+    const result = await processor.process(event('charge.paid'));
+
+    expect(result).toEqual({
+      kind: 'processed',
+      outcome: 'applied',
+      refundRisk: { subscriptionId: 'sub_1' },
+    });
+    expect(chargeNow().status).toBe('paid');
+    expect((await subscriptionNow()).status).toBe('canceled');
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('sub_1'));
+  });
+
+  it.each([
+    ['amount', { amountCents: 2990 }],
+    ['customer', { customerId: 'gcus_other' }],
+  ])(
+    'rejects a paid event whose %s does not match, logging an error and changing nothing',
+    async (_name, overrides) => {
+      await seed();
+
+      const result = await processor.process(event('charge.paid', overrides));
+
+      expect(result).toEqual({
+        kind: 'processed',
+        outcome: 'rejected_mismatch',
+      });
+      expect(chargeNow().status).toBe('pending');
+      expect((await subscriptionNow()).status).toBe('incomplete');
+      expect(billing.attempts()).toEqual([]);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('ch_1'));
+    },
+  );
+
+  it('does not log an error for an ordinary paid event', async () => {
+    await seed();
+
+    await processor.process(event('charge.paid'));
+
+    expect(error).not.toHaveBeenCalled();
   });
 
   it('rejects an expired event after the charge was paid', async () => {
@@ -301,6 +379,7 @@ describe('WebhookEventProcessor', () => {
     });
     expect(chargeNow().status).toBe('paid');
     expect((await subscriptionNow()).status).toBe('active');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('evt_expired'));
   });
 
   it('never fails the delivery on a rejected transition', async () => {

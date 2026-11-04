@@ -152,6 +152,8 @@ enum WebhookEventOutcome {
   ignored_duplicate_state
   ignored_unknown_charge
   rejected_out_of_order
+  requires_refund
+  rejected_mismatch
 
   @@map("webhook_event_outcome")
 }

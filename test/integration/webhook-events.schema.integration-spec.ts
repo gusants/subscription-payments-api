@@ -59,6 +59,8 @@ describe('webhook_events schema (integration)', () => {
     'ignored_duplicate_state',
     'ignored_unknown_charge',
     'rejected_out_of_order',
+    'requires_refund',
+    'rejected_mismatch',
   ] as const)(
     'records the %s outcome with its processing time',
     async (outcome) => {

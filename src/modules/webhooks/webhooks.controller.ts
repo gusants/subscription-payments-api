@@ -32,7 +32,7 @@ export class WebhooksController {
   @ZodResponse({
     status: HttpStatus.OK,
     description:
-      'The event was received. Also the answer for a duplicated event id, an unknown charge and a transition the charge state machine rejects; the outcome is recorded in webhook_events',
+      'The event was received. Also the answer for a duplicated event id, an unknown charge, a transition the charge state machine rejects, an amount or customer that does not match the charge, and a payment that needs a refund; the outcome is recorded in webhook_events',
     type: WebhookReceivedResponseDto,
   })
   @ApiResponse({

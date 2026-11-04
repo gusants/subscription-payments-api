@@ -34,6 +34,8 @@ export class WebhookEventProcessor {
             type: payload.type,
             gatewayChargeId: charge.id,
             failureReason: charge.failureReason,
+            amountCents: charge.amountCents,
+            gatewayCustomerId: charge.customerId,
             paidAt: charge.paidAt ? new Date(charge.paidAt) : undefined,
             occurredAt: new Date(payload.createdAt),
           },
@@ -53,6 +55,16 @@ export class WebhookEventProcessor {
     const subject = `event ${id} (${type}) for charge ${data.charge.externalRef}`;
     if (ingestion.kind === 'duplicate') {
       this.logger.debug(`Duplicate webhook ${subject} ignored`);
+      return;
+    }
+    if (ingestion.refundRisk) {
+      this.logger.error(
+        `Webhook ${subject} (gateway charge ${data.charge.id}, subscription ${ingestion.refundRisk.subscriptionId}): ${ingestion.outcome}; money was captured that needs a refund`,
+      );
+    } else if (ingestion.outcome === 'rejected_mismatch') {
+      this.logger.error(
+        `Webhook ${subject} (gateway charge ${data.charge.id}) rejected: amount ${data.charge.amountCents} or customer ${data.charge.customerId} does not match our records`,
+      );
     } else if (ingestion.outcome === 'rejected_out_of_order') {
       this.logger.warn(`Out-of-order webhook ${subject} rejected`);
     } else {
