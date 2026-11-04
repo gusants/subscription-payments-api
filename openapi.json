@@ -750,6 +750,97 @@
         "required": ["id", "name", "email", "createdAt", "updatedAt"],
         "type": "object"
       },
+      "CustomerSummaryResponseDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "customerId": {
+            "type": "string"
+          },
+          "generatedAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": false,
+            "properties": {
+              "averageDaysLate": {
+                "minimum": 0,
+                "nullable": true,
+                "type": "number"
+              },
+              "failedAttempts": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "monthsAsCustomer": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "paymentSuccessRate": {
+                "maximum": 1,
+                "minimum": 0,
+                "nullable": true,
+                "type": "number"
+              },
+              "totalPaidCents": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "monthsAsCustomer",
+              "totalPaidCents",
+              "failedAttempts",
+              "averageDaysLate",
+              "paymentSuccessRate"
+            ],
+            "type": "object"
+          },
+          "paymentBehavior": {
+            "enum": [
+              "on_time",
+              "occasional_delays",
+              "frequent_delays",
+              "unreliable",
+              "insufficient_history"
+            ],
+            "type": "string"
+          },
+          "promptVersion": {
+            "type": "string"
+          },
+          "riskLevel": {
+            "enum": ["low", "medium", "high"],
+            "type": "string"
+          },
+          "source": {
+            "enum": ["llm", "fallback"],
+            "type": "string"
+          },
+          "suggestedAction": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "customerId",
+          "source",
+          "promptVersion",
+          "generatedAt",
+          "metrics",
+          "summary",
+          "paymentBehavior",
+          "riskLevel",
+          "suggestedAction"
+        ],
+        "type": "object"
+      },
       "DevRetriesRunNowResponseDto_Output": {
         "additionalProperties": false,
         "properties": {
@@ -1534,6 +1625,44 @@
           }
         },
         "tags": ["charges"]
+      }
+    },
+    "/customers/{id}/summary": {
+      "get": {
+        "operationId": "CustomerSummaryController_summary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSummaryResponseDto_Output"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": ["customers"]
       }
     },
     "/dev/retries/run-now": {

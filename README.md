@@ -160,6 +160,42 @@ A retry job separates a business failure from a technical one:
 
 `LLM_PROVIDER=fake` (default) answers deterministic JSON with no network and no key, so tests and CI never call a model. `LLM_PROVIDER=gemini` uses the official `@google/genai` SDK and requires `GEMINI_API_KEY`. `LLM_MODEL` (default `gemini-3.5-flash-lite`) and `LLM_TIMEOUT_MS` (default 8000, enforced with an `AbortSignal`) apply to both.
 
+## Customer summary (AI)
+
+`GET /customers/{id}/summary` returns a plain-language summary of how a customer pays, a risk level and a suggested next step for the team. The LLM only narrates; it never decides or acts.
+
+- **Numbers come from the code.** `monthsAsCustomer`, `totalPaidCents`, `failedAttempts`, `averageDaysLate` and `paymentSuccessRate` are computed from the database and returned as is; nothing numeric from the model reaches the response.
+- **Anonymized input.** The model receives an alias (`customer_<hash>`), the plan, the metrics and the payment timeline. No name, e-mail, document or real id, and no user-typed text.
+- **Validated output.** The reply must match a Zod schema (`summary`, `paymentBehavior`, `riskLevel`, `suggestedAction`, with length limits checked by the app); the JSON Schema sent to the provider is derived from the same schema.
+- **Deterministic fallback.** A provider error, timeout, truncated or empty reply, invalid JSON or an out-of-schema answer yields a rules-based summary in English with `source: "fallback"`. The endpoint never answers 5xx because of the LLM.
+- **Event-keyed cache.** Redis key `customer-summary:{customerId}:{lastEventId}`. `lastEventId` is `<latest updated_at/created_at among the customer's subscriptions, charges and attempts, in ms>-<charge count>-<attempt count>`, so any payment, failure, retry or status change produces a new key. Concurrent requests for the same key share one LLM call (in-process single-flight plus a Redis `SET NX` lock that other instances poll). LLM summaries live `CUSTOMER_SUMMARY_CACHE_TTL_SECONDS`; fallbacks only `CUSTOMER_SUMMARY_FALLBACK_TTL_SECONDS`, so the model is retried soon without every waiter hammering a failing provider. With Redis down the endpoint still answers, just without cache.
+- **Versioned prompt** in `src/llm/prompts/customer-summary.v1.md`; the version is returned as `promptVersion`.
+- **No tools.** The model cannot cancel, block or charge anything.
+
+Configuration: `LLM_PROVIDER` (`fake` default, `gemini`), `LLM_MODEL`, `LLM_TIMEOUT_MS`, `GEMINI_API_KEY` (only for `gemini`), `CUSTOMER_SUMMARY_CACHE_TTL_SECONDS` (default 86400), `CUSTOMER_SUMMARY_FALLBACK_TTL_SECONDS` (default 30). Each call logs `customer_summary.served` with model, prompt version, latency, tokens, source, cache outcome and failure reason, never the context or the raw answer.
+
+```json
+{
+  "customerId": "cus_123",
+  "source": "llm",
+  "promptVersion": "v1",
+  "generatedAt": "2026-11-04T12:00:00.000Z",
+  "metrics": {
+    "monthsAsCustomer": 8,
+    "totalPaidCents": 39920,
+    "failedAttempts": 3,
+    "averageDaysLate": 2.4,
+    "paymentSuccessRate": 0.85
+  },
+  "summary": "Customer for 8 months, mostly paying on time. Three card declines in the last two months, all recovered on the first retry.",
+  "paymentBehavior": "occasional_delays",
+  "riskLevel": "medium",
+  "suggestedAction": "Suggest switching to Pix or updating the card."
+}
+```
+
+`averageDaysLate` and `paymentSuccessRate` are `null` while there is nothing to average. `paymentBehavior` is one of `on_time`, `occasional_delays`, `frequent_delays`, `unreliable`, `insufficient_history`; `riskLevel` one of `low`, `medium`, `high`.
+
 ## Payment gateway
 
 `PAYMENT_GATEWAY=fake` (the only adapter for now) stores its customers and charges in the JSON file at `FAKE_GATEWAY_DATA_FILE`. Magic card tokens: `tok_success`, `tok_insufficient_funds`, `tok_expired_card`, `tok_fail_then_success` (declines the first attempt of a charge, approves the next), `tok_timeout_then_success` (the first call for a charge reference fails as gateway unavailable and stores nothing, later calls approve; the memory of that first timeout lives in the process) and anything else is declined as `invalid_token`.

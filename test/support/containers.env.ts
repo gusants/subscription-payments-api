@@ -11,6 +11,7 @@ process.env['REDIS_PORT'] = String(inject('redisPort'));
 process.env['FAKE_GATEWAY_EXPIRATION_SWEEP_INTERVAL_MS'] = '0';
 process.env['FAKE_GATEWAY_WEBHOOK_DISPATCH_ENABLED'] = 'false';
 process.env['WORKERS_ENABLED'] = 'false';
+process.env['LLM_TIMEOUT_MS'] = '200';
 process.env['GATEWAY_WEBHOOK_SECRET'] =
   'e2e-gateway-webhook-secret-with-32-chars';
 
