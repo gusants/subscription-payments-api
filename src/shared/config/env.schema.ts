@@ -12,6 +12,7 @@ export const envSchema = z.object({
   REDIS_HOST: z.string().min(1),
   REDIS_PORT: z.coerce.number().int().positive().default(6379),
   PAYMENT_GATEWAY: z.enum(['fake']).default('fake'),
+  GATEWAY_WEBHOOK_SECRET: z.string().min(32),
   FAKE_GATEWAY_DATA_FILE: z.string().min(1).default('data/fake-gateway.json'),
   FAKE_GATEWAY_ROUTES_ENABLED: z.stringbool().optional(),
   FAKE_GATEWAY_PIX_EXPIRATION_SECONDS: z.coerce
@@ -29,6 +30,18 @@ export const envSchema = z.object({
     .int()
     .nonnegative()
     .default(5000),
+  FAKE_GATEWAY_WEBHOOK_URL: z.url().optional(),
+  FAKE_GATEWAY_WEBHOOK_DELAY_MS: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(500),
+  FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE: z.coerce
+    .number()
+    .min(0)
+    .max(1)
+    .default(0),
+  FAKE_GATEWAY_WEBHOOK_DISPATCH_ENABLED: z.stringbool().default(true),
   CHARGE_ATTEMPT_LEASE_SECONDS: z.coerce.number().int().positive().default(30),
 });
 

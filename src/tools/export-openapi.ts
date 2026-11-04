@@ -11,6 +11,8 @@ process.env['FAKE_GATEWAY_ROUTES_ENABLED'] = 'true';
 process.env['DATABASE_URL'] ??=
   'postgresql://openapi:openapi@localhost:5432/openapi';
 process.env['REDIS_HOST'] ??= 'localhost';
+process.env['GATEWAY_WEBHOOK_SECRET'] ??=
+  'openapi-export-placeholder-webhook-secret';
 
 const { AppModule } = await import('../app.module.js');
 const { buildOpenApiDocument } =

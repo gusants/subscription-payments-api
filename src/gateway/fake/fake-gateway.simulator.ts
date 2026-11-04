@@ -2,12 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { Clock } from '../../shared/clock/index.js';
 import { ConflictError, NotFoundError } from '../../shared/errors/index.js';
 import type { GatewayCharge } from '../payment-gateway.port.js';
+import { appendChargeEvents } from './fake-gateway-events.js';
 import { toGatewayCharge } from './fake-gateway-charge.mapper.js';
 import {
   FakeGatewayStore,
   type FakeGatewayData,
   type StoredGatewayCharge,
 } from './fake-gateway.store.js';
+import { FakeWebhookDispatcher } from './webhook/fake-webhook.dispatcher.js';
 
 type AsynchronousStatus = Extract<
   StoredGatewayCharge['status'],
@@ -35,6 +37,7 @@ export class FakeGatewaySimulator {
   constructor(
     private readonly store: FakeGatewayStore,
     private readonly clock: Clock,
+    private readonly webhooks: FakeWebhookDispatcher,
   ) {}
 
   pay(externalRef: string): Promise<GatewayCharge> {
@@ -45,33 +48,44 @@ export class FakeGatewaySimulator {
     return this.settlePending(externalRef, 'expired');
   }
 
-  expireDue(): Promise<GatewayCharge[]> {
-    const now = this.clock.now().getTime();
-    return this.store.transaction((data) => {
+  async expireDue(): Promise<GatewayCharge[]> {
+    const at = this.clock.now();
+    const { charges, events } = await this.store.transaction((data) => {
       const due = data.charges.filter(
         (charge) =>
           charge.status === 'pending' &&
           charge.expiresAt !== undefined &&
-          new Date(charge.expiresAt).getTime() <= now,
+          new Date(charge.expiresAt).getTime() <= at.getTime(),
       );
       for (const charge of due) charge.status = 'expired';
-      return due.map(toGatewayCharge);
+      return {
+        charges: due.map(toGatewayCharge),
+        events: appendChargeEvents(data, due, at),
+      };
     });
+    this.webhooks.schedule(events);
+    return charges;
   }
 
-  private settlePending(
+  private async settlePending(
     externalRef: string,
     status: AsynchronousStatus,
   ): Promise<GatewayCharge> {
-    return this.store.transaction((data) => {
-      const charge = findInvoiceCharge(data, externalRef);
-      if (charge.status !== 'pending') {
+    const at = this.clock.now();
+    const { charge, events } = await this.store.transaction((data) => {
+      const found = findInvoiceCharge(data, externalRef);
+      if (found.status !== 'pending') {
         throw new ConflictError(
-          `Charge ${externalRef} is ${charge.status}, not pending`,
+          `Charge ${externalRef} is ${found.status}, not pending`,
         );
       }
-      charge.status = status;
-      return toGatewayCharge(charge);
+      found.status = status;
+      return {
+        charge: toGatewayCharge(found),
+        events: appendChargeEvents(data, [found], at),
+      };
     });
+    this.webhooks.schedule(events);
+    return charge;
   }
 }

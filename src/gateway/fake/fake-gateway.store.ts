@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import type { GatewayEventType } from '../gateway-webhook-event.js';
 import type {
   GatewayChargeMethod,
   GatewayChargeStatus,
@@ -31,10 +32,20 @@ export interface StoredGatewayCharge {
   paymentInstructions?: PaymentInstructions;
 }
 
+export interface StoredGatewayEvent {
+  id: string;
+  type: GatewayEventType;
+  chargeId: string;
+  externalRef: string;
+  occurredAt: string;
+  deliveredAt: string | null;
+  attempts: number;
+}
+
 export interface FakeGatewayData {
   customers: StoredGatewayCustomer[];
   charges: StoredGatewayCharge[];
-  events: unknown[];
+  events: StoredGatewayEvent[];
 }
 
 const emptyData = (): FakeGatewayData => ({

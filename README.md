@@ -74,6 +74,10 @@ Dev routes (same gating as `reset`). `{id}` is our charge id (`ch_...`) and they
 - `POST /fake-gateway/charges/{id}/pay` and `POST /fake-gateway/charges/{id}/expire` move a pending pix or boleto gateway charge to `paid` or `expired` and answer with it (`404` unknown charge, `409` when not a pending pix or boleto).
 - `POST /fake-gateway/subscriptions/{id}/card` with `{ "cardToken": "tok_..." }` replaces the card token of a card subscription (`204`; `404` unknown, `422` not a card subscription), so the next attempt can be forced to decline.
 
+### Gateway webhooks
+
+Every gateway charge status change (card paid or failed on creation, pix or boleto paid or expired) appends an event `evt_<ulid>` to the fake store and delivers it with `POST` to `FAKE_GATEWAY_WEBHOOK_URL` (default `http://localhost:$PORT/webhooks/gateway`) after `FAKE_GATEWAY_WEBHOOK_DELAY_MS` (default 500). The body is `{ id, type, createdAt, data: { charge } }` with `type` `charge.paid`, `charge.failed` or `charge.expired`, signed in `x-gateway-signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">` with `GATEWAY_WEBHOOK_SECRET` (required, at least 32 characters; the Docker demo and `.env.example` ship a dev value). A failed delivery (non-2xx or network error) is resent up to 3 times with 1s, 2s and 4s backoff, then given up. With probability `FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE` (0 to 1, default 0) the same event is sent a second time. `FAKE_GATEWAY_WEBHOOK_DISPATCH_ENABLED=false` appends the events but delivers nothing; the test setup turns it off.
+
 ## Charge attempts and retries
 
 Every gateway attempt carries the idempotency key `<chargeId>:<attemptNumber>`, persisted before the gateway is called, so re-sending an attempt never charges twice.

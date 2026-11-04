@@ -12,6 +12,7 @@ import {
   type GatewayCustomer,
   type GatewayFailureReason,
 } from '../payment-gateway.port.js';
+import { appendChargeEvents } from './fake-gateway-events.js';
 import { toGatewayCharge } from './fake-gateway-charge.mapper.js';
 import {
   FAKE_CHARGE_EXPIRATION,
@@ -25,6 +26,7 @@ import {
   boletoInstructions,
   pixInstructions,
 } from './fake-payment-instructions.js';
+import { FakeWebhookDispatcher } from './webhook/fake-webhook.dispatcher.js';
 
 type ChargeOutcome =
   | { status: 'paid' }
@@ -61,6 +63,7 @@ export class FakeGatewayAdapter extends PaymentGateway {
     private readonly clock: Clock,
     @Inject(FAKE_CHARGE_EXPIRATION)
     private readonly expiration: FakeChargeExpiration,
+    private readonly webhooks: FakeWebhookDispatcher,
   ) {
     super();
   }
@@ -84,28 +87,33 @@ export class FakeGatewayAdapter extends PaymentGateway {
   createCharge(input: CreateGatewayCharge): Promise<GatewayCharge> {
     const id = generateId(ID_PREFIXES.gatewayCharge);
     const createdAt = this.clock.now().toISOString();
-    return this.guarded(() =>
-      this.store.transaction((data) => {
+    return this.guarded(async () => {
+      const { charge, events } = await this.store.transaction((data) => {
         const existing = data.charges.find(
           ({ idempotencyKey }) => idempotencyKey === input.idempotencyKey,
         );
-        if (existing) return toGatewayCharge(existing);
+        if (existing) return { charge: toGatewayCharge(existing), events: [] };
         if (!data.customers.some(({ id }) => id === input.gatewayCustomerId)) {
           throw new GatewayCustomerNotFoundError(input.gatewayCustomerId);
         }
         const previousAttempts = data.charges.filter(
           ({ externalRef }) => externalRef === input.externalRef,
         ).length;
-        const charge = this.buildCharge(
+        const created = this.buildCharge(
           input,
           id,
           createdAt,
           previousAttempts + 1,
         );
-        data.charges.push(charge);
-        return toGatewayCharge(charge);
-      }),
-    );
+        data.charges.push(created);
+        return {
+          charge: toGatewayCharge(created),
+          events: appendChargeEvents(data, [created], this.clock.now()),
+        };
+      });
+      this.webhooks.schedule(events);
+      return charge;
+    });
   }
 
   findChargeByIdempotencyKey(

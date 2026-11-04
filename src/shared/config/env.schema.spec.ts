@@ -3,6 +3,7 @@ import { validateEnv } from './env.schema.js';
 const validEnv = {
   DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
   REDIS_HOST: 'localhost',
+  GATEWAY_WEBHOOK_SECRET: 'a-webhook-secret-with-at-least-32-characters',
 };
 
 describe('validateEnv', () => {
@@ -15,6 +16,9 @@ describe('validateEnv', () => {
       REDIS_PORT: 6379,
       PAYMENT_GATEWAY: 'fake',
       FAKE_GATEWAY_DATA_FILE: 'data/fake-gateway.json',
+      FAKE_GATEWAY_WEBHOOK_DELAY_MS: 500,
+      FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE: 0,
+      FAKE_GATEWAY_WEBHOOK_DISPATCH_ENABLED: true,
       FAKE_GATEWAY_PIX_EXPIRATION_SECONDS: 1800,
       FAKE_GATEWAY_BOLETO_EXPIRATION_SECONDS: 259200,
       FAKE_GATEWAY_EXPIRATION_SWEEP_INTERVAL_MS: 5000,
@@ -76,6 +80,68 @@ describe('validateEnv', () => {
         FAKE_GATEWAY_EXPIRATION_SWEEP_INTERVAL_MS: '0',
       }).FAKE_GATEWAY_EXPIRATION_SWEEP_INTERVAL_MS,
     ).toBe(0);
+  });
+
+  it('rejects a missing webhook secret', () => {
+    expect(() =>
+      validateEnv({
+        DATABASE_URL: validEnv.DATABASE_URL,
+        REDIS_HOST: 'localhost',
+      }),
+    ).toThrow(/GATEWAY_WEBHOOK_SECRET/);
+  });
+
+  it('rejects a webhook secret shorter than 32 characters', () => {
+    expect(() =>
+      validateEnv({ ...validEnv, GATEWAY_WEBHOOK_SECRET: 'x'.repeat(31) }),
+    ).toThrow(/GATEWAY_WEBHOOK_SECRET/);
+  });
+
+  it('keeps the webhook url unset so it can default from the port', () => {
+    expect(validateEnv(validEnv).FAKE_GATEWAY_WEBHOOK_URL).toBeUndefined();
+  });
+
+  it('accepts a custom webhook url', () => {
+    expect(
+      validateEnv({
+        ...validEnv,
+        FAKE_GATEWAY_WEBHOOK_URL: 'http://api:3000/webhooks/gateway',
+      }).FAKE_GATEWAY_WEBHOOK_URL,
+    ).toBe('http://api:3000/webhooks/gateway');
+  });
+
+  it.each(['-0.1', '1.1', 'often'])(
+    'rejects FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE=%s',
+    (FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE) => {
+      expect(() =>
+        validateEnv({ ...validEnv, FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE }),
+      ).toThrow(/FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE/);
+    },
+  );
+
+  it.each(['0', '0.25', '1'])(
+    'accepts FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE=%s',
+    (FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE) => {
+      expect(
+        validateEnv({ ...validEnv, FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE })
+          .FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE,
+      ).toBe(Number(FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE));
+    },
+  );
+
+  it('rejects a negative webhook delay', () => {
+    expect(() =>
+      validateEnv({ ...validEnv, FAKE_GATEWAY_WEBHOOK_DELAY_MS: '-1' }),
+    ).toThrow(/FAKE_GATEWAY_WEBHOOK_DELAY_MS/);
+  });
+
+  it('can turn webhook dispatch off', () => {
+    expect(
+      validateEnv({
+        ...validEnv,
+        FAKE_GATEWAY_WEBHOOK_DISPATCH_ENABLED: 'false',
+      }).FAKE_GATEWAY_WEBHOOK_DISPATCH_ENABLED,
+    ).toBe(false);
   });
 
   it('rejects a missing database url', () => {

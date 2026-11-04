@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { FakeExpirationSweeper } from './fake-expiration-sweeper.js';
 import type { FakeGatewaySimulator } from './fake-gateway.simulator.js';
 
@@ -7,11 +8,13 @@ describe('FakeExpirationSweeper', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     expireDue.mockReset().mockResolvedValue([]);
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('sweeps on every interval after init', async () => {

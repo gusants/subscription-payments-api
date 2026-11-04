@@ -9,8 +9,11 @@ import type {
   CreateGatewayCharge,
   GatewayCustomer,
 } from '../payment-gateway.port.js';
+import { buildFakeWebhookDispatcher } from '../testing/build-fake-webhook-dispatcher.js';
+import type { ManualDelayScheduler } from '../testing/manual-delay-scheduler.js';
 import { FakeGatewayAdapter } from './fake-gateway.adapter.js';
 import { FakeGatewayStore } from './fake-gateway.store.js';
+import type { FakeWebhookDispatcher } from './webhook/fake-webhook.dispatcher.js';
 
 const now = new Date('2026-11-03T10:00:00.000Z');
 const expiration = { pixMs: 30 * 60_000, boletoMs: 3 * 24 * 3_600_000 };
@@ -19,6 +22,9 @@ describe('FakeGatewayAdapter', () => {
   let directory: string;
   let filePath: string;
   let gateway: FakeGatewayAdapter;
+  let store: FakeGatewayStore;
+  let webhooks: FakeWebhookDispatcher;
+  let scheduler: ManualDelayScheduler;
   let customer: GatewayCustomer;
   let keySequence: number;
 
@@ -39,11 +45,13 @@ describe('FakeGatewayAdapter', () => {
     keySequence = 0;
     directory = await mkdtemp(join(tmpdir(), 'fake-gateway-'));
     filePath = join(directory, 'data', 'fake-gateway.json');
-    gateway = new FakeGatewayAdapter(
-      new FakeGatewayStore(filePath),
-      new FixedClock(now),
-      expiration,
-    );
+    store = new FakeGatewayStore(filePath);
+    const clock = new FixedClock(now);
+    ({ dispatcher: webhooks, scheduler } = buildFakeWebhookDispatcher({
+      store,
+      clock,
+    }));
+    gateway = new FakeGatewayAdapter(store, clock, expiration, webhooks);
     customer = await gateway.createCustomer({
       externalRef: 'cus_1',
       name: 'Ana',
@@ -235,6 +243,60 @@ describe('FakeGatewayAdapter', () => {
     });
   });
 
+  describe('webhook events', () => {
+    const storedEvents = () => store.read((data) => data.events);
+
+    it.each([
+      ['tok_success', 'charge.paid'],
+      ['tok_insufficient_funds', 'charge.failed'],
+    ])(
+      'appends an event for a card charge decided as %s',
+      async (token, type) => {
+        const created = await gateway.createCharge(charge(token, 'chg_9'));
+
+        expect(await storedEvents()).toEqual([
+          {
+            id: expect.stringMatching(/^evt_[0-9a-z]{26}$/),
+            type,
+            chargeId: created.id,
+            externalRef: 'chg_9',
+            occurredAt: now.toISOString(),
+            deliveredAt: null,
+            attempts: 0,
+          },
+        ]);
+      },
+    );
+
+    it('schedules the delivery of the new event after the webhook delay', async () => {
+      await gateway.createCharge(charge('tok_success'));
+
+      expect(scheduler.delays).toEqual([500]);
+    });
+
+    it('appends no event while a pix charge is pending', async () => {
+      await gateway.createCharge({
+        gatewayCustomerId: customer.id,
+        amountCents: 4990,
+        method: 'pix',
+        externalRef: 'chg_1',
+        idempotencyKey: 'pix_key',
+      });
+
+      expect(await storedEvents()).toEqual([]);
+      expect(scheduler.delays).toEqual([]);
+    });
+
+    it('appends no second event when an idempotent request is replayed', async () => {
+      const input = charge('tok_success', 'chg_1', 'same');
+      await gateway.createCharge(input);
+      await gateway.createCharge(input);
+
+      expect(await storedEvents()).toHaveLength(1);
+      expect(scheduler.delays).toEqual([500]);
+    });
+  });
+
   describe('pix and boleto', () => {
     const invoice = (
       method: 'pix' | 'boleto',
@@ -317,10 +379,13 @@ describe('FakeGatewayAdapter', () => {
 
     it('reads charges persisted by another adapter instance', async () => {
       const created = await gateway.createCharge(charge('tok_success'));
+      const otherStore = new FakeGatewayStore(filePath);
+      const clock = new FixedClock(now);
       const other = new FakeGatewayAdapter(
-        new FakeGatewayStore(filePath),
-        new FixedClock(now),
+        otherStore,
+        clock,
         expiration,
+        buildFakeWebhookDispatcher({ store: otherStore, clock }).dispatcher,
       );
 
       expect(await other.getCharge(created.id)).toEqual(created);

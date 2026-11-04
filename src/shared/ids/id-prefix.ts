@@ -6,6 +6,7 @@ export const ID_PREFIXES = {
   paymentAttempt: 'pa_',
   gatewayCustomer: 'gcus_',
   gatewayCharge: 'gch_',
+  gatewayEvent: 'evt_',
   webhookEvent: 'whe_',
 } as const;
 
