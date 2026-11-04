@@ -150,6 +150,60 @@ describe('PrismaCustomersRepository (integration)', () => {
     });
   });
 
+  describe('replaceGatewayCustomerId', () => {
+    it('replaces the expected gateway customer id and returns the new one', async () => {
+      const customer = await repository.create(newCustomer('Ana'));
+      await repository.assignGatewayCustomerId(customer.id, 'gcus_old');
+
+      const replaced = await repository.replaceGatewayCustomerId(
+        customer.id,
+        'gcus_old',
+        'gcus_new',
+      );
+
+      expect(replaced).toBe('gcus_new');
+      expect((await repository.findById(customer.id))?.gatewayCustomerId).toBe(
+        'gcus_new',
+      );
+    });
+
+    it('keeps the current id and returns it when it is not the expected one', async () => {
+      const customer = await repository.create(newCustomer('Ana'));
+      await repository.assignGatewayCustomerId(customer.id, 'gcus_current');
+
+      const replaced = await repository.replaceGatewayCustomerId(
+        customer.id,
+        'gcus_stale',
+        'gcus_new',
+      );
+
+      expect(replaced).toBe('gcus_current');
+    });
+
+    it('answers one winning id to every concurrent caller', async () => {
+      const customer = await repository.create(newCustomer('Ana'));
+      await repository.assignGatewayCustomerId(customer.id, 'gcus_old');
+      const candidates = Array.from({ length: 10 }, (_, i) => `gcus_${i}`);
+
+      const answers = await Promise.all(
+        candidates.map((id) =>
+          repository.replaceGatewayCustomerId(customer.id, 'gcus_old', id),
+        ),
+      );
+
+      const stored = (await repository.findById(customer.id))
+        ?.gatewayCustomerId;
+      expect(candidates).toContain(stored);
+      expect(new Set(answers)).toEqual(new Set([stored]));
+    });
+
+    it('rejects an unknown customer with NotFoundError', async () => {
+      await expect(
+        repository.replaceGatewayCustomerId('cus_missing', 'gcus_1', 'gcus_2'),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
   describe('findById', () => {
     it('returns the customer without gateway fields', async () => {
       const created = await repository.create(newCustomer('Ana'));

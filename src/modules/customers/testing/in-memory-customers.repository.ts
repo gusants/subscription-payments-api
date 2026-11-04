@@ -50,6 +50,24 @@ export class InMemoryCustomersRepository extends CustomersRepository {
     return Promise.resolve(assigned);
   }
 
+  replaceGatewayCustomerId(
+    id: string,
+    replaced: string,
+    replacement: string,
+  ): Promise<string> {
+    const index = this.customers.findIndex((customer) => customer.id === id);
+    const customer = this.customers[index];
+    if (!customer?.gatewayCustomerId) {
+      return Promise.reject(new NotFoundError(`Customer ${id} not found`));
+    }
+    const current =
+      customer.gatewayCustomerId === replaced
+        ? replacement
+        : customer.gatewayCustomerId;
+    this.customers[index] = { ...customer, gatewayCustomerId: current };
+    return Promise.resolve(current);
+  }
+
   findById(id: string): Promise<Customer | null> {
     return Promise.resolve(
       this.customers.find((customer) => customer.id === id) ?? null,

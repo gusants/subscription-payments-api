@@ -9,10 +9,11 @@ import {
 import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
 import type { SubscriptionStatus } from '../subscriptions/subscription-status.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
-import { ChargeProcessor } from './charge-processor.js';
 import type { ChargeStatus } from './charge-status.js';
 import { ChargesService } from './charges.service.js';
+import { InvalidTransitionError } from '../subscriptions/domain/index.js';
 import { InvalidChargeTransitionError } from './domain/index.js';
+import { buildChargeProcessor } from './testing/build-charge-processor.js';
 import { InMemoryBillingRepository } from './testing/in-memory-billing.repository.js';
 import { InMemoryChargesRepository } from './testing/in-memory-charges.repository.js';
 
@@ -24,6 +25,7 @@ describe('ChargesService', () => {
   let subscriptions: InMemorySubscriptionsRepository;
   let billing: InMemoryBillingRepository;
   let gateway: StubPaymentGateway;
+  let clock: FixedClock;
   let service: ChargesService;
 
   beforeEach(() => {
@@ -31,11 +33,17 @@ describe('ChargesService', () => {
     subscriptions = new InMemorySubscriptionsRepository();
     billing = new InMemoryBillingRepository(subscriptions);
     gateway = new StubPaymentGateway();
+    clock = new FixedClock(retriedAt);
     service = new ChargesService(
       new InMemoryChargesRepository(billing, subscriptions),
-      billing,
       customers,
-      new ChargeProcessor(billing, gateway, new FixedClock(retriedAt)),
+      buildChargeProcessor({
+        billing,
+        subscriptions,
+        customers,
+        gateway,
+        clock,
+      }),
     );
   });
 
@@ -78,27 +86,33 @@ describe('ChargesService', () => {
         dueDate: periodStart,
         periodStart,
         periodEnd,
+        gatewayAttemptKey: `${chargeId}:1`,
+        attemptStartedAt: periodStart,
       },
     );
-    if (chargeStatus === 'failed') {
+    if (chargeStatus === 'failed' || chargeStatus === 'paid') {
+      const declined = chargeStatus === 'failed';
       await billing.recordChargeOutcome({
         charge: {
           id: chargeId,
           fromAnyOf: ['pending'],
-          to: 'failed',
+          to: chargeStatus,
           gatewayChargeId: `gch_${chargeId}`,
-          paidAt: null,
+          paidAt: declined ? null : periodStart,
         },
         attempt: {
           id: `pa_${chargeId}`,
           chargeId,
           gatewayChargeId: `gch_${chargeId}`,
-          result: 'declined',
-          failureReason: 'insufficient_funds',
+          result: declined ? 'declined' : 'succeeded',
+          failureReason: declined ? 'insufficient_funds' : null,
         },
         subscription: {
           id: subscriptionId,
-          change: { fromAnyOf: ['incomplete'], to: 'past_due' },
+          change: {
+            fromAnyOf: ['incomplete'],
+            to: declined ? 'past_due' : 'active',
+          },
         },
       });
     }
@@ -240,25 +254,51 @@ describe('ChargesService', () => {
       expect(subscription.status).toBe('active');
     });
 
-    it.each<ChargeStatus>(['pending', 'paid'])(
-      'rejects retrying a %s charge without calling the gateway',
-      async (chargeStatus) => {
-        await seedCustomer();
-        await seedCharge({ chargeStatus, subscriptionStatus: 'incomplete' });
+    it('rejects retrying a paid charge without calling the gateway', async () => {
+      await seedCustomer();
+      await seedCharge({
+        chargeStatus: 'paid',
+        subscriptionStatus: 'incomplete',
+      });
 
-        await expect(service.retry('ch_1')).rejects.toBeInstanceOf(
-          InvalidChargeTransitionError,
-        );
-        expect(gateway.chargesRequested).toEqual([]);
-      },
-    );
+      await expect(service.retry('ch_1')).rejects.toBeInstanceOf(
+        InvalidChargeTransitionError,
+      );
+      expect(gateway.chargesRequested).toEqual([]);
+    });
+
+    it('reconciles a pending charge whose lease expired instead of rejecting it', async () => {
+      await seedCustomer();
+      await seedCharge({
+        chargeStatus: 'pending',
+        subscriptionStatus: 'incomplete',
+      });
+
+      const { charge, subscription } = await service.retry('ch_1');
+
+      expect(charge.status).toBe('paid');
+      expect(subscription.status).toBe('active');
+      expect(gateway.chargesRequested).toHaveLength(1);
+    });
+
+    it('rejects retrying a pending charge still within its lease as in flight', async () => {
+      await seedCustomer();
+      await seedCharge({
+        chargeStatus: 'pending',
+        subscriptionStatus: 'incomplete',
+      });
+      clock.set(periodStart);
+
+      await expect(service.retry('ch_1')).rejects.toBeInstanceOf(ConflictError);
+      expect(gateway.chargesRequested).toEqual([]);
+    });
 
     it('rejects retrying a charge of a canceled subscription without calling the gateway', async () => {
       await seedCustomer();
       await seedCharge({ subscriptionStatus: 'canceled' });
 
-      await expect(service.retry('ch_1')).rejects.toThrow(
-        new ConflictError('Subscription sub_ch_1 is canceled'),
+      await expect(service.retry('ch_1')).rejects.toBeInstanceOf(
+        InvalidTransitionError,
       );
       expect(gateway.chargesRequested).toEqual([]);
     });

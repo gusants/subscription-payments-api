@@ -1,13 +1,19 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../shared/database/prisma.service.js';
 import { ConflictError } from '../../shared/errors/index.js';
-import type { NewSubscription } from '../subscriptions/subscription.js';
+import type {
+  NewSubscription,
+  StatusChange,
+} from '../subscriptions/subscription.js';
 import { BillingRepository } from './billing.repository.js';
 import type { ChargeStatus } from './charge-status.js';
 import type {
   Charge,
   ChargeOutcomeRecord,
+  GatewayAttempt,
   NewCharge,
+  RecordedOutcome,
   SubscriptionWithCharge,
 } from './charge.js';
 
@@ -30,21 +36,53 @@ export class PrismaBillingRepository extends BillingRepository {
   async markChargePending(
     id: string,
     fromAnyOf: readonly ChargeStatus[],
+    attempt: GatewayAttempt,
   ): Promise<Charge | null> {
     const { count } = await this.prisma.charge.updateMany({
       where: { id, status: { in: [...fromAnyOf] } },
-      data: { status: 'pending' },
+      data: { status: 'pending', ...attempt },
     });
     return count === 0
       ? null
       : this.prisma.charge.findUniqueOrThrow({ where: { id } });
   }
 
+  async takeAttemptLease(
+    id: string,
+    leaseExpiredBefore: Date,
+    startedAt: Date,
+  ): Promise<Charge | null> {
+    const { count } = await this.prisma.charge.updateMany({
+      where: {
+        id,
+        status: 'pending',
+        OR: [
+          { attemptStartedAt: null },
+          { attemptStartedAt: { lt: leaseExpiredBefore } },
+        ],
+      },
+      data: { attemptStartedAt: startedAt },
+    });
+    return count === 0
+      ? null
+      : this.prisma.charge.findUniqueOrThrow({ where: { id } });
+  }
+
+  async attachGatewayCharge(
+    id: string,
+    gatewayChargeId: string,
+  ): Promise<void> {
+    await this.prisma.charge.updateMany({
+      where: { id, status: 'pending' },
+      data: { gatewayChargeId },
+    });
+  }
+
   recordChargeOutcome({
     charge,
     attempt,
     subscription,
-  }: ChargeOutcomeRecord): Promise<SubscriptionWithCharge> {
+  }: ChargeOutcomeRecord): Promise<RecordedOutcome> {
     return this.prisma.$transaction(async (tx) => {
       const { count } = await tx.charge.updateMany({
         where: { id: charge.id, status: { in: [...charge.fromAnyOf] } },
@@ -61,19 +99,31 @@ export class PrismaBillingRepository extends BillingRepository {
         );
       }
       await tx.paymentAttempt.create({ data: attempt });
-      if (subscription.change) {
-        const { fromAnyOf, to, canceledAt } = subscription.change;
-        await tx.subscription.updateMany({
-          where: { id: subscription.id, status: { in: [...fromAnyOf] } },
-          data: { status: to, ...(canceledAt && { canceledAt }) },
-        });
-      }
+      const changed = subscription.change
+        ? await this.changeSubscription(
+            tx,
+            subscription.id,
+            subscription.change,
+          )
+        : null;
       return {
+        subscriptionChangeApplied: changed === null || changed.count > 0,
         subscription: await tx.subscription.findUniqueOrThrow({
           where: { id: subscription.id },
         }),
         charge: await tx.charge.findUniqueOrThrow({ where: { id: charge.id } }),
       };
+    });
+  }
+
+  private changeSubscription(
+    tx: Prisma.TransactionClient,
+    id: string,
+    { fromAnyOf, to, canceledAt }: StatusChange,
+  ): Prisma.PrismaPromise<Prisma.BatchPayload> {
+    return tx.subscription.updateMany({
+      where: { id, status: { in: [...fromAnyOf] } },
+      data: { status: to, ...(canceledAt && { canceledAt }) },
     });
   }
 }

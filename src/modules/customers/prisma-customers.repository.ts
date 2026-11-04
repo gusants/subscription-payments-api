@@ -62,6 +62,22 @@ export class PrismaCustomersRepository extends CustomersRepository {
     return customer.gatewayCustomerId;
   }
 
+  async replaceGatewayCustomerId(
+    id: string,
+    replaced: string,
+    replacement: string,
+  ): Promise<string> {
+    await this.prisma.customer.updateMany({
+      where: { id, gatewayCustomerId: replaced },
+      data: { gatewayCustomerId: replacement },
+    });
+    const customer = await this.findById(id);
+    if (!customer?.gatewayCustomerId) {
+      throw new NotFoundError(`Customer ${id} not found`);
+    }
+    return customer.gatewayCustomerId;
+  }
+
   findById(id: string): Promise<Customer | null> {
     return this.prisma.customer.findUnique({
       where: { id },

@@ -26,6 +26,7 @@ export class StubPaymentGateway extends PaymentGateway {
   readonly chargesProcessed = new Map<string, GatewayCharge>();
   private chargeResult: ChargeResult = { status: 'paid' };
   private customerError: Error | null = null;
+  private lookupError: Error | null = null;
   private chargeFailure: ChargeFailure | null = null;
 
   respondWith(result: ChargeResult): void {
@@ -41,6 +42,10 @@ export class StubPaymentGateway extends PaymentGateway {
     { times = Infinity, afterProcessing = false }: ChargeFailureOptions = {},
   ): void {
     this.chargeFailure = { error, remaining: times, afterProcessing };
+  }
+
+  failLookupWith(error: Error): void {
+    this.lookupError = error;
   }
 
   createCustomer(input: CreateGatewayCustomer): Promise<GatewayCustomer> {
@@ -64,6 +69,7 @@ export class StubPaymentGateway extends PaymentGateway {
   findChargeByIdempotencyKey(
     idempotencyKey: string,
   ): Promise<GatewayCharge | null> {
+    if (this.lookupError) return Promise.reject(this.lookupError);
     return Promise.resolve(this.chargesProcessed.get(idempotencyKey) ?? null);
   }
 

@@ -1,102 +1,526 @@
+import { Logger } from '@nestjs/common';
+import {
+  GatewayCustomerNotFoundError,
+  GatewayOutcomeUnknownError,
+  GatewayUnavailableError,
+} from '../../gateway/index.js';
 import { StubPaymentGateway } from '../../gateway/testing/stub-payment-gateway.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
-import { UnprocessableError } from '../../shared/errors/index.js';
+import {
+  ConflictError,
+  NotFoundError,
+  UnprocessableError,
+} from '../../shared/errors/index.js';
+import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
+import { InvalidTransitionError } from '../subscriptions/domain/index.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
+import type { AttemptTarget } from './charge-processor.js';
 import { ChargeProcessor } from './charge-processor.js';
+import { InvalidChargeTransitionError } from './domain/index.js';
+import {
+  buildChargeProcessor,
+  TEST_ATTEMPT_LEASE_MS,
+} from './testing/build-charge-processor.js';
 import { InMemoryBillingRepository } from './testing/in-memory-billing.repository.js';
 
 describe('ChargeProcessor', () => {
   const periodStart = new Date('2026-01-31T10:30:00.000Z');
   const periodEnd = new Date('2026-02-28T10:30:00.000Z');
+  const afterLease = new Date(
+    periodStart.getTime() + TEST_ATTEMPT_LEASE_MS + 1,
+  );
+  const withinLease = new Date(periodStart.getTime() + TEST_ATTEMPT_LEASE_MS);
   let billing: InMemoryBillingRepository;
+  let subscriptions: InMemorySubscriptionsRepository;
+  let customers: InMemoryCustomersRepository;
   let gateway: StubPaymentGateway;
+  let clock: FixedClock;
   let processor: ChargeProcessor;
+  let errorLog: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    billing = new InMemoryBillingRepository(
-      new InMemorySubscriptionsRepository(),
-    );
+    subscriptions = new InMemorySubscriptionsRepository();
+    billing = new InMemoryBillingRepository(subscriptions);
+    customers = new InMemoryCustomersRepository();
     gateway = new StubPaymentGateway();
-    processor = new ChargeProcessor(
+    clock = new FixedClock(periodStart);
+    processor = buildChargeProcessor({
       billing,
+      subscriptions,
+      customers,
       gateway,
-      new FixedClock(periodStart),
-    );
+      clock,
+    });
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    errorLog = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
   });
 
-  const seed = (cardToken: string | null) =>
-    billing.createSubscriptionWithFirstCharge(
-      {
-        id: 'sub_1',
-        customerId: 'cus_1',
-        planId: 'plan_1',
-        paymentMethod: 'card',
-        status: 'incomplete',
-        cardToken,
-        billingAnchor: periodStart,
-        currentPeriodStart: periodStart,
-        currentPeriodEnd: periodEnd,
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function seed(cardToken: string | null = 'tok_success') {
+    await customers.create({ id: 'cus_1', name: 'Ana', email: 'ana@e.com' });
+    await customers.assignGatewayCustomerId('cus_1', 'gcus_1');
+    const { subscription, charge } =
+      await billing.createSubscriptionWithFirstCharge(
+        {
+          id: 'sub_1',
+          customerId: 'cus_1',
+          planId: 'plan_1',
+          paymentMethod: 'card',
+          status: 'incomplete',
+          cardToken,
+          billingAnchor: periodStart,
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+        },
+        {
+          id: 'ch_1',
+          subscriptionId: 'sub_1',
+          amountCents: 1990,
+          method: 'card',
+          dueDate: periodStart,
+          periodStart,
+          periodEnd,
+          gatewayAttemptKey: 'ch_1:1',
+          attemptStartedAt: periodStart,
+        },
+      );
+    const customer = await customers.findById('cus_1');
+    return {
+      charge,
+      target: {
+        charge,
+        subscription: { ...subscription, cardToken: cardToken ?? '' },
+        customer: { ...customer!, gatewayCustomerId: 'gcus_1' },
+      } satisfies AttemptTarget,
+    };
+  }
+
+  const storedCharge = () => billing.charges()[0]!;
+
+  describe('process', () => {
+    it('settles an approved charge, activates the subscription and stores the gateway charge', async () => {
+      const { target } = await seed();
+
+      const processed = await processor.process(target);
+
+      expect(processed.charge.status).toBe('paid');
+      expect(processed.subscription.status).toBe('active');
+      expect(processed.failureReason).toBeNull();
+      expect(storedCharge().gatewayChargeId).toBe(
+        [...gateway.chargesProcessed.values()][0]?.id,
+      );
+    });
+
+    it('sends the persisted attempt key as the idempotency key', async () => {
+      const { target } = await seed();
+
+      await processor.process(target);
+
+      expect(gateway.chargesRequested).toEqual([
+        expect.objectContaining({
+          gatewayCustomerId: 'gcus_1',
+          externalRef: 'ch_1',
+          idempotencyKey: 'ch_1:1',
+          cardToken: 'tok_success',
+        }),
+      ]);
+    });
+
+    it('exposes the failure reason of a declined charge', async () => {
+      const { target } = await seed('tok_insufficient_funds');
+      gateway.respondWith({
+        status: 'failed',
+        failureReason: 'insufficient_funds',
+      });
+
+      const processed = await processor.process(target);
+
+      expect(processed.charge.status).toBe('failed');
+      expect(processed.subscription.status).toBe('past_due');
+      expect(processed.failureReason).toBe('insufficient_funds');
+    });
+
+    it('keeps the charge pending but stores the gateway charge when the gateway answers pending', async () => {
+      const { target } = await seed();
+      gateway.respondWith({ status: 'pending' });
+
+      const processed = await processor.process(target);
+
+      expect(processed.charge.status).toBe('pending');
+      expect(storedCharge()).toMatchObject({
+        status: 'pending',
+        gatewayChargeId: [...gateway.chargesProcessed.values()][0]?.id,
+        gatewayAttemptKey: 'ch_1:1',
+      });
+      expect(billing.attempts()).toEqual([]);
+    });
+
+    it.each([
+      ['GatewayUnavailableError', new GatewayUnavailableError('down')],
+      ['GatewayOutcomeUnknownError', new GatewayOutcomeUnknownError('timeout')],
+    ])('leaves the charge pending and recoverable on %s', async (_, error) => {
+      const { target } = await seed();
+      gateway.failChargeCreationWith(error);
+
+      const processed = await processor.process(target);
+
+      expect(processed.charge.status).toBe('pending');
+      expect(processed.subscription.status).toBe('incomplete');
+      expect(storedCharge()).toMatchObject({
+        status: 'pending',
+        gatewayAttemptKey: 'ch_1:1',
+        attemptStartedAt: periodStart,
+      });
+      expect(billing.attempts()).toEqual([]);
+      expect(errorLog).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['an Error', new Error('EACCES')],
+      ['a non-Error value', 'boom' as unknown as Error],
+    ])(
+      'leaves the charge pending and logs when the gateway throws %s',
+      async (_, error) => {
+        const { target } = await seed();
+        gateway.failChargeCreationWith(error);
+
+        const processed = await processor.process(target);
+
+        expect(processed.charge.status).toBe('pending');
+        expect(errorLog).toHaveBeenCalledOnce();
       },
-      {
-        id: 'ch_1',
-        subscriptionId: 'sub_1',
-        amountCents: 1990,
-        method: 'card',
-        dueDate: periodStart,
-        periodStart,
-        periodEnd,
-      },
     );
 
-  it('settles an approved charge and activates the incomplete subscription', async () => {
-    const request = await seed('tok_success');
+    it('recreates a missing gateway customer once and re-sends with the same key', async () => {
+      const { target } = await seed();
+      gateway.failChargeCreationWith(
+        new GatewayCustomerNotFoundError('gcus_1'),
+        {
+          times: 1,
+        },
+      );
 
-    const processed = await processor.process({
-      ...request,
-      gatewayCustomerId: 'gcus_1',
+      const processed = await processor.process(target);
+
+      const recreated = (await customers.findById('cus_1'))?.gatewayCustomerId;
+      expect(processed.charge.status).toBe('paid');
+      expect(gateway.customersRequested).toEqual([
+        { externalRef: 'cus_1', name: 'Ana', email: 'ana@e.com' },
+      ]);
+      expect(recreated).not.toBe('gcus_1');
+      expect(
+        gateway.chargesRequested.map(({ idempotencyKey }) => idempotencyKey),
+      ).toEqual(['ch_1:1', 'ch_1:1']);
+      expect(gateway.chargesRequested[1]?.gatewayCustomerId).toBe(recreated);
     });
 
-    expect(processed.charge.status).toBe('paid');
-    expect(processed.subscription.status).toBe('active');
-    expect(processed.failureReason).toBeNull();
+    it('leaves the charge pending when the customer is still missing after the recreation', async () => {
+      const { target } = await seed();
+      gateway.failChargeCreationWith(
+        new GatewayCustomerNotFoundError('gcus_1'),
+      );
+
+      const processed = await processor.process(target);
+
+      expect(processed.charge.status).toBe('pending');
+      expect(gateway.chargesRequested).toHaveLength(2);
+    });
+
+    it('leaves the charge pending when the gateway customer cannot be recreated', async () => {
+      const { target } = await seed();
+      gateway.failChargeCreationWith(
+        new GatewayCustomerNotFoundError('gcus_1'),
+      );
+      gateway.failCustomerCreationWith(new GatewayUnavailableError('down'));
+
+      const processed = await processor.process(target);
+
+      expect(processed.charge.status).toBe('pending');
+      expect(gateway.chargesRequested).toHaveLength(1);
+      expect((await customers.findById('cus_1'))?.gatewayCustomerId).toBe(
+        'gcus_1',
+      );
+    });
+
+    it('records the charge and logs an error when the subscription was canceled meanwhile', async () => {
+      const { target } = await seed();
+      await subscriptions.changeStatus('sub_1', {
+        fromAnyOf: ['incomplete'],
+        to: 'canceled',
+        canceledAt: periodStart,
+      });
+
+      const processed = await processor.process(target);
+
+      expect(processed.charge.status).toBe('paid');
+      expect(processed.subscription.status).toBe('canceled');
+      expect(billing.attempts()).toHaveLength(1);
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringMatching(/ch_1.*gch_.*sub_1/),
+      );
+    });
+
+    it('rejects a pending charge that has no attempt key', async () => {
+      const { target } = await seed();
+
+      await expect(
+        processor.process({
+          ...target,
+          charge: { ...target.charge, gatewayAttemptKey: null },
+        }),
+      ).rejects.toThrow('ch_1 has no gateway attempt key');
+      expect(gateway.chargesRequested).toEqual([]);
+    });
   });
 
-  it('exposes the failure reason of a declined charge', async () => {
-    const request = await seed('tok_insufficient_funds');
-    gateway.respondWith({
-      status: 'failed',
-      failureReason: 'insufficient_funds',
+  describe('retry', () => {
+    async function seedFailed() {
+      const { target } = await seed();
+      gateway.respondWith({
+        status: 'failed',
+        failureReason: 'insufficient_funds',
+      });
+      const { charge } = await processor.process(target);
+      gateway.respondWith({ status: 'paid' });
+      clock.set(afterLease);
+      return charge;
+    }
+
+    it('starts a new attempt with the next key and settles it', async () => {
+      const failed = await seedFailed();
+
+      const processed = await processor.retry(failed);
+
+      expect(processed.charge).toMatchObject({
+        status: 'paid',
+        attemptCount: 2,
+        gatewayAttemptKey: 'ch_1:2',
+        attemptStartedAt: afterLease,
+      });
+      expect(gateway.chargesRequested.at(-1)?.idempotencyKey).toBe('ch_1:2');
     });
 
-    const processed = await processor.process({
-      ...request,
-      gatewayCustomerId: 'gcus_1',
+    it('rejects a charge that cannot return to pending before any write', async () => {
+      const { target } = await seed();
+      const { charge: paid } = await processor.process(target);
+
+      await expect(processor.retry(paid)).rejects.toBeInstanceOf(
+        InvalidChargeTransitionError,
+      );
+      expect(gateway.chargesRequested).toHaveLength(1);
     });
 
-    expect(processed.charge.status).toBe('failed');
-    expect(processed.subscription.status).toBe('past_due');
-    expect(processed.failureReason).toBe('insufficient_funds');
+    it('rejects a subscription without card token before any write', async () => {
+      const { charge } = await seed(null);
+
+      await expect(
+        processor.retry({ ...charge, status: 'failed' }),
+      ).rejects.toBeInstanceOf(UnprocessableError);
+      expect(storedCharge().attemptStartedAt).toEqual(periodStart);
+      expect(gateway.chargesRequested).toEqual([]);
+    });
+
+    it('rejects a canceled subscription before any write', async () => {
+      const failed = await seedFailed();
+      await subscriptions.changeStatus('sub_1', {
+        fromAnyOf: ['past_due'],
+        to: 'canceled',
+      });
+
+      await expect(processor.retry(failed)).rejects.toBeInstanceOf(
+        InvalidTransitionError,
+      );
+      expect(storedCharge()).toMatchObject({
+        status: 'failed',
+        gatewayAttemptKey: 'ch_1:1',
+      });
+      expect(gateway.chargesRequested).toHaveLength(1);
+    });
+
+    it('rejects a customer without gateway account before any write', async () => {
+      await customers.create({ id: 'cus_1', name: 'Ana', email: 'ana@e.com' });
+      const { charge } = await billing.createSubscriptionWithFirstCharge(
+        {
+          id: 'sub_2',
+          customerId: 'cus_1',
+          planId: 'plan_1',
+          paymentMethod: 'card',
+          status: 'past_due',
+          cardToken: 'tok_success',
+          billingAnchor: periodStart,
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+        },
+        {
+          id: 'ch_9',
+          subscriptionId: 'sub_2',
+          amountCents: 1990,
+          method: 'card',
+          dueDate: periodStart,
+          periodStart,
+          periodEnd,
+          gatewayAttemptKey: 'ch_9:1',
+          attemptStartedAt: periodStart,
+        },
+      );
+
+      await expect(
+        processor.retry({ ...charge, status: 'failed' }),
+      ).rejects.toBeInstanceOf(UnprocessableError);
+      expect(gateway.chargesRequested).toEqual([]);
+    });
+
+    it('rejects an unknown charge', async () => {
+      const { charge } = await seed();
+
+      await expect(
+        processor.retry({ ...charge, id: 'ch_missing', status: 'failed' }),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    it('reports a concurrent modification when the charge is no longer failed', async () => {
+      const { charge } = await seed();
+
+      await expect(
+        processor.retry({ ...charge, status: 'failed' }),
+      ).rejects.toBeInstanceOf(ConflictError);
+      expect(gateway.chargesRequested).toEqual([]);
+    });
   });
 
-  it('leaves the charge untouched when the gateway answers pending', async () => {
-    const request = await seed('tok_success');
-    gateway.respondWith({ status: 'pending' });
+  describe('reconcile', () => {
+    async function seedStranded(
+      strandedBy: Error = new GatewayOutcomeUnknownError('timeout'),
+      afterProcessing = true,
+    ) {
+      const { target } = await seed();
+      gateway.failChargeCreationWith(strandedBy, {
+        times: 1,
+        afterProcessing,
+      });
+      await processor.process(target);
+      return storedCharge();
+    }
 
-    const processed = await processor.process({
-      ...request,
-      gatewayCustomerId: 'gcus_1',
+    it('records the outcome the gateway already holds without charging again', async () => {
+      const stranded = await seedStranded();
+      clock.set(afterLease);
+
+      const processed = await processor.reconcile(stranded);
+
+      expect(processed.charge).toMatchObject({
+        status: 'paid',
+        gatewayChargeId: [...gateway.chargesProcessed.values()][0]?.id,
+        attemptCount: 1,
+      });
+      expect(processed.subscription.status).toBe('active');
+      expect(gateway.chargesRequested).toHaveLength(1);
     });
 
-    expect(processed.charge.status).toBe('pending');
-    expect(billing.attempts()).toEqual([]);
-  });
+    it('records a decline the gateway already holds', async () => {
+      gateway.respondWith({
+        status: 'failed',
+        failureReason: 'expired_card',
+      });
+      const stranded = await seedStranded();
+      clock.set(afterLease);
 
-  it('refuses to charge a subscription without a card token', async () => {
-    const request = await seed(null);
+      const processed = await processor.reconcile(stranded);
 
-    await expect(
-      processor.process({ ...request, gatewayCustomerId: 'gcus_1' }),
-    ).rejects.toBeInstanceOf(UnprocessableError);
-    expect(gateway.chargesRequested).toEqual([]);
+      expect(processed).toMatchObject({
+        charge: { status: 'failed' },
+        subscription: { status: 'past_due' },
+        failureReason: 'expired_card',
+      });
+    });
+
+    it('re-sends with the same key when the gateway never received the attempt', async () => {
+      const stranded = await seedStranded(
+        new GatewayUnavailableError('down'),
+        false,
+      );
+      clock.set(afterLease);
+
+      const processed = await processor.reconcile(stranded);
+
+      expect(processed.charge.status).toBe('paid');
+      expect(
+        gateway.chargesRequested.map(({ idempotencyKey }) => idempotencyKey),
+      ).toEqual(['ch_1:1', 'ch_1:1']);
+    });
+
+    it('keeps the charge pending and does not re-send while the gateway holds it pending', async () => {
+      gateway.respondWith({ status: 'pending' });
+      const stranded = await seedStranded();
+      clock.set(afterLease);
+
+      const processed = await processor.reconcile(stranded);
+
+      expect(processed.charge.status).toBe('pending');
+      expect(storedCharge().gatewayChargeId).not.toBeNull();
+      expect(gateway.chargesRequested).toHaveLength(1);
+    });
+
+    it('rejects a reconciliation within the lease as in flight', async () => {
+      const stranded = await seedStranded();
+      clock.set(withinLease);
+
+      await expect(processor.reconcile(stranded)).rejects.toThrow(
+        'Charge ch_1 has an attempt in flight',
+      );
+      expect(gateway.chargesRequested).toHaveLength(1);
+    });
+
+    it('lets only one of two concurrent reconcilers proceed', async () => {
+      const stranded = await seedStranded();
+      clock.set(afterLease);
+
+      const results = await Promise.allSettled([
+        processor.reconcile(stranded),
+        processor.reconcile(stranded),
+      ]);
+
+      expect(results.map(({ status }) => status).sort()).toEqual([
+        'fulfilled',
+        'rejected',
+      ]);
+      expect(billing.attempts()).toHaveLength(1);
+    });
+
+    it('renews the lease and stays pending when the gateway lookup fails', async () => {
+      const stranded = await seedStranded();
+      gateway.failLookupWith(new GatewayUnavailableError('down'));
+      clock.set(afterLease);
+
+      const processed = await processor.reconcile(stranded);
+
+      expect(processed.charge.status).toBe('pending');
+      expect(storedCharge().attemptStartedAt).toEqual(afterLease);
+      await expect(processor.reconcile(stranded)).rejects.toBeInstanceOf(
+        ConflictError,
+      );
+    });
+
+    it('rejects a charge that is no longer pending', async () => {
+      const { target } = await seed();
+      const { charge: paid } = await processor.process(target);
+
+      await expect(processor.reconcile(paid)).rejects.toBeInstanceOf(
+        ConflictError,
+      );
+    });
+
+    it('rejects an unknown charge', async () => {
+      const stranded = await seedStranded();
+
+      await expect(
+        processor.reconcile({ ...stranded, id: 'ch_missing' }),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    });
   });
 });

@@ -3,7 +3,9 @@ import type { ChargeStatus } from './charge-status.js';
 import type {
   Charge,
   ChargeOutcomeRecord,
+  GatewayAttempt,
   NewCharge,
+  RecordedOutcome,
   SubscriptionWithCharge,
 } from './charge.js';
 
@@ -16,9 +18,21 @@ export abstract class BillingRepository {
   abstract markChargePending(
     id: string,
     fromAnyOf: readonly ChargeStatus[],
+    attempt: GatewayAttempt,
   ): Promise<Charge | null>;
+
+  abstract takeAttemptLease(
+    id: string,
+    leaseExpiredBefore: Date,
+    startedAt: Date,
+  ): Promise<Charge | null>;
+
+  abstract attachGatewayCharge(
+    id: string,
+    gatewayChargeId: string,
+  ): Promise<void>;
 
   abstract recordChargeOutcome(
     record: ChargeOutcomeRecord,
-  ): Promise<SubscriptionWithCharge>;
+  ): Promise<RecordedOutcome>;
 }

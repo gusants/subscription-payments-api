@@ -66,14 +66,26 @@ describe('PrismaBillingRepository (integration)', () => {
     currentPeriodEnd: periodEnd,
   });
 
-  const firstChargeOf = (subscription: NewSubscription): NewCharge => ({
-    id: generateId(ID_PREFIXES.charge),
-    subscriptionId: subscription.id,
-    amountCents: 1990,
-    method: 'card',
-    dueDate: periodStart,
-    periodStart,
-    periodEnd,
+  const firstChargeOf = (subscription: NewSubscription): NewCharge => {
+    const id = generateId(ID_PREFIXES.charge);
+    return {
+      id,
+      subscriptionId: subscription.id,
+      amountCents: 1990,
+      method: 'card',
+      dueDate: periodStart,
+      periodStart,
+      periodEnd,
+      gatewayAttemptKey: `${id}:1`,
+      attemptStartedAt: periodStart,
+    };
+  };
+
+  const retryStartedAt = new Date('2026-02-10T09:00:00.000Z');
+
+  const attempt = (chargeId: string, number: number) => ({
+    gatewayAttemptKey: `${chargeId}:${number}`,
+    attemptStartedAt: retryStartedAt,
   });
 
   const outcomeRecord = (
@@ -120,8 +132,6 @@ describe('PrismaBillingRepository (integration)', () => {
         ...charge,
         status: 'pending',
         gatewayChargeId: null,
-        gatewayAttemptKey: null,
-        attemptStartedAt: null,
         attemptCount: 0,
         nextRetryAt: null,
         paidAt: null,
@@ -166,6 +176,7 @@ describe('PrismaBillingRepository (integration)', () => {
         paidAt: record.charge.paidAt,
       });
       expect(settled.subscription.status).toBe('active');
+      expect(settled.subscriptionChangeApplied).toBe(true);
       expect(await prisma.paymentAttempt.findMany()).toEqual([
         {
           ...record.attempt,
@@ -252,6 +263,7 @@ describe('PrismaBillingRepository (integration)', () => {
 
       expect(settled.charge.status).toBe('paid');
       expect(settled.subscription.status).toBe('canceled');
+      expect(settled.subscriptionChangeApplied).toBe(false);
       expect(await prisma.paymentAttempt.count()).toBe(1);
     });
 
@@ -336,17 +348,45 @@ describe('PrismaBillingRepository (integration)', () => {
     it('reopens a failed charge as pending keeping its attempt count', async () => {
       const { charge } = await seedFailedCharge();
 
-      const reopened = await repository.markChargePending(charge.id, [
-        'failed',
-      ]);
+      const reopened = await repository.markChargePending(
+        charge.id,
+        ['failed'],
+        attempt(charge.id, 2),
+      );
 
-      expect(reopened).toMatchObject({ status: 'pending', attemptCount: 1 });
+      expect(reopened).toMatchObject({
+        status: 'pending',
+        attemptCount: 1,
+        gatewayAttemptKey: `${charge.id}:2`,
+        attemptStartedAt: retryStartedAt,
+      });
+    });
+
+    it('rejects an attempt key already used by another charge', async () => {
+      const { charge } = await seedFailedCharge();
+      const otherSubscription = newSubscription();
+      const other = firstChargeOf(otherSubscription);
+      await repository.createSubscriptionWithFirstCharge(
+        otherSubscription,
+        other,
+      );
+
+      await expect(
+        repository.markChargePending(charge.id, ['failed'], {
+          gatewayAttemptKey: other.gatewayAttemptKey,
+          attemptStartedAt: retryStartedAt,
+        }),
+      ).rejects.toMatchObject({ code: 'P2002' });
     });
 
     it('returns null and changes nothing when the charge is not in an allowed status', async () => {
       const { charge } = await seedFailedCharge();
 
-      const reopened = await repository.markChargePending(charge.id, ['paid']);
+      const reopened = await repository.markChargePending(
+        charge.id,
+        ['paid'],
+        attempt(charge.id, 2),
+      );
 
       expect(reopened).toBeNull();
       expect(
@@ -360,11 +400,132 @@ describe('PrismaBillingRepository (integration)', () => {
 
       const results = await Promise.all(
         Array.from({ length: 5 }, () =>
-          repository.markChargePending(charge.id, ['failed']),
+          repository.markChargePending(
+            charge.id,
+            ['failed'],
+            attempt(charge.id, 2),
+          ),
         ),
       );
 
       expect(results.filter(Boolean)).toHaveLength(1);
+    });
+  });
+
+  describe('takeAttemptLease', () => {
+    const leaseExpiredBefore = new Date('2026-01-31T10:30:30.000Z');
+    const takenAt = new Date('2026-01-31T10:31:00.000Z');
+
+    async function seedPendingCharge() {
+      const subscription = newSubscription();
+      const charge = firstChargeOf(subscription);
+      await repository.createSubscriptionWithFirstCharge(subscription, charge);
+      return { subscription, charge };
+    }
+
+    it('takes the lease of a pending charge whose attempt started before the threshold', async () => {
+      const { charge } = await seedPendingCharge();
+
+      const leased = await repository.takeAttemptLease(
+        charge.id,
+        leaseExpiredBefore,
+        takenAt,
+      );
+
+      expect(leased).toMatchObject({
+        status: 'pending',
+        attemptStartedAt: takenAt,
+        gatewayAttemptKey: charge.gatewayAttemptKey,
+      });
+    });
+
+    it('refuses the lease while the attempt is within the threshold and changes nothing', async () => {
+      const { charge } = await seedPendingCharge();
+
+      const leased = await repository.takeAttemptLease(
+        charge.id,
+        periodStart,
+        takenAt,
+      );
+
+      expect(leased).toBeNull();
+      expect(
+        (await prisma.charge.findUniqueOrThrow({ where: { id: charge.id } }))
+          .attemptStartedAt,
+      ).toEqual(periodStart);
+    });
+
+    it('takes the lease of a pending charge that has no recorded attempt start', async () => {
+      const { charge } = await seedPendingCharge();
+      await prisma.charge.update({
+        where: { id: charge.id },
+        data: { attemptStartedAt: null },
+      });
+
+      expect(
+        await repository.takeAttemptLease(charge.id, periodStart, takenAt),
+      ).toMatchObject({ attemptStartedAt: takenAt });
+    });
+
+    it('refuses the lease of a charge that is not pending', async () => {
+      const { subscription, charge } = await seedPendingCharge();
+      await repository.recordChargeOutcome(
+        outcomeRecord(subscription.id, charge.id),
+      );
+
+      expect(
+        await repository.takeAttemptLease(
+          charge.id,
+          leaseExpiredBefore,
+          takenAt,
+        ),
+      ).toBeNull();
+    });
+
+    it('lets only one of several concurrent reconcilers take the lease', async () => {
+      const { charge } = await seedPendingCharge();
+
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () =>
+          repository.takeAttemptLease(charge.id, leaseExpiredBefore, takenAt),
+        ),
+      );
+
+      expect(results.filter(Boolean)).toHaveLength(1);
+    });
+  });
+
+  describe('attachGatewayCharge', () => {
+    it('stores the gateway charge id on a pending charge without settling it', async () => {
+      const subscription = newSubscription();
+      const charge = firstChargeOf(subscription);
+      await repository.createSubscriptionWithFirstCharge(subscription, charge);
+
+      await repository.attachGatewayCharge(charge.id, 'gch_pending');
+
+      expect(
+        await prisma.charge.findUniqueOrThrow({ where: { id: charge.id } }),
+      ).toMatchObject({
+        status: 'pending',
+        gatewayChargeId: 'gch_pending',
+        attemptCount: 0,
+      });
+    });
+
+    it('leaves a settled charge untouched', async () => {
+      const subscription = newSubscription();
+      const charge = firstChargeOf(subscription);
+      await repository.createSubscriptionWithFirstCharge(subscription, charge);
+      await repository.recordChargeOutcome(
+        outcomeRecord(subscription.id, charge.id),
+      );
+
+      await repository.attachGatewayCharge(charge.id, 'gch_late');
+
+      expect(
+        (await prisma.charge.findUniqueOrThrow({ where: { id: charge.id } }))
+          .gatewayChargeId,
+      ).toBe('gch_1');
     });
   });
 

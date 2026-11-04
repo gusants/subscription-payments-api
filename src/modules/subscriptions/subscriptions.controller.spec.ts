@@ -1,5 +1,5 @@
 import { StubPaymentGateway } from '../../gateway/testing/stub-payment-gateway.js';
-import { ChargeProcessor } from '../charges/charge-processor.js';
+import { buildChargeProcessor } from '../charges/testing/build-charge-processor.js';
 import { InMemoryBillingRepository } from '../charges/testing/in-memory-billing.repository.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import { NotFoundError } from '../../shared/errors/index.js';
@@ -38,7 +38,13 @@ describe('SubscriptionsController', () => {
         plans,
         gateway,
         clock,
-        new ChargeProcessor(billing, gateway, clock),
+        buildChargeProcessor({
+          billing,
+          subscriptions,
+          customers,
+          gateway,
+          clock,
+        }),
       ),
     );
   });

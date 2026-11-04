@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { GatewayUnavailableError } from '../../gateway/index.js';
 import { StubPaymentGateway } from '../../gateway/testing/stub-payment-gateway.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
@@ -7,7 +8,7 @@ import {
   ServiceUnavailableError,
   UnprocessableError,
 } from '../../shared/errors/index.js';
-import { ChargeProcessor } from '../charges/charge-processor.js';
+import { buildChargeProcessor } from '../charges/testing/build-charge-processor.js';
 import { InMemoryBillingRepository } from '../charges/testing/in-memory-billing.repository.js';
 import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
 import type { PlanInterval } from '../plans/plan.js';
@@ -43,7 +44,13 @@ describe('SubscriptionsService', () => {
       plans,
       gateway,
       clock,
-      new ChargeProcessor(billing, gateway, clock),
+      buildChargeProcessor({
+        billing,
+        subscriptions,
+        customers,
+        gateway,
+        clock,
+      }),
     );
   });
 
@@ -254,14 +261,21 @@ describe('SubscriptionsService', () => {
       expect(billing.attempts()).toEqual([]);
     });
 
-    it('rethrows unexpected gateway charge errors leaving the charge pending', async () => {
+    it('persists the attempt key and start before calling the gateway and keeps the charge recoverable on unexpected gateway errors', async () => {
       await seed();
+      vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
       gateway.failChargeCreationWith(new Error('boom'));
 
-      await expect(service.create(cardInput)).rejects.toThrow('boom');
+      const { subscription, latestCharge } = await service.create(cardInput);
 
+      expect(subscription.status).toBe('incomplete');
+      expect(latestCharge?.status).toBe('pending');
       expect(billing.charges()).toEqual([
-        expect.objectContaining({ status: 'pending' }),
+        expect.objectContaining({
+          status: 'pending',
+          gatewayAttemptKey: `${latestCharge?.id}:1`,
+          attemptStartedAt: startedAt,
+        }),
       ]);
     });
 

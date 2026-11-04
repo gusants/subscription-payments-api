@@ -1,11 +1,13 @@
 import { readFile, rm } from 'node:fs/promises';
-import { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { INestApplication, Logger } from '@nestjs/common';
+import { Test, type TestingModuleBuilder } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from '../../src/app.module.js';
+import { FakeGatewayAdapter } from '../../src/gateway/fake/fake-gateway.adapter.js';
 import { GatewayUnavailableError } from '../../src/gateway/index.js';
 import { PaymentGateway } from '../../src/gateway/payment-gateway.port.js';
+import { LossyPaymentGateway } from '../../src/gateway/testing/lossy-payment-gateway.js';
 import { StubPaymentGateway } from '../../src/gateway/testing/stub-payment-gateway.js';
 import { Clock } from '../../src/shared/clock/index.js';
 import { FixedClock } from '../../src/shared/clock/testing/fixed-clock.js';
@@ -20,17 +22,18 @@ interface GatewayFile {
 describe('Gateway and charging flows (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
+  let clock: FixedClock;
 
-  async function bootstrap(gateway?: PaymentGateway) {
-    const builder = Test.createTestingModule({
-      imports: [AppModule],
-    })
-      .overrideProvider(Clock)
-      .useValue(new FixedClock(new Date('2026-01-31T10:30:00.000Z')));
-    const moduleRef = await (
-      gateway
-        ? builder.overrideProvider(PaymentGateway).useValue(gateway)
-        : builder
+  async function bootstrap(
+    configure: (builder: TestingModuleBuilder) => TestingModuleBuilder = (
+      builder,
+    ) => builder,
+  ) {
+    clock = new FixedClock(new Date('2026-01-31T10:30:00.000Z'));
+    const moduleRef = await configure(
+      Test.createTestingModule({ imports: [AppModule] })
+        .overrideProvider(Clock)
+        .useValue(clock),
     ).compile();
     app = moduleRef.createNestApplication();
     setupSwagger(app);
@@ -149,7 +152,9 @@ describe('Gateway and charging flows (e2e)', () => {
 
     beforeEach(async () => {
       gateway = new StubPaymentGateway();
-      await bootstrap(gateway);
+      await bootstrap((builder) =>
+        builder.overrideProvider(PaymentGateway).useValue(gateway),
+      );
     });
 
     it('answers 503 and persists nothing when the gateway customer cannot be created', async () => {
@@ -201,6 +206,101 @@ describe('Gateway and charging flows (e2e)', () => {
         attemptCount: 1,
       });
       expect(retried.body.subscription.status).toBe('past_due');
+    });
+  });
+
+  describe('with a gateway that loses responses', () => {
+    let gateway: LossyPaymentGateway;
+
+    beforeEach(async () => {
+      await bootstrap((builder) =>
+        builder.overrideProvider(PaymentGateway).useFactory({
+          inject: [FakeGatewayAdapter],
+          factory: (fake: FakeGatewayAdapter) => {
+            gateway = new LossyPaymentGateway(fake);
+            return gateway;
+          },
+        }),
+      );
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    const LEASE_SECONDS = 30;
+    const advancePastLease = () =>
+      clock.set(new Date(clock.now().getTime() + (LEASE_SECONDS + 1) * 1000));
+
+    it('answers 409 while the lost attempt is within its lease', async () => {
+      gateway.loseNextResponse();
+      const { response } = await subscribe('tok_success');
+      const chargeId = response.body.latestCharge.id as string;
+
+      const retried = await http().post(`/charges/${chargeId}/retry`);
+
+      expect(response.body).toMatchObject({
+        status: 'incomplete',
+        latestCharge: { status: 'pending' },
+      });
+      expect(retried.status).toBe(409);
+      expect((await readGatewayFile()).charges).toHaveLength(1);
+    });
+
+    it('reconciles a stranded pending charge after the lease without charging twice', async () => {
+      gateway.loseNextResponse();
+      const { response } = await subscribe('tok_success');
+      const chargeId = response.body.latestCharge.id as string;
+      advancePastLease();
+
+      const retried = await http()
+        .post(`/charges/${chargeId}/retry`)
+        .expect(200);
+
+      expect(retried.body.charge).toMatchObject({
+        id: chargeId,
+        status: 'paid',
+        attemptCount: 1,
+      });
+      expect(retried.body.subscription.status).toBe('active');
+      const stored = (await readGatewayFile()).charges;
+      expect(stored).toEqual([
+        expect.objectContaining({
+          externalRef: chargeId,
+          idempotencyKey: `${chargeId}:1`,
+        }),
+      ]);
+      expect(await prisma.paymentAttempt.findMany()).toEqual([
+        expect.objectContaining({ gatewayChargeId: stored[0]?.['id'] }),
+      ]);
+    });
+
+    it('records the payment and logs an error when the subscription is canceled while the retry is in flight', async () => {
+      const errorLog = vi
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+      const { response } = await subscribe('tok_fail_then_success');
+      const subscriptionId = response.body.id as string;
+      const chargeId = response.body.latestCharge.id as string;
+      gateway.runAfterCharge(async () => {
+        await http()
+          .post(`/subscriptions/${subscriptionId}/cancel`)
+          .expect(200);
+      });
+
+      const retried = await http()
+        .post(`/charges/${chargeId}/retry`)
+        .expect(200);
+
+      expect(retried.body.charge.status).toBe('paid');
+      expect(retried.body.subscription.status).toBe('canceled');
+      expect(await prisma.paymentAttempt.count()).toBe(2);
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining(`${chargeId}`),
+      );
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining(subscriptionId),
+      );
     });
   });
 });

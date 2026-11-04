@@ -13,6 +13,7 @@ export const envSchema = z.object({
   REDIS_PORT: z.coerce.number().int().positive().default(6379),
   PAYMENT_GATEWAY: z.enum(['fake']).default('fake'),
   FAKE_GATEWAY_DATA_FILE: z.string().min(1).default('data/fake-gateway.json'),
+  CHARGE_ATTEMPT_LEASE_SECONDS: z.coerce.number().int().positive().default(30),
 });
 
 export type Env = z.infer<typeof envSchema>;

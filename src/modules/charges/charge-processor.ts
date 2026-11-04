@@ -1,28 +1,42 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
+  GatewayCustomerNotFoundError,
+  GatewayOutcomeUnknownError,
   GatewayUnavailableError,
   PaymentGateway,
   type GatewayCharge,
   type GatewayFailureReason,
 } from '../../gateway/index.js';
 import { Clock } from '../../shared/clock/index.js';
-import { UnprocessableError } from '../../shared/errors/index.js';
+import {
+  ConflictError,
+  NotFoundError,
+  UnprocessableError,
+} from '../../shared/errors/index.js';
 import { generateId, ID_PREFIXES } from '../../shared/ids/index.js';
-import { assertTransition as assertSubscriptionTransition } from '../subscriptions/domain/index.js';
+import type { Customer } from '../customers/customer.js';
+import { CustomersRepository } from '../customers/customers.repository.js';
+import { statusesAllowedToTransitionTo as subscriptionStatusesAllowedToTransitionTo } from '../subscriptions/domain/index.js';
 import type { Subscription } from '../subscriptions/subscription.js';
 import { BillingRepository } from './billing.repository.js';
+import { CHARGE_ATTEMPT_LEASE_MS } from './charge-attempt-lease.js';
 import type { Charge } from './charge.js';
+import { ChargesRepository } from './charges.repository.js';
 import {
+  assertBillable,
+  type BillableSubscription,
   assertTransition as assertChargeTransition,
+  nextGatewayAttempt,
+  statusesAllowedToTransitionTo as chargeStatusesAllowedToTransitionTo,
   subscriptionStatusAfterCharge,
   toChargeOutcome,
   type ChargeOutcome,
 } from './domain/index.js';
 
-export interface PendingChargeRequest {
+export interface AttemptTarget {
   charge: Charge;
-  subscription: Subscription;
-  gatewayCustomerId: string;
+  subscription: BillableSubscription;
+  customer: Customer & { gatewayCustomerId: string };
 }
 
 export interface ProcessedCharge {
@@ -31,58 +45,199 @@ export interface ProcessedCharge {
   failureReason: GatewayFailureReason | null;
 }
 
+interface GatewayAttempt extends AttemptTarget {
+  idempotencyKey: string;
+}
+
+function attemptKeyOf({ id, gatewayAttemptKey }: Charge): string {
+  if (!gatewayAttemptKey) {
+    throw new Error(`Pending charge ${id} has no gateway attempt key`);
+  }
+  return gatewayAttemptKey;
+}
+
 @Injectable()
 export class ChargeProcessor {
   private readonly logger = new Logger(ChargeProcessor.name);
 
   constructor(
     private readonly billing: BillingRepository,
+    private readonly charges: ChargesRepository,
+    private readonly customers: CustomersRepository,
     private readonly gateway: PaymentGateway,
     private readonly clock: Clock,
+    @Inject(CHARGE_ATTEMPT_LEASE_MS) private readonly leaseMs: number,
   ) {}
 
-  async process(request: PendingChargeRequest): Promise<ProcessedCharge> {
-    const gatewayCharge = await this.requestGatewayCharge(request);
-    const outcome = gatewayCharge && toChargeOutcome(gatewayCharge);
-    if (!gatewayCharge || !outcome) {
-      const { charge, subscription } = request;
-      return { charge, subscription, failureReason: null };
-    }
-    return this.recordOutcome(request, gatewayCharge, outcome);
+  async process(target: AttemptTarget): Promise<ProcessedCharge> {
+    const gatewayCharge = await this.send(this.toGatewayAttempt(target));
+    return gatewayCharge
+      ? this.settle(target, gatewayCharge)
+      : this.unsettled(target);
   }
 
-  private async requestGatewayCharge({
-    charge,
-    subscription,
-    gatewayCustomerId,
-  }: PendingChargeRequest): Promise<GatewayCharge | null> {
-    if (!subscription.cardToken) {
+  async retry(charge: Charge): Promise<ProcessedCharge> {
+    assertChargeTransition(charge.status, 'pending');
+    const target = await this.resolveTarget(charge);
+    const pending = await this.billing.markChargePending(
+      charge.id,
+      chargeStatusesAllowedToTransitionTo('pending'),
+      nextGatewayAttempt(charge, this.clock.now()),
+    );
+    if (!pending) {
+      throw new ConflictError(`Charge ${charge.id} was modified concurrently`);
+    }
+    return this.process({ ...target, charge: pending });
+  }
+
+  async reconcile(charge: Charge): Promise<ProcessedCharge> {
+    if (charge.status !== 'pending') {
+      throw new ConflictError(`Charge ${charge.id} is ${charge.status}`);
+    }
+    const target = await this.resolveTarget(charge);
+    const now = this.clock.now();
+    const leased = await this.billing.takeAttemptLease(
+      charge.id,
+      new Date(now.getTime() - this.leaseMs),
+      now,
+    );
+    if (!leased) {
+      throw new ConflictError(`Charge ${charge.id} has an attempt in flight`);
+    }
+    return this.reconcileLeased({ ...target, charge: leased });
+  }
+
+  private async reconcileLeased(
+    target: AttemptTarget,
+  ): Promise<ProcessedCharge> {
+    const { charge } = target;
+    let existing: GatewayCharge | null;
+    try {
+      existing = await this.gateway.findChargeByIdempotencyKey(
+        attemptKeyOf(charge),
+      );
+    } catch (error) {
+      this.abandon(charge, error);
+      return this.unsettled(target);
+    }
+    return existing ? this.settle(target, existing) : this.process(target);
+  }
+
+  private async resolveTarget(charge: Charge): Promise<AttemptTarget> {
+    const found = await this.charges.findWithSubscription(charge.id);
+    if (!found) {
+      throw new NotFoundError(`Charge ${charge.id} not found`);
+    }
+    assertBillable(found.subscription);
+    const customer = await this.customers.findById(
+      found.subscription.customerId,
+    );
+    if (!customer?.gatewayCustomerId) {
       throw new UnprocessableError(
-        `Subscription ${subscription.id} has no card token`,
+        `Customer ${found.subscription.customerId} has no gateway customer`,
       );
     }
+    return {
+      charge,
+      subscription: found.subscription,
+      customer: { ...customer, gatewayCustomerId: customer.gatewayCustomerId },
+    };
+  }
+
+  private toGatewayAttempt(target: AttemptTarget): GatewayAttempt {
+    return { ...target, idempotencyKey: attemptKeyOf(target.charge) };
+  }
+
+  private async send(attempt: GatewayAttempt): Promise<GatewayCharge | null> {
     try {
-      return await this.gateway.createCharge({
-        gatewayCustomerId,
-        amountCents: charge.amountCents,
-        method: 'card',
-        cardToken: subscription.cardToken,
-        externalRef: charge.id,
-        idempotencyKey: `${charge.id}:${charge.attemptCount + 1}`,
-      });
+      return await this.createGatewayCharge(
+        attempt,
+        attempt.customer.gatewayCustomerId,
+      );
     } catch (error) {
-      if (error instanceof GatewayUnavailableError) {
-        this.logger.warn(
-          `Gateway unavailable for charge ${charge.id}; left pending for reconciliation`,
-        );
-        return null;
+      if (error instanceof GatewayCustomerNotFoundError) {
+        return this.sendToRecreatedCustomer(attempt);
       }
-      throw error;
+      return this.abandon(attempt.charge, error);
     }
+  }
+
+  private async sendToRecreatedCustomer(
+    attempt: GatewayAttempt,
+  ): Promise<GatewayCharge | null> {
+    try {
+      const gatewayCustomerId = await this.recreateGatewayCustomer(attempt);
+      return await this.createGatewayCharge(attempt, gatewayCustomerId);
+    } catch (error) {
+      return this.abandon(attempt.charge, error);
+    }
+  }
+
+  private async recreateGatewayCustomer({
+    customer,
+  }: GatewayAttempt): Promise<string> {
+    const created = await this.gateway.createCustomer({
+      externalRef: customer.id,
+      name: customer.name,
+      email: customer.email,
+    });
+    return this.customers.replaceGatewayCustomerId(
+      customer.id,
+      customer.gatewayCustomerId,
+      created.id,
+    );
+  }
+
+  private createGatewayCharge(
+    { charge, subscription, idempotencyKey }: GatewayAttempt,
+    gatewayCustomerId: string,
+  ): Promise<GatewayCharge> {
+    return this.gateway.createCharge({
+      gatewayCustomerId,
+      amountCents: charge.amountCents,
+      method: 'card',
+      cardToken: subscription.cardToken,
+      externalRef: charge.id,
+      idempotencyKey,
+    });
+  }
+
+  private abandon(charge: Charge, error: unknown): null {
+    const outcome = `charge ${charge.id} left pending for reconciliation`;
+    if (error instanceof GatewayUnavailableError) {
+      this.logger.warn(`Gateway unavailable; ${outcome}`);
+    } else if (error instanceof GatewayOutcomeUnknownError) {
+      this.logger.warn(`Gateway outcome unknown; ${outcome}`);
+    } else {
+      this.logger.error(
+        `Unexpected gateway failure; ${outcome}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+    return null;
+  }
+
+  private unsettled({ charge, subscription }: AttemptTarget): ProcessedCharge {
+    return { charge, subscription, failureReason: null };
+  }
+
+  private async settle(
+    target: AttemptTarget,
+    gatewayCharge: GatewayCharge,
+  ): Promise<ProcessedCharge> {
+    const outcome = toChargeOutcome(gatewayCharge);
+    if (!outcome) {
+      await this.billing.attachGatewayCharge(
+        target.charge.id,
+        gatewayCharge.id,
+      );
+      return this.unsettled(target);
+    }
+    return this.recordOutcome(target, gatewayCharge, outcome);
   }
 
   private async recordOutcome(
-    { charge, subscription }: PendingChargeRequest,
+    { charge, subscription }: AttemptTarget,
     gatewayCharge: GatewayCharge,
     outcome: ChargeOutcome,
   ): Promise<ProcessedCharge> {
@@ -90,14 +245,10 @@ export class ChargeProcessor {
       subscription.status,
       outcome.chargeStatus,
     );
-    assertChargeTransition(charge.status, outcome.chargeStatus);
-    if (subscriptionStatus) {
-      assertSubscriptionTransition(subscription.status, subscriptionStatus);
-    }
-    const settled = await this.billing.recordChargeOutcome({
+    const recorded = await this.billing.recordChargeOutcome({
       charge: {
         id: charge.id,
-        fromAnyOf: [charge.status],
+        fromAnyOf: ['pending'],
         to: outcome.chargeStatus,
         gatewayChargeId: gatewayCharge.id,
         paidAt: outcome.chargeStatus === 'paid' ? this.clock.now() : null,
@@ -112,11 +263,21 @@ export class ChargeProcessor {
       subscription: {
         id: subscription.id,
         change: subscriptionStatus && {
-          fromAnyOf: [subscription.status],
+          fromAnyOf:
+            subscriptionStatusesAllowedToTransitionTo(subscriptionStatus),
           to: subscriptionStatus,
         },
       },
     });
-    return { ...settled, failureReason: outcome.failureReason };
+    if (!recorded.subscriptionChangeApplied) {
+      this.logger.error(
+        `Charge ${charge.id} settled as ${outcome.chargeStatus} (gateway charge ${gatewayCharge.id}) but subscription ${subscription.id} did not move to ${subscriptionStatus}; its status is now ${recorded.subscription.status}`,
+      );
+    }
+    return {
+      charge: recorded.charge,
+      subscription: recorded.subscription,
+      failureReason: outcome.failureReason,
+    };
   }
 }

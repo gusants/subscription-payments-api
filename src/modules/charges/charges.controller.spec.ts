@@ -3,9 +3,9 @@ import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import { NotFoundError } from '../../shared/errors/index.js';
 import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
-import { ChargeProcessor } from './charge-processor.js';
 import { ChargesController } from './charges.controller.js';
 import { ChargesService } from './charges.service.js';
+import { buildChargeProcessor } from './testing/build-charge-processor.js';
 import { InMemoryBillingRepository } from './testing/in-memory-billing.repository.js';
 import { InMemoryChargesRepository } from './testing/in-memory-charges.repository.js';
 
@@ -39,18 +39,21 @@ describe('ChargesController', () => {
         dueDate: at,
         periodStart: at,
         periodEnd: at,
+        gatewayAttemptKey: 'ch_1:1',
+        attemptStartedAt: at,
       },
     );
     controller = new ChargesController(
       new ChargesService(
         new InMemoryChargesRepository(billing, subscriptions),
-        billing,
         customers,
-        new ChargeProcessor(
+        buildChargeProcessor({
           billing,
-          new StubPaymentGateway(),
-          new FixedClock(at),
-        ),
+          subscriptions,
+          customers,
+          gateway: new StubPaymentGateway(),
+          clock: new FixedClock(at),
+        }),
       ),
     );
   });

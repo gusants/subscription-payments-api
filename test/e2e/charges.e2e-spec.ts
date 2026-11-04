@@ -328,7 +328,7 @@ describe('Charges (e2e)', () => {
         .expect(409);
 
       expect(response.body.message).toBe(
-        `Subscription ${subscription.id} is canceled`,
+        'Cannot transition subscription from canceled to active',
       );
       expect(
         (await prisma.charge.findUniqueOrThrow({ where: { id: chargeId } }))

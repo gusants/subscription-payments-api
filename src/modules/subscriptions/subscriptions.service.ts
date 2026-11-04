@@ -13,6 +13,7 @@ import {
 import { generateId, ID_PREFIXES } from '../../shared/ids/index.js';
 import { BillingRepository } from '../charges/billing.repository.js';
 import type { Charge, ChargeSummary } from '../charges/charge.js';
+import { nextGatewayAttempt } from '../charges/domain/index.js';
 import { ChargeProcessor } from '../charges/charge-processor.js';
 import type { Customer } from '../customers/customer.js';
 import { CustomersRepository } from '../customers/customers.repository.js';
@@ -120,20 +121,25 @@ export class SubscriptionsService {
   ): Promise<CreatedSubscription> {
     const gatewayCustomerId = await this.ensureGatewayCustomer(customer);
     const newSubscription = this.newSubscription(input, plan, input.cardToken);
+    const chargeId = generateId(ID_PREFIXES.charge);
     const { subscription, charge } =
       await this.billing.createSubscriptionWithFirstCharge(newSubscription, {
-        id: generateId(ID_PREFIXES.charge),
+        id: chargeId,
         subscriptionId: newSubscription.id,
         amountCents: plan.amountCents,
         method: input.paymentMethod,
         dueDate: newSubscription.billingAnchor,
         periodStart: newSubscription.currentPeriodStart,
         periodEnd: newSubscription.currentPeriodEnd,
+        ...nextGatewayAttempt(
+          { id: chargeId, attemptCount: 0 },
+          this.clock.now(),
+        ),
       });
     const processed = await this.chargeProcessor.process({
       charge,
-      subscription,
-      gatewayCustomerId,
+      subscription: { ...subscription, cardToken: input.cardToken },
+      customer: { ...customer, gatewayCustomerId },
     });
     return {
       subscription: processed.subscription,

@@ -15,6 +15,7 @@ describe('validateEnv', () => {
       REDIS_PORT: 6379,
       PAYMENT_GATEWAY: 'fake',
       FAKE_GATEWAY_DATA_FILE: 'data/fake-gateway.json',
+      CHARGE_ATTEMPT_LEASE_SECONDS: 30,
     });
   });
 
@@ -30,6 +31,15 @@ describe('validateEnv', () => {
         .FAKE_GATEWAY_DATA_FILE,
     ).toBe('/tmp/gw.json');
   });
+
+  it.each(['0', '-5', 'abc'])(
+    'rejects CHARGE_ATTEMPT_LEASE_SECONDS=%s',
+    (CHARGE_ATTEMPT_LEASE_SECONDS) => {
+      expect(() =>
+        validateEnv({ ...validEnv, CHARGE_ATTEMPT_LEASE_SECONDS }),
+      ).toThrow(/CHARGE_ATTEMPT_LEASE_SECONDS/);
+    },
+  );
 
   it('rejects a missing database url', () => {
     expect(() => validateEnv({ REDIS_HOST: 'localhost' })).toThrow(

@@ -1,0 +1,1 @@
+export const CHARGE_ATTEMPT_LEASE_MS = Symbol('CHARGE_ATTEMPT_LEASE_MS');

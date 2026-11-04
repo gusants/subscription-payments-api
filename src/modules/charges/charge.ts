@@ -25,6 +25,11 @@ export interface Charge {
   updatedAt: Date;
 }
 
+export interface GatewayAttempt {
+  gatewayAttemptKey: string;
+  attemptStartedAt: Date;
+}
+
 export type NewCharge = Pick<
   Charge,
   | 'id'
@@ -34,7 +39,8 @@ export type NewCharge = Pick<
   | 'dueDate'
   | 'periodStart'
   | 'periodEnd'
->;
+> &
+  GatewayAttempt;
 
 export interface PaymentAttempt {
   id: string;
@@ -59,6 +65,12 @@ export interface ChargeOutcomeRecord {
   charge: ChargeSettlement;
   attempt: NewPaymentAttempt;
   subscription: { id: string; change: StatusChange | null };
+}
+
+export interface RecordedOutcome {
+  subscription: Subscription;
+  charge: Charge;
+  subscriptionChangeApplied: boolean;
 }
 
 export interface SubscriptionWithCharge {

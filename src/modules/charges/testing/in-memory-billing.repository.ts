@@ -6,8 +6,10 @@ import type { ChargeStatus } from '../charge-status.js';
 import type {
   Charge,
   ChargeOutcomeRecord,
+  GatewayAttempt,
   NewCharge,
   PaymentAttempt,
+  RecordedOutcome,
   SubscriptionWithCharge,
 } from '../charge.js';
 
@@ -29,8 +31,6 @@ export class InMemoryBillingRepository extends BillingRepository {
       ...charge,
       status: 'pending',
       gatewayChargeId: null,
-      gatewayAttemptKey: null,
-      attemptStartedAt: null,
       attemptCount: 0,
       nextRetryAt: null,
       paidAt: null,
@@ -44,6 +44,7 @@ export class InMemoryBillingRepository extends BillingRepository {
   markChargePending(
     id: string,
     fromAnyOf: readonly ChargeStatus[],
+    attempt: GatewayAttempt,
   ): Promise<Charge | null> {
     const found = this.stored.get(id);
     if (!found || !fromAnyOf.includes(found.status)) {
@@ -52,17 +53,42 @@ export class InMemoryBillingRepository extends BillingRepository {
     const reopened: Charge = {
       ...found,
       status: 'pending',
+      ...attempt,
       updatedAt: new Date(),
     };
     this.stored.set(id, reopened);
     return Promise.resolve({ ...reopened });
   }
 
+  takeAttemptLease(
+    id: string,
+    leaseExpiredBefore: Date,
+    startedAt: Date,
+  ): Promise<Charge | null> {
+    const found = this.stored.get(id);
+    const leaseExpired =
+      !found?.attemptStartedAt || found.attemptStartedAt < leaseExpiredBefore;
+    if (found?.status !== 'pending' || !leaseExpired) {
+      return Promise.resolve(null);
+    }
+    const leased: Charge = { ...found, attemptStartedAt: startedAt };
+    this.stored.set(id, leased);
+    return Promise.resolve({ ...leased });
+  }
+
+  attachGatewayCharge(id: string, gatewayChargeId: string): Promise<void> {
+    const found = this.stored.get(id);
+    if (found?.status === 'pending') {
+      this.stored.set(id, { ...found, gatewayChargeId });
+    }
+    return Promise.resolve();
+  }
+
   async recordChargeOutcome({
     charge,
     attempt,
     subscription,
-  }: ChargeOutcomeRecord): Promise<SubscriptionWithCharge> {
+  }: ChargeOutcomeRecord): Promise<RecordedOutcome> {
     const found = this.stored.get(charge.id);
     if (!found || !charge.fromAnyOf.includes(found.status)) {
       throw new ConflictError(`Charge ${charge.id} was modified concurrently`);
@@ -77,17 +103,21 @@ export class InMemoryBillingRepository extends BillingRepository {
     };
     this.stored.set(settled.id, settled);
     this.recorded.push({ ...attempt, createdAt: new Date() });
-    if (subscription.change) {
-      await this.subscriptions.changeStatus(
-        subscription.id,
-        subscription.change,
-      );
-    }
+    const changed = subscription.change
+      ? await this.subscriptions.changeStatus(
+          subscription.id,
+          subscription.change,
+        )
+      : null;
     const current = await this.subscriptions.findById(subscription.id);
     if (!current) {
       throw new ConflictError(`Subscription ${subscription.id} not found`);
     }
-    return { subscription: current, charge: { ...settled } };
+    return {
+      subscription: current,
+      charge: { ...settled },
+      subscriptionChangeApplied: !subscription.change || changed !== null,
+    };
   }
 
   charges(): Charge[] {

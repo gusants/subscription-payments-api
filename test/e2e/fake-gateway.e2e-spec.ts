@@ -96,6 +96,37 @@ describe('Fake gateway reset (e2e)', () => {
     expect((await readGatewayData()).charges).toHaveLength(1);
   });
 
+  it('charges the same customer again after a reset by recreating the gateway customer', async () => {
+    const first = await subscribeNewCustomer('ana@example.com');
+    const customerId = first.body.customerId as string;
+    const planId = first.body.planId as string;
+    await http().post('/fake-gateway/reset').expect(204);
+
+    const second = await http()
+      .post('/subscriptions')
+      .send({
+        customerId,
+        planId,
+        paymentMethod: 'card',
+        cardToken: 'tok_success',
+      })
+      .expect(201);
+
+    expect(second.body).toMatchObject({
+      status: 'active',
+      latestCharge: { status: 'paid' },
+    });
+    const stored = await readGatewayData();
+    expect(stored.charges).toHaveLength(1);
+    expect(stored.customers).toEqual([
+      expect.objectContaining({ externalRef: customerId }),
+    ]);
+    expect(
+      (await prisma.customer.findUniqueOrThrow({ where: { id: customerId } }))
+        .gatewayCustomerId,
+    ).toBe((stored.customers[0] as { id: string }).id);
+  });
+
   it('documents the endpoint under the fake-gateway tag', async () => {
     const response = await http().get('/docs-json').expect(200);
 
