@@ -44,6 +44,7 @@ pnpm start:dev
 | `pnpm typecheck` | Type-checks without emitting |
 | `pnpm test` | Unit tests |
 | `pnpm test:cov` | Unit tests with coverage (fails below 80%) |
+| `pnpm start:worker` / `pnpm start:worker:prod` | Runs the queue workers alone, without HTTP (see Queues) |
 | `pnpm test:e2e` | End-to-end tests against Postgres and Redis started by Testcontainers (Docker required, no compose needed) |
 
 ## Configuration
@@ -54,11 +55,20 @@ Environment variables are validated at startup. See `.env.example` for the full 
 
 `GET /health` reports the status of Postgres and Redis and returns `503` when either is down.
 
+## Queues
+
+BullMQ queues `charge-retries`, `subscription-renewals` and `charge-reconciliation` live in the same Redis, under the key prefix `bull` (`bull:<queue>:*`). BullMQ gets its own connections, not the app Redis client: that client fails fast, while BullMQ workers need `maxRetriesPerRequest: null` and an offline queue to wait out Redis restarts.
+
+Jobs keep the last 1000 completed (or 24h, whichever bound is hit first). Failed jobs are never removed: a job that exhausts its technical attempts stays in the failed set, which plays the dead-letter role and is visible in Bull Board.
+
+- `WORKERS_ENABLED` (default true): when false the process only enqueues. `pnpm start:worker` (`pnpm start:worker:prod` after a build) boots the same modules as an application context, with no HTTP server and workers forced on, so workers can run in their own process: run the API with `WORKERS_ENABLED=false` and the worker separately. Mind the single-process fake gateway store (see Payment gateway): with the fake gateway the workers must stay in the API process.
+- `BULL_BOARD_ENABLED`: Bull Board is served at `/queues` (not in Swagger or `openapi.json`). Defaults to true outside `NODE_ENV=production` and false in production unless set; the Docker demo sets it to true.
+
 ## Payment gateway
 
 `PAYMENT_GATEWAY=fake` (the only adapter for now) stores its customers and charges in the JSON file at `FAKE_GATEWAY_DATA_FILE`. Magic card tokens: `tok_success`, `tok_insufficient_funds`, `tok_expired_card`, `tok_fail_then_success` (declines the first attempt of a charge, approves the next) and anything else is declined as `invalid_token`.
 
-The store is single-process: it serializes access with an in-memory queue, so only one Node process may use a given file. Background workers (retries, reconciliation) must run inside the API process, or use a real gateway.
+The store is single-process: it serializes access with an in-memory queue, so only one Node process may use a given file. Background workers (retries, reconciliation) must run inside the API process, or use a real gateway. In the Docker demo the workers therefore stay in the API process.
 
 `POST /fake-gateway/reset` (and the other `/fake-gateway/*` routes) are served when `FAKE_GATEWAY_ROUTES_ENABLED` is true. It defaults to true outside `NODE_ENV=production` and false in production unless set; the Docker demo sets it to true.
 

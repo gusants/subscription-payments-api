@@ -14,6 +14,8 @@ services:
       PAYMENT_GATEWAY: ${PAYMENT_GATEWAY:-fake}
       FAKE_GATEWAY_DATA_FILE: /app/data/fake-gateway.json
       FAKE_GATEWAY_ROUTES_ENABLED: "true"
+      BULL_BOARD_ENABLED: "true"
+      WORKERS_ENABLED: "true"
       GATEWAY_WEBHOOK_SECRET: ${GATEWAY_WEBHOOK_SECRET:-dev-only-gateway-webhook-secret-change-me}
     volumes:
       - fake-gateway-data:/app/data

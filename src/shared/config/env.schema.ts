@@ -42,6 +42,8 @@ export const envSchema = z.object({
     .max(1)
     .default(0),
   FAKE_GATEWAY_WEBHOOK_DISPATCH_ENABLED: z.stringbool().default(true),
+  WORKERS_ENABLED: z.stringbool().default(true),
+  BULL_BOARD_ENABLED: z.stringbool().optional(),
   CHARGE_ATTEMPT_LEASE_SECONDS: z.coerce.number().int().positive().default(30),
   IDEMPOTENCY_TTL_SECONDS: z.coerce.number().int().positive().default(86400),
   IDEMPOTENCY_LOCK_TTL_SECONDS: z.coerce.number().int().positive().default(60),

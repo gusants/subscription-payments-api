@@ -22,6 +22,7 @@ describe('validateEnv', () => {
       FAKE_GATEWAY_PIX_EXPIRATION_SECONDS: 1800,
       FAKE_GATEWAY_BOLETO_EXPIRATION_SECONDS: 259200,
       FAKE_GATEWAY_EXPIRATION_SWEEP_INTERVAL_MS: 5000,
+      WORKERS_ENABLED: true,
       CHARGE_ATTEMPT_LEASE_SECONDS: 30,
       IDEMPOTENCY_TTL_SECONDS: 86400,
       IDEMPOTENCY_LOCK_TTL_SECONDS: 60,
@@ -64,6 +65,25 @@ describe('validateEnv', () => {
     expect(() =>
       validateEnv({ ...validEnv, FAKE_GATEWAY_ROUTES_ENABLED: 'maybe' }),
     ).toThrow(/FAKE_GATEWAY_ROUTES_ENABLED/);
+  });
+
+  it.each([
+    ['true', true],
+    ['false', false],
+  ])('parses WORKERS_ENABLED=%s', (raw, expected) => {
+    expect(
+      validateEnv({ ...validEnv, WORKERS_ENABLED: raw }).WORKERS_ENABLED,
+    ).toBe(expected);
+  });
+
+  it('leaves BULL_BOARD_ENABLED undefined when unset', () => {
+    expect(validateEnv(validEnv).BULL_BOARD_ENABLED).toBeUndefined();
+  });
+
+  it('rejects an invalid BULL_BOARD_ENABLED', () => {
+    expect(() =>
+      validateEnv({ ...validEnv, BULL_BOARD_ENABLED: 'maybe' }),
+    ).toThrow(/BULL_BOARD_ENABLED/);
   });
 
   it.each([
