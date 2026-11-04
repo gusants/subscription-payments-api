@@ -59,6 +59,29 @@ describe('BullMqBillingQueue (integration)', () => {
     expect(await queue.getDelayedCount()).toBe(1);
   });
 
+  it('promotes every delayed retry and reports how many it moved', async () => {
+    await billingQueue.scheduleRetry({
+      chargeId: 'ch_01abc',
+      attempt: 1,
+      delayMs: FAR_FUTURE_MS,
+    });
+    await billingQueue.scheduleRetry({
+      chargeId: 'ch_01def',
+      attempt: 2,
+      delayMs: FAR_FUTURE_MS,
+    });
+
+    const promoted = await billingQueue.promoteDelayedRetries();
+
+    expect(promoted).toBe(2);
+    expect(await queue.getDelayedCount()).toBe(0);
+    expect(await queue.getWaitingCount()).toBe(2);
+  });
+
+  it('promotes nothing when no retry is delayed', async () => {
+    expect(await billingQueue.promoteDelayedRetries()).toBe(0);
+  });
+
   it('never schedules the same charge and attempt twice', async () => {
     const request = {
       chargeId: 'ch_01abc',

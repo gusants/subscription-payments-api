@@ -6,4 +6,5 @@ export interface ChargeRetryRequest {
 
 export abstract class BillingQueue {
   abstract scheduleRetry(request: ChargeRetryRequest): Promise<void>;
+  abstract promoteDelayedRetries(): Promise<number>;
 }

@@ -3,7 +3,10 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
 import { BullModule } from '@nestjs/bullmq';
 import { Module, type DynamicModule } from '@nestjs/common';
-import { isBullBoardEnabled } from './billing-queue-flags.js';
+import {
+  areDevRoutesEnabled,
+  isBullBoardEnabled,
+} from './billing-queue-flags.js';
 import { BillingQueueConnection } from './billing-queue-connection.js';
 import { BillingQueueProducerConnection } from './billing-queue-producer-connection.js';
 import { BillingQueueProducerConnectionModule } from './billing-queue-producer-connection.module.js';
@@ -15,6 +18,8 @@ import {
 import { BILLING_DEFAULT_JOB_OPTIONS } from './billing-queue.options.js';
 import { BillingQueue } from './billing-queue.port.js';
 import { BullMqBillingQueue } from './bullmq-billing-queue.js';
+import { DevRetriesController } from './dev/dev-retries.controller.js';
+import { DevRetriesService } from './dev/dev-retries.service.js';
 
 @Module({})
 export class BillingQueueModule {
@@ -57,7 +62,11 @@ export class BillingQueueModule {
             ]
           : []),
       ],
-      providers: [{ provide: BillingQueue, useClass: BullMqBillingQueue }],
+      controllers: areDevRoutesEnabled(env) ? [DevRetriesController] : [],
+      providers: [
+        { provide: BillingQueue, useClass: BullMqBillingQueue },
+        DevRetriesService,
+      ],
       exports: [BillingQueue],
     };
   }

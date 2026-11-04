@@ -61,6 +61,7 @@ export const envSchema = z.object({
     .positive()
     .max(1000)
     .default(100),
+  DEV_ROUTES_ENABLED: z.stringbool().optional(),
   WORKERS_ENABLED: z.stringbool().default(true),
   BULL_BOARD_ENABLED: z.stringbool().optional(),
   CHARGE_ATTEMPT_LEASE_SECONDS: z.coerce.number().int().positive().default(30),

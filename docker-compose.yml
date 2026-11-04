@@ -15,6 +15,7 @@ services:
       FAKE_GATEWAY_DATA_FILE: /app/data/fake-gateway.json
       FAKE_GATEWAY_ROUTES_ENABLED: "true"
       BULL_BOARD_ENABLED: "true"
+      DEV_ROUTES_ENABLED: "true"
       WORKERS_ENABLED: "true"
       RETRY_INTERVAL_UNIT: minutes
       GATEWAY_WEBHOOK_SECRET: ${GATEWAY_WEBHOOK_SECRET:-dev-only-gateway-webhook-secret-change-me}

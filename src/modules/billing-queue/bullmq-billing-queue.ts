@@ -1,6 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
-import type { Queue } from 'bullmq';
+import type { Job, Queue } from 'bullmq';
 import { withTimeout } from '../../shared/async/with-timeout.js';
 import { BillingQueue, type ChargeRetryRequest } from './billing-queue.port.js';
 import { CHARGE_RETRIES_QUEUE } from './billing-queue.constants.js';
@@ -15,6 +15,15 @@ export const CHARGE_RETRY_JOB_NAME = 'charge-retry';
 export interface ChargeRetryJobData {
   chargeId: string;
   attempt: number;
+}
+
+async function promoteIfStillDelayed(job: Job): Promise<boolean> {
+  try {
+    await job.promote();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 @Injectable()
@@ -35,6 +44,12 @@ export class BullMqBillingQueue extends BillingQueue {
       this.enqueue(chargeId, attempt, delayMs),
       ENQUEUE_TIMEOUT_MS,
     );
+  }
+
+  async promoteDelayedRetries(): Promise<number> {
+    const delayed = await this.chargeRetries.getDelayed();
+    const promotions = await Promise.all(delayed.map(promoteIfStillDelayed));
+    return promotions.filter(Boolean).length;
   }
 
   private async enqueue(

@@ -750,6 +750,18 @@
         "required": ["id", "name", "email", "createdAt", "updatedAt"],
         "type": "object"
       },
+      "DevRetriesRunNowResponseDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "promoted": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": ["promoted"],
+        "type": "object"
+      },
       "ErrorResponseDto": {
         "properties": {
           "details": {
@@ -1522,6 +1534,35 @@
           }
         },
         "tags": ["charges"]
+      }
+    },
+    "/dev/retries/run-now": {
+      "post": {
+        "operationId": "DevRetriesController_runNow",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevRetriesRunNowResponseDto_Output"
+                }
+              }
+            },
+            "description": "Development only: promotes every delayed dunning retry job to run now and returns how many were promoted. The worker settles them asynchronously"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": ["dev"]
       }
     },
     "/fake-gateway/charges/{id}/expire": {

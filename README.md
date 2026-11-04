@@ -65,6 +65,7 @@ Jobs keep the last 1000 completed (or 24h, whichever bound is hit first). Failed
 - `RETRY_INTERVAL_UNIT` (`days` default, or `minutes`; the Docker demo uses `minutes`): unit of the dunning calendar. Retries fall on D+1, D+3 and D+7, each measured from the original failure (not chained from the previous retry); after the third retry the charge is exhausted. Retry jobs get the deterministic id `retry:{chargeId}:{attempt}`, so scheduling the same retry twice yields one job.
 - `RENEWAL_JOB_INTERVAL_SECONDS` (optional): how often the renewal sweep runs. Defaults to 3600 (hourly) with `RETRY_INTERVAL_UNIT=days` and to 30 with `minutes`. `RENEWAL_BATCH_SIZE` (default 100, max 1000): subscriptions renewed per sweep.
 - `RECONCILIATION_JOB_INTERVAL_SECONDS` (optional): how often the reconciliation sweep runs. Defaults to 300 with `RETRY_INTERVAL_UNIT=days` and to 30 with `minutes`. `RECONCILIATION_STALE_AFTER_MINUTES` (default 5): how long a pending card charge, or a due dunning retry, must be overdue before the sweep acts on it (keep it above `CHARGE_ATTEMPT_LEASE_SECONDS`). `RECONCILIATION_BATCH_SIZE` (default 100, max 1000): rows handled per sweep and per kind.
+- `DEV_ROUTES_ENABLED`: gates `POST /dev/retries/run-now` (below). Defaults to true outside `NODE_ENV=production` and false in production unless set to true; when off the route does not exist (404). The Docker demo runs with `NODE_ENV=production` and the fake gateway routes on, so set `DEV_ROUTES_ENABLED: "true"` there (it is).
 - `BULL_BOARD_ENABLED`: Bull Board is served at `/queues` (not in Swagger or `openapi.json`). Defaults to true outside `NODE_ENV=production` and false in production unless set; the Docker demo sets it to true.
 
 ### Dunning retries
@@ -93,6 +94,10 @@ A repeatable job (job scheduler `charge-reconciliation`, upserted at worker boot
 - Lost dunning follow-ups: `failed` (and `expired` pix/boleto) charges whose next retry slot passed more than the stale window ago, on subscriptions that are not canceled and, for expired charges, without a live charge for the same period. The enqueue is re-applied through the same path as the original settlement, so the deterministic job id makes it idempotent; a charge that already used all its retries gets its exhaustion (`uncollectible` and canceled subscription) re-applied.
 - Canceled subscriptions: a pending charge whose subscription was canceled is still checked with the gateway instead of being rejected. If the gateway holds it paid it is applied and ERROR-logged as a payment on a canceled subscription that needs a refund (the same signal as the webhook); a decline is recorded without touching the subscription; if the gateway never received it, the charge is expired without being sent.
 - One failing charge is logged with its id, subscription and attempt start, and does not stop the batch. A reconciliation that hits a live attempt (lease still valid) fails with a transient conflict and is retried by the next sweep.
+
+### Running retries now (development)
+
+`POST /dev/retries/run-now` promotes every delayed job of `charge-retries` with `job.promote()` and answers `{ "promoted": n }`, so a demo does not have to wait for D+1, D+3 or D+7 (together with the fake gateway routes, this is what the Project 2 simulator drives). Promotion only moves the jobs to the waiting list: the worker (`WORKERS_ENABLED`) settles them asynchronously, so poll the customer charge history. Jobs that are not delayed anymore by the time they are promoted are skipped and not counted. It answers 503 when the queue is unreachable. The route is controlled by `DEV_ROUTES_ENABLED` and is part of `openapi.json` under the `dev` tag.
 
 ### Technical retries
 

@@ -16,6 +16,12 @@ export class RecordingBillingQueue extends BillingQueue {
     return Promise.resolve();
   }
 
+  promoteDelayedRetries(): Promise<number> {
+    const delayed = this.scheduled().filter(({ delayMs }) => delayMs > 0);
+    for (const request of delayed) request.delayMs = 0;
+    return Promise.resolve(delayed.length);
+  }
+
   scheduled(): ChargeRetryRequest[] {
     return [...this.scheduledByJobId.values()];
   }
