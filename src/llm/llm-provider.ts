@@ -10,6 +10,7 @@ export interface LlmJsonResponse {
   model: string;
   inputTokens: number | null;
   outputTokens: number | null;
+  finishReason: string | null;
   latencyMs: number;
 }
 

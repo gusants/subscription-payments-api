@@ -52,6 +52,7 @@ function replyWith(text: string): ScriptedLlm {
       model: 'scripted',
       inputTokens: 100,
       outputTokens: 20,
+      finishReason: 'STOP',
       latencyMs: 42,
     }),
   );

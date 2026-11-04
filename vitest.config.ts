@@ -17,6 +17,7 @@ export default defineConfig({
         'src/instrumentation.ts',
         'src/shared/tracing/start-tracing.ts',
         'src/tools/export-openapi.ts',
+        'src/tools/llm-smoke.ts',
         'src/**/*.module.ts',
         'src/**/*.spec.ts',
         'src/**/testing/**',

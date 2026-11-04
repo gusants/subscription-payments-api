@@ -35,6 +35,7 @@ describe('validateEnv', () => {
       LLM_PROVIDER: 'fake',
       LLM_MODEL: 'gemini-3.5-flash-lite',
       LLM_TIMEOUT_MS: 8000,
+      LLM_THINKING_LEVEL: 'minimal',
       OTEL_ENABLED: false,
       OTEL_SERVICE_NAME: 'subscription-payments-api',
     });
@@ -76,6 +77,21 @@ describe('validateEnv', () => {
 
   it('does not need GEMINI_API_KEY for the fake provider', () => {
     expect(validateEnv(validEnv).GEMINI_API_KEY).toBeUndefined();
+  });
+
+  it.each(['low', 'medium', 'high'])(
+    'accepts LLM_THINKING_LEVEL=%s',
+    (level) => {
+      expect(
+        validateEnv({ ...validEnv, LLM_THINKING_LEVEL: level }),
+      ).toMatchObject({ LLM_THINKING_LEVEL: level });
+    },
+  );
+
+  it('rejects an unknown LLM_THINKING_LEVEL', () => {
+    expect(() =>
+      validateEnv({ ...validEnv, LLM_THINKING_LEVEL: 'extreme' }),
+    ).toThrow(/LLM_THINKING_LEVEL/);
   });
 
   it.each(['0', '-1', 'abc'])('rejects LLM_TIMEOUT_MS=%s', (raw) => {

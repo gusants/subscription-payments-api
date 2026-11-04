@@ -7,12 +7,19 @@ export type LlmFailureReason =
   | 'empty_response'
   | 'unknown';
 
+export interface LlmProviderErrorOptions extends ErrorOptions {
+  finishReason?: string;
+}
+
 export class LlmProviderError extends Error {
+  readonly finishReason: string | null;
+
   constructor(
     readonly reason: LlmFailureReason,
-    options?: ErrorOptions,
+    { finishReason, ...options }: LlmProviderErrorOptions = {},
   ) {
     super(`LLM provider failed: ${reason}`, options);
     this.name = 'LlmProviderError';
+    this.finishReason = finishReason ?? null;
   }
 }

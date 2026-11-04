@@ -29,6 +29,7 @@ describe('FakeLlmProvider', () => {
       model: FAKE_LLM_MODEL,
       inputTokens: null,
       outputTokens: null,
+      finishReason: 'STOP',
       latencyMs: 0,
     });
     expect(() => JSON.parse(first.text)).not.toThrow();

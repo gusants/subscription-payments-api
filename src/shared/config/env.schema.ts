@@ -71,6 +71,9 @@ export const envSchema = z.object({
   LLM_PROVIDER: z.enum(['fake', 'gemini']).default('fake'),
   LLM_MODEL: z.string().min(1).default('gemini-3.5-flash-lite'),
   LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
+  LLM_THINKING_LEVEL: z
+    .enum(['minimal', 'low', 'medium', 'high'])
+    .default('minimal'),
   CUSTOMER_SUMMARY_CACHE_TTL_SECONDS: z.coerce
     .number()
     .int()

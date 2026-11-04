@@ -80,6 +80,7 @@ describe('Customer summary guarantees (e2e)', () => {
       model: 'fake-llm',
       inputTokens: null,
       outputTokens: null,
+      finishReason: 'STOP',
       latencyMs: 0,
     });
 
@@ -330,6 +331,7 @@ describe('Customer summary guarantees (e2e)', () => {
             model: 'fake-llm',
             inputTokens: null,
             outputTokens: null,
+            finishReason: 'STOP',
             latencyMs: SLOW_PROVIDER_MS,
           };
         });

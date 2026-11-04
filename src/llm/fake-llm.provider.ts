@@ -22,7 +22,9 @@ export const FAKE_LLM_INVALID_JSON = '{"summary": "truncated';
 export class FakeLlmProvider extends LlmProvider {
   private mode: FakeLlmMode = 'ok';
 
-  constructor(private readonly options: LlmOptions) {
+  constructor(
+    private readonly options: Pick<LlmOptions, 'model' | 'timeoutMs'>,
+  ) {
     super();
   }
 
@@ -43,6 +45,7 @@ export class FakeLlmProvider extends LlmProvider {
       model: FAKE_LLM_MODEL,
       inputTokens: null,
       outputTokens: null,
+      finishReason: 'STOP',
       latencyMs: 0,
     };
   }

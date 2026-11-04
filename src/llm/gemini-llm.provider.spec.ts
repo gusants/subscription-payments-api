@@ -1,10 +1,13 @@
+import { Logger } from '@nestjs/common';
 import { createServer, type Server } from 'node:http';
 import {
   ApiError,
   FinishReason,
   GoogleGenAI,
+  ThinkingLevel,
   type GenerateContentResponse,
 } from '@google/genai';
+import type { MockInstance } from 'vitest';
 import { FixedClock } from '../shared/clock/testing/fixed-clock.js';
 import {
   GeminiLlmProvider,
@@ -28,13 +31,20 @@ describe('GeminiLlmProvider', () => {
   const clock = new FixedClock(new Date('2026-01-01T00:00:00.000Z'));
   const provider = new GeminiLlmProvider(
     { generateContent },
-    { model: 'gemini-test', timeoutMs: 5000 },
+    { model: 'gemini-test', timeoutMs: 5000, thinkingLevel: 'minimal' },
     clock,
   );
 
+  let warn: MockInstance<Logger['warn']>;
+
   beforeEach(() => {
+    warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
     generateContent.mockReset();
     clock.set(new Date('2026-01-01T00:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
   });
 
   it('asks for structured JSON with the system prompt and the context', async () => {
@@ -54,6 +64,29 @@ describe('GeminiLlmProvider', () => {
     });
   });
 
+  it.each([
+    ['minimal', ThinkingLevel.MINIMAL],
+    ['low', ThinkingLevel.LOW],
+    ['medium', ThinkingLevel.MEDIUM],
+    ['high', ThinkingLevel.HIGH],
+  ] as const)(
+    'configures %s thinking so reasoning does not eat the output budget',
+    async (thinkingLevel, expected) => {
+      const configured = new GeminiLlmProvider(
+        { generateContent },
+        { model: 'gemini-test', timeoutMs: 5000, thinkingLevel },
+        clock,
+      );
+      generateContent.mockResolvedValue(reply({ text: '{}' }));
+
+      await configured.generateJson(request);
+
+      expect(generateContent.mock.calls[0]![0].config).toMatchObject({
+        thinkingConfig: { thinkingLevel: expected },
+      });
+    },
+  );
+
   it('maps text, model version and token usage', async () => {
     generateContent.mockResolvedValue(
       reply({
@@ -68,6 +101,7 @@ describe('GeminiLlmProvider', () => {
       model: 'gemini-test-001',
       inputTokens: 120,
       outputTokens: 30,
+      finishReason: null,
       latencyMs: 0,
     });
   });
@@ -80,6 +114,7 @@ describe('GeminiLlmProvider', () => {
       model: 'gemini-test',
       inputTokens: null,
       outputTokens: null,
+      finishReason: null,
       latencyMs: 0,
     });
   });
@@ -109,7 +144,7 @@ describe('GeminiLlmProvider', () => {
   it('passes an abort signal that fires on the configured timeout', async () => {
     const quick = new GeminiLlmProvider(
       { generateContent },
-      { model: 'gemini-test', timeoutMs: 10 },
+      { model: 'gemini-test', timeoutMs: 10, thinkingLevel: 'minimal' },
       clock,
     );
     generateContent.mockResolvedValue(reply({ text: '{}' }));
@@ -145,6 +180,47 @@ describe('GeminiLlmProvider', () => {
       });
     },
   );
+
+  it('reports the finish reason of an accepted reply', async () => {
+    generateContent.mockResolvedValue(
+      reply({
+        text: '{}',
+        candidates: [{ finishReason: FinishReason.STOP }],
+      }),
+    );
+
+    await expect(provider.generateJson(request)).resolves.toMatchObject({
+      finishReason: 'STOP',
+    });
+  });
+
+  it('carries the finish reason on the error and logs it with the token usage', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => {});
+    generateContent.mockResolvedValue(
+      reply({
+        text: '',
+        candidates: [{ finishReason: FinishReason.MAX_TOKENS }],
+        usageMetadata: { candidatesTokenCount: 0, thoughtsTokenCount: 1024 },
+      }),
+    );
+
+    const failure = await provider.generateJson(request).catch((e) => e);
+
+    expect(failure).toMatchObject({
+      reason: 'incomplete_response',
+      finishReason: 'MAX_TOKENS',
+    });
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        finishReason: 'MAX_TOKENS',
+        outputTokens: 0,
+        thoughtsTokens: 1024,
+        thinkingLevel: 'minimal',
+      }),
+    );
+  });
 
   it.each([undefined, ''])('rejects an empty reply (%j)', async (text) => {
     generateContent.mockResolvedValue(reply({ text }));
@@ -213,7 +289,7 @@ describe('GeminiLlmProvider against a server that never answers', () => {
     });
     const provider = new GeminiLlmProvider(
       sdk.models,
-      { model: 'gemini-test', timeoutMs: 150 },
+      { model: 'gemini-test', timeoutMs: 150, thinkingLevel: 'minimal' },
       new FixedClock(new Date('2026-01-01T00:00:00.000Z')),
     );
 

@@ -16,6 +16,7 @@ import { LLM_OPTIONS, type LlmOptions } from './llm.options.js';
       useFactory: (config: ConfigService<Env, true>): LlmOptions => ({
         model: config.get('LLM_MODEL', { infer: true }),
         timeoutMs: config.get('LLM_TIMEOUT_MS', { infer: true }),
+        thinkingLevel: config.get('LLM_THINKING_LEVEL', { infer: true }),
       }),
     },
     {

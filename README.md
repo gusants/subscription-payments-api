@@ -45,6 +45,7 @@ pnpm start:dev
 | `pnpm test` | Unit tests |
 | `pnpm test:cov` | Unit tests with coverage (fails below 80%) |
 | `pnpm start:worker` / `pnpm start:worker:prod` | Runs the queue workers alone, without HTTP (see Queues) |
+| `pnpm llm:smoke` | Manual smoke test of the real Gemini provider (see LLM provider); never runs in CI |
 | `pnpm test:e2e` | End-to-end tests against Postgres and Redis started by Testcontainers (Docker required, no compose needed) |
 
 ## Configuration
@@ -158,27 +159,30 @@ A retry job separates a business failure from a technical one:
 
 ## LLM provider
 
-`LLM_PROVIDER=fake` (default) answers deterministic JSON with no network and no key, so tests and CI never call a model. `LLM_PROVIDER=gemini` uses the official `@google/genai` SDK and requires `GEMINI_API_KEY`. `LLM_MODEL` (default `gemini-3.5-flash-lite`) and `LLM_TIMEOUT_MS` (default 8000, enforced with an `AbortSignal`) apply to both.
+`LLM_PROVIDER=fake` (default) answers deterministic JSON with no network and no key, so tests and CI never call a model. `LLM_PROVIDER=gemini` uses the official `@google/genai` SDK and requires `GEMINI_API_KEY`. `LLM_MODEL` (default `gemini-3.5-flash-lite`) and `LLM_TIMEOUT_MS` (default 8000, enforced with an `AbortSignal`) apply to both. `LLM_THINKING_LEVEL` (`minimal` default, `low`, `medium`, `high`) is sent as `thinkingConfig.thinkingLevel` so the model's reasoning does not consume the `maxOutputTokens` budget and truncate the JSON; the SDK types mark `thinkingBudget` as unsupported from Gemini 3.5 on. When a reply is cut or empty the provider logs `finishReason` together with the output and thought token counts.
+
+`pnpm llm:smoke` calls the real model once with a synthetic anonymized context, the real prompt and the real output schema, and prints `source`, failure reason, model, tokens, latency, `finishReason` and the validated JSON (never the key). It needs `LLM_PROVIDER=gemini` and `GEMINI_API_KEY` in the environment or in `.env`, and exits non-zero with a clear message otherwise or when the answer was not accepted as `source: "llm"`.
 
 ## Customer summary (AI)
 
 `GET /customers/{id}/summary` returns a plain-language summary of how a customer pays, a risk level and a suggested next step for the team. The LLM only narrates; it never decides or acts.
 
-- **Numbers come from the code.** `monthsAsCustomer`, `totalPaidCents`, `failedAttempts`, `averageDaysLate` and `paymentSuccessRate` are computed from the database and returned as is; nothing numeric from the model reaches the response.
-- **Anonymized input.** The model receives an alias (`customer_<hash>`), the plan, the metrics and the payment timeline. No name, e-mail, document or real id, and no user-typed text.
+- **Numbers come from the code.** `monthsAsCustomer`, `totalPaidCents`, `failedAttempts`, `averageDaysLate` and `paymentSuccessRate` are computed from the database and returned as is; nothing numeric from the model reaches the response. `paymentSuccessRate` is per billing period (subscription and `period_start`), not per charge row: a period is paid when any of its charges is paid and settled when none is pending, so a Pix or boleto reissued after expiry counts once. `failedAttempts` counts declined card attempts plus expired Pix/boleto charges, each once.
+- **Narrated numbers are checked.** Numbers in `summary` and `suggestedAction` must derive from the context (metrics, amounts in cents or currency units, success rate as a percentage, counts of periods or charges, dates); any other number discards the narration and serves the fallback (failure `unsupported_number`).
+- **Anonymized input.** The model receives an alias (`customer_<hash>`), the plan, the metrics and the payment timeline grouped by billing period (the charges of one period are attempts to collect the same period). No name, e-mail, document or real id, and no user-typed text.
 - **Validated output.** The reply must match a Zod schema (`summary`, `paymentBehavior`, `riskLevel`, `suggestedAction`, with length limits checked by the app); the JSON Schema sent to the provider is derived from the same schema.
 - **Deterministic fallback.** A provider error, timeout, truncated or empty reply, invalid JSON or an out-of-schema answer yields a rules-based summary in English with `source: "fallback"`. The endpoint never answers 5xx because of the LLM.
 - **Event-keyed cache.** Redis key `customer-summary:{customerId}:{lastEventId}`. `lastEventId` is `<latest updated_at/created_at among the customer's subscriptions, charges and attempts, in ms>-<charge count>-<attempt count>`, so any payment, failure, retry or status change produces a new key. Concurrent requests for the same key share one LLM call (in-process single-flight plus a Redis `SET NX` lock that other instances poll). LLM summaries live `CUSTOMER_SUMMARY_CACHE_TTL_SECONDS`; fallbacks only `CUSTOMER_SUMMARY_FALLBACK_TTL_SECONDS`, so the model is retried soon without every waiter hammering a failing provider. With Redis down the endpoint still answers, just without cache.
-- **Versioned prompt** in `src/llm/prompts/customer-summary.v1.md`; the version is returned as `promptVersion`.
+- **Versioned prompt** in `src/llm/prompts/customer-summary.v2.md`; the version is returned as `promptVersion`.
 - **No tools.** The model cannot cancel, block or charge anything.
 
-Configuration: `LLM_PROVIDER` (`fake` default, `gemini`), `LLM_MODEL`, `LLM_TIMEOUT_MS`, `GEMINI_API_KEY` (only for `gemini`), `CUSTOMER_SUMMARY_CACHE_TTL_SECONDS` (default 86400), `CUSTOMER_SUMMARY_FALLBACK_TTL_SECONDS` (default 30). Each call logs `customer_summary.served` with model, prompt version, latency, tokens, source, cache outcome and failure reason, never the context or the raw answer.
+Configuration: `LLM_PROVIDER` (`fake` default, `gemini`), `LLM_MODEL`, `LLM_TIMEOUT_MS`, `LLM_THINKING_LEVEL`, `GEMINI_API_KEY` (only for `gemini`), `CUSTOMER_SUMMARY_CACHE_TTL_SECONDS` (default 86400), `CUSTOMER_SUMMARY_FALLBACK_TTL_SECONDS` (default 30). Each call logs `customer_summary.served` with model, prompt version, latency, tokens, source, cache outcome and failure reason, never the context or the raw answer.
 
 ```json
 {
   "customerId": "cus_123",
   "source": "llm",
-  "promptVersion": "v1",
+  "promptVersion": "v2",
   "generatedAt": "2026-11-04T12:00:00.000Z",
   "metrics": {
     "monthsAsCustomer": 8,

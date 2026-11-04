@@ -1,6 +1,8 @@
+import { Logger } from '@nestjs/common';
 import {
   ApiError,
   FinishReason,
+  ThinkingLevel,
   type GenerateContentParameters,
   type GenerateContentResponse,
 } from '@google/genai';
@@ -14,7 +16,7 @@ import {
   type LlmFailureReason,
 } from './llm-provider.error.js';
 import { requestSignal } from './request-signal.js';
-import type { LlmOptions } from './llm.options.js';
+import type { LlmOptions, LlmThinkingLevel } from './llm.options.js';
 import type { Clock } from '../shared/clock/clock.js';
 
 export interface GeminiModelsClient {
@@ -29,7 +31,16 @@ const HTTP_TOO_MANY_REQUESTS = 429;
 const HTTP_SERVER_ERROR = 500;
 const ABORT_ERROR_NAMES = ['AbortError', 'TimeoutError'];
 
+const THINKING_LEVELS: Record<LlmThinkingLevel, ThinkingLevel> = {
+  minimal: ThinkingLevel.MINIMAL,
+  low: ThinkingLevel.LOW,
+  medium: ThinkingLevel.MEDIUM,
+  high: ThinkingLevel.HIGH,
+};
+
 export class GeminiLlmProvider extends LlmProvider {
+  private readonly logger = new Logger(GeminiLlmProvider.name);
+
   constructor(
     private readonly models: GeminiModelsClient,
     private readonly options: LlmOptions,
@@ -42,10 +53,11 @@ export class GeminiLlmProvider extends LlmProvider {
     const startedAt = this.clock.now().getTime();
     const response = await this.callModel(request);
     return {
-      text: completedText(response),
+      text: this.completedText(response),
       model: response.modelVersion ?? this.options.model,
       inputTokens: response.usageMetadata?.promptTokenCount ?? null,
       outputTokens: response.usageMetadata?.candidatesTokenCount ?? null,
+      finishReason: finishReasonOf(response) ?? null,
       latencyMs: this.clock.now().getTime() - startedAt,
     };
   }
@@ -62,6 +74,9 @@ export class GeminiLlmProvider extends LlmProvider {
           responseMimeType: JSON_MIME_TYPE,
           responseJsonSchema: request.jsonSchema,
           maxOutputTokens: MAX_OUTPUT_TOKENS,
+          thinkingConfig: {
+            thinkingLevel: THINKING_LEVELS[this.options.thinkingLevel],
+          },
           httpOptions: { timeout: this.options.timeoutMs },
           abortSignal: requestSignal(this.options.timeoutMs, request.signal),
         },
@@ -69,6 +84,36 @@ export class GeminiLlmProvider extends LlmProvider {
     } catch (error) {
       throw new LlmProviderError(failureReasonOf(error), { cause: error });
     }
+  }
+
+  private completedText(response: GenerateContentResponse): string {
+    const finishReason = finishReasonOf(response);
+    if (finishReason !== undefined && finishReason !== FinishReason.STOP) {
+      this.logIncomplete(response, finishReason);
+      throw new LlmProviderError('incomplete_response', { finishReason });
+    }
+    if (!response.text) {
+      this.logIncomplete(response, finishReason);
+      throw new LlmProviderError('empty_response', {
+        ...(finishReason && { finishReason }),
+      });
+    }
+    return response.text;
+  }
+
+  private logIncomplete(
+    response: GenerateContentResponse,
+    finishReason: string | undefined,
+  ): void {
+    const usage = response.usageMetadata;
+    this.logger.warn({
+      msg: 'Gemini reply was not usable',
+      finishReason: finishReason ?? null,
+      model: this.options.model,
+      thinkingLevel: this.options.thinkingLevel,
+      outputTokens: usage?.candidatesTokenCount ?? null,
+      thoughtsTokens: usage?.thoughtsTokenCount ?? null,
+    });
   }
 }
 
@@ -83,13 +128,6 @@ function failureReasonOf(error: unknown): LlmFailureReason {
   return 'unknown';
 }
 
-function completedText(response: GenerateContentResponse): string {
-  const finishReason = response.candidates?.[0]?.finishReason;
-  if (finishReason !== undefined && finishReason !== FinishReason.STOP) {
-    throw new LlmProviderError('incomplete_response');
-  }
-  if (!response.text) {
-    throw new LlmProviderError('empty_response');
-  }
-  return response.text;
+function finishReasonOf(response: GenerateContentResponse) {
+  return response.candidates?.[0]?.finishReason;
 }
