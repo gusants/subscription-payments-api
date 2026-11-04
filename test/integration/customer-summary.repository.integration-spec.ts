@@ -111,6 +111,8 @@ describe('PrismaCustomerSummaryRepository (integration)', () => {
       await seedCustomerWithPaidCharge(prisma);
     const initial = await repository.findPaymentRecord(customerId);
 
+    await prisma.plan.updateMany({ data: { amountCents: 2490 } });
+    const afterPlanChange = await repository.findPaymentRecord(customerId);
     await insertDeclinedAttempt(prisma, chargeId);
     const afterAttempt = await repository.findPaymentRecord(customerId);
     await prisma.charge.update({
@@ -132,6 +134,7 @@ describe('PrismaCustomerSummaryRepository (integration)', () => {
 
     const activities = [
       initial,
+      afterPlanChange,
       afterAttempt,
       afterChargeUpdate,
       afterStatusChange,

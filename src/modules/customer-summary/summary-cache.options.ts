@@ -6,4 +6,6 @@ export interface SummaryCacheOptions {
   lockSeconds: number;
   waitMs: number;
   pollMs: number;
+  promptVersion: string;
+  model: string;
 }

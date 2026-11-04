@@ -122,7 +122,6 @@ const metrics = computePaymentMetrics(
   SMOKE_NOW,
 );
 const context = buildAnonymizedContext({
-  customerId: 'smoke',
   plan: { interval: 'monthly', amountCents: SMOKE_AMOUNT_CENTS },
   charges,
   metrics,

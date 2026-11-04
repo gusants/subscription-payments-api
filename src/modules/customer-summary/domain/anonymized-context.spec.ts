@@ -1,6 +1,5 @@
 import {
   buildAnonymizedContext,
-  customerAlias,
   latestPaymentMethod,
   type ContextCharge,
   type ContextSource,
@@ -30,7 +29,6 @@ function charge(overrides: Partial<ContextCharge> = {}): ContextCharge {
 
 function source(overrides: Partial<ContextSource> = {}): ContextSource {
   return {
-    customerId: 'cus_01hzx3k9q2m8v7w6y5t4r3e2d1',
     plan: { interval: 'monthly', amountCents: 1990 },
     charges: [charge()],
     metrics,
@@ -38,31 +36,9 @@ function source(overrides: Partial<ContextSource> = {}): ContextSource {
   };
 }
 
-describe('customerAlias', () => {
-  it('is stable for the same customer', () => {
-    expect(customerAlias('cus_a')).toBe(customerAlias('cus_a'));
-  });
-
-  it('differs between customers', () => {
-    expect(customerAlias('cus_a')).not.toBe(customerAlias('cus_b'));
-  });
-
-  it('has the customer_ prefix followed by 8 hex digits', () => {
-    expect(customerAlias('cus_a')).toMatch(/^customer_[0-9a-f]{8}$/);
-  });
-
-  it('does not contain the real id', () => {
-    const id = 'cus_01hzx3k9q2m8v7w6y5t4r3e2d1';
-
-    expect(customerAlias(id)).not.toContain(id.slice(4));
-    expect(customerAlias(id)).not.toContain('cus_');
-  });
-});
-
 describe('buildAnonymizedContext', () => {
-  it('carries the alias, the plan, the ready metrics and the timeline', () => {
+  it('carries the plan, the ready metrics and the timeline', () => {
     expect(buildAnonymizedContext(source())).toEqual({
-      customerAlias: customerAlias('cus_01hzx3k9q2m8v7w6y5t4r3e2d1'),
       plan: { interval: 'monthly', amountCents: 1990 },
       metrics,
       paymentTimeline: [
@@ -242,11 +218,22 @@ describe('buildAnonymizedContext', () => {
       expect(serialized).not.toContain(forbidden);
     });
 
+    it('does not derive any pseudonym from the customer id', () => {
+      const serialized = JSON.stringify(
+        buildAnonymizedContext({
+          ...contaminatedSource(),
+          customerId: 'cus_01hzx3k9q2m8v7w6y5t4r3e2d1',
+        } as ContextSource),
+      );
+
+      expect(serialized).not.toMatch(/customer_[0-9a-f]{8}/);
+      expect(serialized).not.toContain('Alias');
+    });
+
     it('only exposes whitelisted keys', () => {
       const context = buildAnonymizedContext(contaminatedSource());
 
       expect(Object.keys(context).sort()).toEqual([
-        'customerAlias',
         'metrics',
         'paymentTimeline',
         'plan',

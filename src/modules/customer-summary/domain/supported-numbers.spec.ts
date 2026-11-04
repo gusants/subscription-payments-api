@@ -28,7 +28,6 @@ function charge(overrides: Partial<ContextCharge> = {}): ContextCharge {
 }
 
 const context: AnonymizedContext = buildAnonymizedContext({
-  customerId: 'cus_1',
   plan: { interval: 'monthly', amountCents: 1990 },
   charges: [
     charge({ status: 'expired', paidAt: null }),
@@ -95,7 +94,6 @@ describe('findUnsupportedNumbers', () => {
 
   it('supports nothing but the metrics for a customer without history', () => {
     const empty = buildAnonymizedContext({
-      customerId: 'cus_1',
       plan: null,
       charges: [],
       metrics: {

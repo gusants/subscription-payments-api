@@ -29,7 +29,7 @@ export interface SubscriptionRow {
   id: string;
   createdAt: Date;
   updatedAt: Date;
-  plan: { interval: PlanInterval; amountCents: number };
+  plan: { interval: PlanInterval; amountCents: number; updatedAt: Date };
   charges: ChargeRow[];
 }
 
@@ -66,18 +66,26 @@ export function toCustomerPaymentRecord(
       ]),
       chargeCount: charges.length,
       attemptCount: attempts.length,
+      planUpdatedAt:
+        currentSubscription(customer.subscriptions)?.plan.updatedAt ?? null,
     },
   };
+}
+
+function currentSubscription(
+  subscriptions: SubscriptionRow[],
+): SubscriptionRow | null {
+  return subscriptions.reduce<SubscriptionRow | null>(
+    (best, candidate) =>
+      best === null || candidate.createdAt > best.createdAt ? candidate : best,
+    null,
+  );
 }
 
 function currentPlan(
   subscriptions: SubscriptionRow[],
 ): CustomerPaymentRecord['plan'] {
-  const newest = subscriptions.reduce<SubscriptionRow | null>(
-    (best, candidate) =>
-      best === null || candidate.createdAt > best.createdAt ? candidate : best,
-    null,
-  );
+  const newest = currentSubscription(subscriptions);
   return (
     newest && {
       interval: newest.plan.interval,

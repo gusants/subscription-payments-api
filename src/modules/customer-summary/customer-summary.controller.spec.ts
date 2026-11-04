@@ -36,6 +36,8 @@ describe('CustomerSummaryController', () => {
             lockSeconds: 20,
             waitMs: 50,
             pollMs: 5,
+            promptVersion: 'v1',
+            model: 'fake-llm',
           },
           newSummaryMemory(clock),
         ),
@@ -55,7 +57,12 @@ describe('CustomerSummaryController', () => {
       plan: null,
       charges: [],
       attempts: [],
-      activity: { lastActivityAt: null, chargeCount: 0, attemptCount: 0 },
+      activity: {
+        lastActivityAt: null,
+        chargeCount: 0,
+        attemptCount: 0,
+        planUpdatedAt: null,
+      },
     });
 
     const response = await controller.summary('cus_1');

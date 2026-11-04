@@ -38,6 +38,7 @@ function paymentsOf(
       lastActivityAt: new Date('2026-05-12T00:00:00.000Z'),
       chargeCount: 1,
       attemptCount: 2,
+      planUpdatedAt: new Date('2026-01-01T00:00:00.000Z'),
     },
     ...overrides,
   };
@@ -48,6 +49,7 @@ describe('CustomerSummaryService', () => {
   let llm: FakeLlmProvider;
   let store: InMemorySummaryCacheStore;
   let service: CustomerSummaryService;
+  let clock: FixedClock;
   let log: ReturnType<typeof vi.spyOn>;
   let warn: ReturnType<typeof vi.spyOn>;
 
@@ -55,7 +57,7 @@ describe('CustomerSummaryService', () => {
     records = new InMemoryCustomerSummaryRepository();
     llm = new FakeLlmProvider({ model: 'fake-llm', timeoutMs: 20 });
     store = new InMemorySummaryCacheStore();
-    const clock = new FixedClock(NOW);
+    clock = new FixedClock(NOW);
     service = new CustomerSummaryService(
       records,
       new SummaryNarrator(
@@ -72,6 +74,8 @@ describe('CustomerSummaryService', () => {
           lockSeconds: 20,
           waitMs: 100,
           pollMs: 5,
+          promptVersion: 'v1',
+          model: 'fake-llm',
         },
         newSummaryMemory(clock),
       ),
@@ -156,12 +160,43 @@ describe('CustomerSummaryService', () => {
     expect(store.records.size).toBe(2);
   });
 
+  it.each([
+    [
+      'the customer completes another month',
+      () => clock.set(new Date('2026-06-20T00:00:00.000Z')),
+    ],
+    [
+      'the plan price changes',
+      () => {
+        const base = paymentsOf();
+        records.put({
+          ...base,
+          activity: {
+            ...base.activity,
+            planUpdatedAt: new Date('2026-05-30T00:00:00.000Z'),
+          },
+        });
+      },
+    ],
+  ])('calls the provider again when %s', async (_case, change) => {
+    const generate = vi.spyOn(llm, 'generateJson');
+    await service.getSummary('cus_1');
+
+    change();
+    await service.getSummary('cus_1');
+
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
   it('stores the summary under the key of the last event', async () => {
     await service.getSummary('cus_1');
 
     expect(
       store.records.has(
-        summaryCacheKey('cus_1', lastEventId(paymentsOf().activity)),
+        summaryCacheKey('cus_1', lastEventId(paymentsOf().activity, 8), {
+          promptVersion: 'v1',
+          model: 'fake-llm',
+        }),
       ),
     ).toBe(true);
   });

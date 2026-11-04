@@ -51,8 +51,11 @@ const POLL_MS = 50;
     },
     {
       provide: SUMMARY_CACHE_OPTIONS,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService<Env, true>): SummaryCacheOptions => {
+      inject: [ConfigService, CUSTOMER_SUMMARY_PROMPT],
+      useFactory: (
+        config: ConfigService<Env, true>,
+        prompt: Prompt,
+      ): SummaryCacheOptions => {
         const llmTimeoutMs = config.get('LLM_TIMEOUT_MS', { infer: true });
         return {
           ttlSeconds: config.get('CUSTOMER_SUMMARY_CACHE_TTL_SECONDS', {
@@ -67,6 +70,8 @@ const POLL_MS = 50;
             LOCK_MARGIN_SECONDS,
           waitMs: llmTimeoutMs + WAIT_MARGIN_MS,
           pollMs: POLL_MS,
+          promptVersion: prompt.version,
+          model: config.get('LLM_MODEL', { infer: true }),
         };
       },
     },

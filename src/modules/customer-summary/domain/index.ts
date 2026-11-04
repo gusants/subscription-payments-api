@@ -15,7 +15,6 @@ export {
 } from './payment-metrics.js';
 export {
   buildAnonymizedContext,
-  customerAlias,
   latestPaymentMethod,
   type AnonymizedContext,
   type ContextCharge,
@@ -43,5 +42,6 @@ export {
   lastEventId,
   summaryCacheKey,
   type PaymentActivity,
+  type SummaryCacheScope,
 } from './summary-cache-key.js';
 export { findUnsupportedNumbers } from './supported-numbers.js';

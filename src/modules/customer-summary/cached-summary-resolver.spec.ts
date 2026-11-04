@@ -16,6 +16,8 @@ const options: SummaryCacheOptions = {
   lockSeconds: 20,
   waitMs: 200,
   pollMs: 5,
+  promptVersion: 'v1',
+  model: 'fake-llm',
 };
 
 function recordOf(source: SummaryRecord['source']): SummaryRecord {
@@ -51,7 +53,7 @@ function deferred<T>() {
 describe('CachedSummaryResolver', () => {
   let store: InMemorySummaryCacheStore;
   let resolver: CachedSummaryResolver;
-  const key = summaryCacheKey('cus_1', 'evt_1');
+  const key = summaryCacheKey('cus_1', 'evt_1', options);
 
   beforeEach(() => {
     store = new InMemorySummaryCacheStore();

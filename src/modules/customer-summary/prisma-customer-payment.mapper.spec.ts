@@ -29,7 +29,7 @@ function subscription(
     id: 'sub_1',
     createdAt: at(1),
     updatedAt: at(1),
-    plan: { interval: 'monthly', amountCents: 1990 },
+    plan: { interval: 'monthly', amountCents: 1990, updatedAt: at(1) },
     charges: [],
     ...overrides,
   };
@@ -47,7 +47,12 @@ describe('toCustomerPaymentRecord', () => {
       plan: null,
       charges: [],
       attempts: [],
-      activity: { lastActivityAt: null, chargeCount: 0, attemptCount: 0 },
+      activity: {
+        lastActivityAt: null,
+        chargeCount: 0,
+        attemptCount: 0,
+        planUpdatedAt: null,
+      },
     });
   });
 
@@ -74,16 +79,39 @@ describe('toCustomerPaymentRecord', () => {
       customer([
         subscription({
           createdAt: at(5),
-          plan: { interval: 'yearly', amountCents: 19900 },
+          plan: { interval: 'yearly', amountCents: 19900, updatedAt: at(7) },
         }),
         subscription({
           createdAt: at(2),
-          plan: { interval: 'monthly', amountCents: 1990 },
+          plan: { interval: 'monthly', amountCents: 1990, updatedAt: at(1) },
         }),
       ]),
     );
 
     expect(record.plan).toEqual({ interval: 'yearly', amountCents: 19900 });
+  });
+
+  it('exposes the update instant of the plan in force for the cache key', () => {
+    const record = toCustomerPaymentRecord(
+      customer([
+        subscription({
+          createdAt: at(5),
+          plan: { interval: 'yearly', amountCents: 19900, updatedAt: at(7) },
+        }),
+        subscription({
+          createdAt: at(2),
+          plan: { interval: 'monthly', amountCents: 1990, updatedAt: at(9) },
+        }),
+      ]),
+    );
+
+    expect(record.activity.planUpdatedAt).toEqual(at(7));
+  });
+
+  it('has no plan update instant without subscriptions', () => {
+    expect(
+      toCustomerPaymentRecord(customer([])).activity.planUpdatedAt,
+    ).toBeNull();
   });
 
   it('keeps only the context fields of a charge', () => {

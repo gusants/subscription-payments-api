@@ -21,7 +21,6 @@ const NOW = new Date('2026-06-01T00:00:00.000Z');
 const prompt = { version: 'v1', text: 'system prompt' };
 
 const context: AnonymizedContext = buildAnonymizedContext({
-  customerId: 'cus_1',
   plan: { interval: 'monthly', amountCents: 1990 },
   charges: [],
   metrics: {

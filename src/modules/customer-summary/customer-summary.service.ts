@@ -37,7 +37,7 @@ export class CustomerSummaryService {
     const metrics = computePaymentMetrics(payments, this.clock.now());
     const { narration, cache } = await this.resolver.resolve(
       customerId,
-      lastEventId(payments.activity),
+      lastEventId(payments.activity, metrics.monthsAsCustomer),
       () => this.narrator.narrate(contextOf(payments, metrics)),
     );
     const { record, usage, failure } = narration;
@@ -59,7 +59,6 @@ export class CustomerSummaryService {
 
 function contextOf(payments: CustomerPaymentRecord, metrics: PaymentMetrics) {
   return buildAnonymizedContext({
-    customerId: payments.customerId,
     plan: payments.plan,
     charges: payments.charges,
     metrics,

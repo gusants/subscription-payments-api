@@ -18,6 +18,8 @@ const options: SummaryCacheOptions = {
   fallbackTtlSeconds: 30,
   lockSeconds: 20,
   waitMs: 3000,
+  promptVersion: 'v1',
+  model: 'fake-llm',
   pollMs: 20,
 };
 
@@ -65,7 +67,7 @@ describe('Redis summary cache (integration)', () => {
 
   beforeEach(() => {
     customerId = `cus_${randomUUID()}`;
-    key = summaryCacheKey(customerId, 'evt_1');
+    key = summaryCacheKey(customerId, 'evt_1', options);
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 

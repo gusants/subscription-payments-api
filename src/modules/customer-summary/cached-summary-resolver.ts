@@ -32,7 +32,7 @@ export class CachedSummaryResolver {
     lastEventId: string,
     generate: GenerateSummary,
   ): Promise<ResolvedSummary> {
-    const key = summaryCacheKey(customerId, lastEventId);
+    const key = summaryCacheKey(customerId, lastEventId, this.options);
     const running = this.inFlight.get(key);
     if (running) {
       return running.then(({ narration }) => sharedResult(narration.record));

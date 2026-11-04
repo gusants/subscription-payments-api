@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { GatewayFailureReason } from '../../../gateway/index.js';
 import type { ChargeStatus } from '../../charges/charge-status.js';
 import type { PlanInterval } from '../../plans/plan.js';
@@ -23,7 +22,6 @@ export interface ContextPlan {
 }
 
 export interface ContextSource {
-  customerId: string;
   plan: ContextPlan | null;
   charges: readonly ContextCharge[];
   metrics: PaymentMetrics;
@@ -44,26 +42,17 @@ export interface TimelinePeriod {
 }
 
 export interface AnonymizedContext {
-  customerAlias: string;
   plan: ContextPlan | null;
   metrics: PaymentMetrics;
   paymentTimeline: TimelinePeriod[];
 }
 
-const ALIAS_PREFIX = 'customer_';
-const ALIAS_HASH_LENGTH = 8;
 const ISO_DATE_LENGTH = 10;
-
-export function customerAlias(customerId: string): string {
-  const digest = createHash('sha256').update(customerId).digest('hex');
-  return `${ALIAS_PREFIX}${digest.slice(0, ALIAS_HASH_LENGTH)}`;
-}
 
 export function buildAnonymizedContext(
   source: ContextSource,
 ): AnonymizedContext {
   return {
-    customerAlias: customerAlias(source.customerId),
     plan: source.plan && {
       interval: source.plan.interval,
       amountCents: source.plan.amountCents,
