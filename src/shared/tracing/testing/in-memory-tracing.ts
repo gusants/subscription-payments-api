@@ -1,5 +1,5 @@
 import { context, propagation, trace } from '@opentelemetry/api';
-import { NodeSDK } from '@opentelemetry/sdk-node';
+import { NodeSDK, type NodeSDKConfiguration } from '@opentelemetry/sdk-node';
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
@@ -10,10 +10,13 @@ export interface InMemoryTracing {
   stop: () => Promise<void>;
 }
 
-export function startInMemoryTracing(): InMemoryTracing {
+export function startInMemoryTracing(
+  instrumentations: NodeSDKConfiguration['instrumentations'] = [],
+): InMemoryTracing {
   const exporter = new InMemorySpanExporter();
   const sdk = new NodeSDK({
     autoDetectResources: false,
+    instrumentations,
     spanProcessors: [new SimpleSpanProcessor({ exporter })],
     metricReaders: [],
     logRecordProcessors: [],

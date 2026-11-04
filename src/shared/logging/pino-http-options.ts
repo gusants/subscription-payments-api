@@ -6,6 +6,7 @@ import {
 } from '../correlation/index.js';
 import { activeTraceFields } from '../tracing/active-trace-fields.js';
 import { REDACT_PATHS, REDACTED } from './redact-paths.js';
+import { serializeRequestWithoutQuery } from './request-serializer.js';
 
 interface LoggingSettings {
   nodeEnv: Env['NODE_ENV'];
@@ -37,6 +38,7 @@ export function buildPinoHttpOptions({
     genReqId: correlationIdOfRequest,
     mixin: logContextMixin,
     redact: { paths: [...REDACT_PATHS], censor: REDACTED },
+    serializers: { req: serializeRequestWithoutQuery },
     ...(isDevelopment && { transport: prettyTransport }),
   };
 }

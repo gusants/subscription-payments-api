@@ -49,7 +49,7 @@ pnpm start:dev
 
 ## Configuration
 
-Environment variables are validated at startup. See `.env.example` for the full list; `LOG_LEVEL` controls verbosity (`info` by default). Logs are JSON, pretty-printed when `NODE_ENV=development`. Pino redacts, as `[Redacted]`, the `authorization`, `cookie`, `x-gateway-signature` and `Idempotency-Key` headers and any `cardToken`, `token` or `email` field up to three levels deep in a logged object (`src/shared/logging/redact-paths.ts`). Never put such values in a URL: the request path and query string are logged as they are.
+Environment variables are validated at startup. See `.env.example` for the full list; `LOG_LEVEL` controls verbosity (`info` by default). Logs are JSON, pretty-printed when `NODE_ENV=development`. Pino redacts, as `[Redacted]`, the `authorization`, `cookie`, `x-gateway-signature` and `Idempotency-Key` headers and any `cardToken`, `token` or `email` field up to three levels deep in a logged object (`src/shared/logging/redact-paths.ts`). Query string values are never logged (`req.url` keeps the path and becomes `/customers?[Redacted]`, `req.query` is dropped) and, with tracing on, the server span records `url.query` as `[Redacted]`. The path itself is logged as it is, so never put such values in a path segment.
 
 ## Correlation id
 

@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Get,
   Logger,
   Post,
+  Query,
   type INestApplication,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -96,6 +98,11 @@ describe('log redaction', () => {
         this.logger.log({ msg: 'received subscription', body });
         return { ok: true };
       }
+
+      @Get()
+      list(@Query('search') search: string): { matches: number } {
+        return { matches: search.length };
+      }
     }
 
     let app: INestApplication;
@@ -142,6 +149,25 @@ describe('log redaction', () => {
         'x-gateway-signature': REDACTED,
         'idempotency-key': REDACTED,
       });
+    });
+
+    it('never writes the values of a query string', async () => {
+      logs.raw.length = 0;
+
+      await request(app.getHttpServer())
+        .get('/subscriptions')
+        .query({ search: EMAIL, page: 2 })
+        .expect(200);
+
+      expect(logs.raw.join('')).not.toContain('ana.secret');
+      const completed = logs
+        .lines()
+        .find(({ msg }) => msg === 'request completed') as {
+        req: Record<string, unknown>;
+      };
+      expect(completed.req['url']).toBe(`/subscriptions?${REDACTED}`);
+      expect(completed.req).not.toHaveProperty('query');
+      expect(completed.req).toMatchObject({ method: 'GET', params: {} });
     });
   });
 });

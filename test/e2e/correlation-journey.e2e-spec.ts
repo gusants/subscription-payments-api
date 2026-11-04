@@ -197,6 +197,29 @@ describe('Following a payment by correlation id (e2e)', () => {
     expect(raw).not.toContain(CUSTOMER_EMAIL);
   });
 
+  it('customer search by e-mail — request logged — keeps the e-mail out of the logs', async () => {
+    await subscribe(JOURNEY_ID);
+    logs.clear();
+
+    const found = await http()
+      .get('/customers')
+      .query({ search: CUSTOMER_EMAIL })
+      .expect(200);
+
+    expect(found.body.data).toHaveLength(1);
+    const completed = logs
+      .lines()
+      .find((line) => line['msg'] === 'request completed');
+    expect(completed?.['req']).toMatchObject({
+      method: 'GET',
+      url: '/customers?[Redacted]',
+    });
+    const raw = logs.raw();
+    expect(raw).not.toContain(CUSTOMER_EMAIL);
+    expect(raw).not.toContain(encodeURIComponent(CUSTOMER_EMAIL));
+    expect(raw).not.toContain(CUSTOMER_EMAIL.split('@')[0]);
+  });
+
   it('invalid x-correlation-id — subscription created — replaces it with a generated id shown in the response and the logs', async () => {
     const response = await subscribe('bad id!');
 

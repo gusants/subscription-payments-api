@@ -38,7 +38,9 @@ Pino `redact` (`src/shared/logging/redact-paths.ts`) replaces the value with `[R
 - headers, on requests and responses: `authorization`, `cookie`, `x-gateway-signature`, `idempotency-key`;
 - fields `cardToken`, `token` and `email`, at the top level of a log object or up to two levels below it (`*.email`, `*.*.email`).
 
-The e2e journey test asserts that neither the card token nor the customer e-mail appears in the captured logs.
+Query strings can carry personal data (`GET /customers?search=` matches e-mails), so their values are never written. The request serializer (`src/shared/logging/request-serializer.ts`) logs `req.url` as `/customers?[Redacted]` and drops `req.query`; with tracing on, the http server span records `url.query` as `[Redacted]` (`startIncomingSpanHook` in `src/shared/tracing/traced-instrumentations.ts`). The path and the route stay readable.
+
+The e2e journey test asserts that neither the card token nor the customer e-mail appears in the captured logs, including after a customer search by e-mail.
 
 ## Walkthrough: `tok_fail_then_success`
 
