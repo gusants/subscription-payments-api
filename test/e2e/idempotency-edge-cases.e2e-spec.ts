@@ -115,44 +115,34 @@ describe('Idempotency-Key edge cases (e2e)', () => {
       });
     };
 
-    it('Idempotency-Key sent twice with different values — the pair acts as one key — replays only the identical pair', async () => {
-      const input = await subscriptionInput();
-      const first = randomUUID();
-      const second = randomUUID();
+    it.each([
+      ['different values', () => [randomUUID(), randomUUID()]],
+      ['the same value', () => [`dup-${randomUUID()}`].flatMap((k) => [k, k])],
+    ])(
+      'Idempotency-Key sent twice with %s — answers 400 and runs nothing',
+      async (_name, keys) => {
+        const input = await subscriptionInput();
 
-      const created = await postWithHeaderLines([first, second], input);
-      const replayed = await postWithHeaderLines([first, second], input);
+        const response = await postWithHeaderLines(keys(), input);
+
+        expect(response.status).toBe(400);
+        expect(await prisma.subscription.count()).toBe(0);
+        expect(await prisma.charge.count()).toBe(0);
+      },
+    );
+
+    it('Idempotency-Key sent once — still works next to the repeated-header guard', async () => {
+      const input = await subscriptionInput();
+      const key = randomUUID();
+
+      const created = await postWithHeaderLines([key], input);
+      const replayed = await postWithHeaderLines([key], input);
 
       expect(created.status).toBe(201);
       expect(replayed.status).toBe(201);
       expect(replayed.replayed).toBe('true');
       expect(replayed.body.id).toBe(created.body.id);
       expect(await prisma.subscription.count()).toBe(1);
-    });
-
-    it('Idempotency-Key sent twice — one of the values alone — is a different key and is not a replay', async () => {
-      const input = await subscriptionInput();
-      const first = randomUUID();
-      const second = randomUUID();
-      await postWithHeaderLines([first, second], input);
-
-      const alone = await postWithHeaderLines([first], input);
-
-      expect(alone.replayed).toBeUndefined();
-      expect(alone.status).toBe(201);
-      expect(await prisma.subscription.count()).toBe(2);
-    });
-
-    it('Idempotency-Key sent twice — the combined value exceeds 255 characters — answers 400', async () => {
-      const input = await subscriptionInput();
-
-      const response = await postWithHeaderLines(
-        ['a'.repeat(200), 'b'.repeat(100)],
-        input,
-      );
-
-      expect(response.status).toBe(400);
-      expect(await prisma.subscription.count()).toBe(0);
     });
   });
 

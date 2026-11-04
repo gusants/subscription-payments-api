@@ -3,6 +3,7 @@ import {
   buildStoreKey,
   fingerprintRequest,
   parseIdempotencyKey,
+  readIdempotencyKey,
 } from './idempotency-key.js';
 
 describe('parseIdempotencyKey', () => {
@@ -16,6 +17,24 @@ describe('parseIdempotencyKey', () => {
       expect(() => parseIdempotencyKey(key)).toThrow(BadRequestException);
     },
   );
+});
+
+describe('readIdempotencyKey', () => {
+  it('answers undefined when the header is absent', () => {
+    expect(readIdempotencyKey(undefined)).toBeUndefined();
+  });
+
+  it('answers the single header value', () => {
+    expect(readIdempotencyKey(['order-42'])).toBe('order-42');
+  });
+
+  it('rejects a header sent more than once even when each value is valid', () => {
+    expect(() => readIdempotencyKey(['a', 'b'])).toThrow(BadRequestException);
+  });
+
+  it('applies the key format to the single value', () => {
+    expect(() => readIdempotencyKey([''])).toThrow(BadRequestException);
+  });
 });
 
 describe('buildStoreKey', () => {

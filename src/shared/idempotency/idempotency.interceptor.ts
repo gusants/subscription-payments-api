@@ -23,7 +23,7 @@ import {
 import {
   buildStoreKey,
   fingerprintRequest,
-  parseIdempotencyKey,
+  readIdempotencyKey,
 } from './idempotency-key.js';
 import { IDEMPOTENT_METADATA } from './idempotent.decorator.js';
 import {
@@ -60,11 +60,12 @@ export class IdempotencyInterceptor implements NestInterceptor {
     const http = context.switchToHttp();
     const request = http.getRequest<Request>();
     const response = http.getResponse<Response>();
-    const rawKey = request.header(IDEMPOTENCY_KEY_HEADER);
-    if (rawKey === undefined) {
+    const key = readIdempotencyKey(
+      request.headersDistinct[IDEMPOTENCY_KEY_HEADER.toLowerCase()],
+    );
+    if (key === undefined) {
       return next.handle();
     }
-    const key = parseIdempotencyKey(rawKey);
     const fingerprint = fingerprintRequest(
       request.method,
       request.path,

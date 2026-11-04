@@ -13,6 +13,16 @@ export function parseIdempotencyKey(raw: string): string {
   return raw;
 }
 
+export function readIdempotencyKey(
+  headerValues: readonly string[] | undefined,
+): string | undefined {
+  if (headerValues === undefined) return undefined;
+  if (headerValues.length > 1) {
+    throw new BadRequestException('Idempotency-Key must be sent only once');
+  }
+  return parseIdempotencyKey(headerValues[0]!);
+}
+
 export function buildStoreKey(
   method: string,
   path: string,
