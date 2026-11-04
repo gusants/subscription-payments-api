@@ -4,6 +4,7 @@ import {
   correlationIdOfRequest,
   currentCorrelationId,
 } from '../correlation/index.js';
+import { REDACT_PATHS, REDACTED } from './redact-paths.js';
 
 interface LoggingSettings {
   nodeEnv: Env['NODE_ENV'];
@@ -30,7 +31,7 @@ export function buildPinoHttpOptions({
     autoLogging: { ignore: (request) => request.url === '/health' },
     genReqId: correlationIdOfRequest,
     mixin: correlationMixin,
-    redact: ['req.headers.authorization', 'req.headers.cookie'],
+    redact: { paths: [...REDACT_PATHS], censor: REDACTED },
     ...(isDevelopment && { transport: prettyTransport }),
   };
 }

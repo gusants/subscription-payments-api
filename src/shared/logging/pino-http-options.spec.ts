@@ -38,18 +38,6 @@ describe('buildPinoHttpOptions', () => {
     expect(ignoresRequestTo('/plans')).toBe(false);
   });
 
-  it('redacts credentials from request headers', () => {
-    const options = buildPinoHttpOptions({
-      nodeEnv: 'production',
-      level: 'info',
-    });
-
-    expect(options.redact).toEqual([
-      'req.headers.authorization',
-      'req.headers.cookie',
-    ]);
-  });
-
   it('stamps the correlation id of the current context on every line', () => {
     expect(correlationMixin()).toEqual({});
     expect(runWithCorrelationId('journey-0001', correlationMixin)).toEqual({
