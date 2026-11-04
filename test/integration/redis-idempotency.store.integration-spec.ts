@@ -106,4 +106,27 @@ describe('RedisIdempotencyStore (integration)', () => {
       existing: { state: 'completed', response },
     });
   });
+
+  describe('with a tiny lock TTL', () => {
+    const TINY_LOCK_TTL_SECONDS = 2;
+    const WAIT_FOR_EXPIRY_MS = 6000;
+
+    it('lets a new request acquire a key whose in-flight lock was abandoned', async () => {
+      const impatientStore = new RedisIdempotencyStore(redis, {
+        completedSeconds: COMPLETED_TTL_SECONDS,
+        lockSeconds: TINY_LOCK_TTL_SECONDS,
+      });
+      await impatientStore.acquire(key, 'fp');
+      const whileHeld = await impatientStore.acquire(key, 'fp');
+
+      await vi.waitFor(
+        async () => {
+          expect((await impatientStore.acquire(key, 'fp')).acquired).toBe(true);
+        },
+        { timeout: WAIT_FOR_EXPIRY_MS, interval: 100 },
+      );
+
+      expect(whileHeld.acquired).toBe(false);
+    });
+  });
 });
