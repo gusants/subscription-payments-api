@@ -1,7 +1,11 @@
 import type { Prisma } from '../../generated/prisma/client.js';
 import { ConflictError } from '../../shared/errors/index.js';
 import type { StatusChange } from '../subscriptions/subscription.js';
-import type { ChargeSettlementRecord, RecordedOutcome } from './charge.js';
+import type {
+  ChargeSettlement,
+  ChargeSettlementRecord,
+  RecordedOutcome,
+} from './charge.js';
 import { toCharge } from './prisma-charge.mapper.js';
 
 function changeSubscription(
@@ -13,6 +17,27 @@ function changeSubscription(
     where: { id, status: { in: [...fromAnyOf] } },
     data: { status: to, ...(canceledAt && { canceledAt }) },
   });
+}
+
+async function currentStateOfIdenticalSettlement(
+  tx: Prisma.TransactionClient,
+  expected: ChargeSettlement,
+  subscriptionId: string,
+): Promise<RecordedOutcome> {
+  const current = await tx.charge.findUnique({ where: { id: expected.id } });
+  const settledIdentically =
+    current?.status === expected.to &&
+    current.gatewayChargeId === expected.gatewayChargeId;
+  if (!current || !settledIdentically) {
+    throw new ConflictError(`Charge ${expected.id} was modified concurrently`);
+  }
+  return {
+    subscriptionChangeApplied: true,
+    subscription: await tx.subscription.findUniqueOrThrow({
+      where: { id: subscriptionId },
+    }),
+    charge: toCharge(current),
+  };
 }
 
 export async function applyChargeOutcome(
@@ -29,7 +54,7 @@ export async function applyChargeOutcome(
     },
   });
   if (count === 0) {
-    throw new ConflictError(`Charge ${charge.id} was modified concurrently`);
+    return currentStateOfIdenticalSettlement(tx, charge, subscription.id);
   }
   if (attempt) await tx.paymentAttempt.create({ data: attempt });
   const changed = subscription.change

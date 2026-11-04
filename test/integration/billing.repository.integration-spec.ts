@@ -88,6 +88,14 @@ describe('PrismaBillingRepository (integration)', () => {
     attemptStartedAt: retryStartedAt,
   });
 
+  const divergentSettlement = (chargeId: string) => ({
+    id: chargeId,
+    fromAnyOf: ['pending' as const],
+    to: 'paid' as const,
+    gatewayChargeId: 'gch_2',
+    paidAt: new Date('2026-01-31T10:30:01.000Z'),
+  });
+
   const outcomeRecord = (
     subscriptionId: string,
     chargeId: string,
@@ -234,6 +242,7 @@ describe('PrismaBillingRepository (integration)', () => {
       await expect(
         repository.recordChargeOutcome(
           outcomeRecord(subscription.id, charge.id, {
+            charge: divergentSettlement(charge.id),
             attempt: {
               id: generateId(ID_PREFIXES.paymentAttempt),
               chargeId: charge.id,
@@ -245,6 +254,34 @@ describe('PrismaBillingRepository (integration)', () => {
         ),
       ).rejects.toBeInstanceOf(ConflictError);
 
+      expect(await prisma.paymentAttempt.count()).toBe(1);
+      expect(
+        (await prisma.charge.findUniqueOrThrow({ where: { id: charge.id } }))
+          .attemptCount,
+      ).toBe(1);
+    });
+
+    it('answers with the current state and writes nothing when the same outcome was already settled', async () => {
+      const { subscription, charge } = await seedFirstCharge();
+      await repository.recordChargeOutcome(
+        outcomeRecord(subscription.id, charge.id),
+      );
+
+      const repeated = await repository.recordChargeOutcome(
+        outcomeRecord(subscription.id, charge.id, {
+          attempt: {
+            id: generateId(ID_PREFIXES.paymentAttempt),
+            chargeId: charge.id,
+            gatewayChargeId: 'gch_1',
+            result: 'succeeded',
+            failureReason: null,
+          },
+        }),
+      );
+
+      expect(repeated.charge.status).toBe('paid');
+      expect(repeated.subscription.status).toBe('active');
+      expect(repeated.subscriptionChangeApplied).toBe(true);
       expect(await prisma.paymentAttempt.count()).toBe(1);
       expect(
         (await prisma.charge.findUniqueOrThrow({ where: { id: charge.id } }))
@@ -299,6 +336,7 @@ describe('PrismaBillingRepository (integration)', () => {
         ),
         repository.recordChargeOutcome(
           outcomeRecord(subscription.id, charge.id, {
+            charge: divergentSettlement(charge.id),
             attempt: {
               id: generateId(ID_PREFIXES.paymentAttempt),
               chargeId: charge.id,

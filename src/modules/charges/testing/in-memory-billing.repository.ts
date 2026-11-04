@@ -96,8 +96,15 @@ export class InMemoryBillingRepository extends BillingRepository {
     subscription,
   }: ChargeSettlementRecord): Promise<RecordedOutcome> {
     const found = this.stored.get(charge.id);
-    if (!found || !charge.fromAnyOf.includes(found.status)) {
+    if (!found) {
       throw new ConflictError(`Charge ${charge.id} was modified concurrently`);
+    }
+    if (!charge.fromAnyOf.includes(found.status)) {
+      return this.currentStateOfIdenticalSettlement(
+        found,
+        charge,
+        subscription.id,
+      );
     }
     const settled: Charge = {
       ...found,
@@ -123,6 +130,27 @@ export class InMemoryBillingRepository extends BillingRepository {
       subscription: current,
       charge: { ...settled },
       subscriptionChangeApplied: !subscription.change || changed !== null,
+    };
+  }
+
+  private async currentStateOfIdenticalSettlement(
+    found: Charge,
+    expected: ChargeSettlementRecord['charge'],
+    subscriptionId: string,
+  ): Promise<RecordedOutcome> {
+    const settledIdentically =
+      found.status === expected.to &&
+      found.gatewayChargeId === expected.gatewayChargeId;
+    const current = await this.subscriptions.findById(subscriptionId);
+    if (!settledIdentically || !current) {
+      throw new ConflictError(
+        `Charge ${expected.id} was modified concurrently`,
+      );
+    }
+    return {
+      subscription: current,
+      charge: { ...found },
+      subscriptionChangeApplied: true,
     };
   }
 

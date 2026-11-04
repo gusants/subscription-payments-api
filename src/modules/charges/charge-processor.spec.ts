@@ -126,6 +126,67 @@ describe('ChargeProcessor', () => {
       );
     });
 
+    it('answers with the settled state when a webhook settled the same outcome during the gateway call', async () => {
+      const { target } = await seed();
+      const createCharge = gateway.createCharge.bind(gateway);
+      vi.spyOn(gateway, 'createCharge').mockImplementation(async (input) => {
+        const created = await createCharge(input);
+        await billing.recordChargeOutcome({
+          charge: {
+            id: 'ch_1',
+            fromAnyOf: ['pending'],
+            to: 'paid',
+            gatewayChargeId: created.id,
+            paidAt: periodStart,
+          },
+          attempt: {
+            id: 'att_webhook',
+            chargeId: 'ch_1',
+            gatewayChargeId: created.id,
+            result: 'succeeded',
+            failureReason: null,
+          },
+          subscription: {
+            id: 'sub_1',
+            change: { fromAnyOf: ['incomplete'], to: 'active' },
+          },
+        });
+        return created;
+      });
+
+      const processed = await processor.process(target);
+
+      expect(processed.charge.status).toBe('paid');
+      expect(processed.subscription.status).toBe('active');
+      expect(billing.attempts()).toHaveLength(1);
+      expect(storedCharge().attemptCount).toBe(1);
+      expect(errorLog).not.toHaveBeenCalled();
+    });
+
+    it('rejects with a conflict when the charge was settled differently during the gateway call', async () => {
+      const { target } = await seed();
+      const createCharge = gateway.createCharge.bind(gateway);
+      vi.spyOn(gateway, 'createCharge').mockImplementation(async (input) => {
+        const created = await createCharge(input);
+        await billing.recordChargeOutcome({
+          charge: {
+            id: 'ch_1',
+            fromAnyOf: ['pending'],
+            to: 'paid',
+            gatewayChargeId: 'gch_other',
+            paidAt: periodStart,
+          },
+          attempt: null,
+          subscription: { id: 'sub_1', change: null },
+        });
+        return created;
+      });
+
+      await expect(processor.process(target)).rejects.toBeInstanceOf(
+        ConflictError,
+      );
+    });
+
     it('sends the persisted attempt key as the idempotency key', async () => {
       const { target } = await seed();
 

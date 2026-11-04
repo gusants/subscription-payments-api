@@ -86,7 +86,9 @@ describe('POST /webhooks/gateway edge cases (e2e)', () => {
   });
 
   describe('webhook that settles the charge before the charge flow records its outcome', () => {
-    async function subscribeWithWebhookFirst() {
+    async function subscribeWithWebhookFirst({
+      idempotencyKey,
+    }: { idempotencyKey?: string } = {}) {
       const customer = await http()
         .post('/customers')
         .send({ name: 'Ana', email: 'ana@example.com' })
@@ -105,13 +107,17 @@ describe('POST /webhooks/gateway edge cases (e2e)', () => {
           .send(rawBody);
         webhookStatus = delivered.status;
       });
-      const response = await http().post('/subscriptions').send({
+      const input = {
         customerId: customer.body.id,
         planId: plan.body.id,
         paymentMethod: 'card',
         cardToken: 'tok_success',
-      });
-      return { response, webhookStatus };
+      };
+      const response = await http()
+        .post('/subscriptions')
+        .set(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
+        .send(input);
+      return { response, webhookStatus, input };
     }
 
     it('card charge paid by the webhook first — flow records its outcome later — settles exactly once', async () => {
@@ -129,14 +135,26 @@ describe('POST /webhooks/gateway edge cases (e2e)', () => {
       expect((await prisma.charge.findFirstOrThrow()).status).toBe('paid');
     });
 
-    it('card charge paid by the webhook first — the create-subscription request — answers 409 conflict', async () => {
+    it('card charge paid by the webhook first — the create-subscription request — answers 201 with the paid charge', async () => {
       const { response } = await subscribeWithWebhookFirst();
 
-      expect(response.status).toBe(409);
-      expect(response.body).toMatchObject({
-        statusCode: 409,
-        message: expect.stringContaining('was modified concurrently'),
-      });
+      expect(response.status).toBe(201);
+      expect(response.body.status).toBe('active');
+      expect(response.body.latestCharge.status).toBe('paid');
+    });
+
+    it('card charge paid by the webhook first — the same Idempotency-Key retried — replays the 201', async () => {
+      const key = 'webhook-first-key';
+      const first = await subscribeWithWebhookFirst({ idempotencyKey: key });
+
+      const replay = await http()
+        .post('/subscriptions')
+        .set('Idempotency-Key', key)
+        .send(first.input);
+
+      expect(replay.status).toBe(201);
+      expect(replay.headers['idempotent-replayed']).toBe('true');
+      expect(replay.body.id).toBe(first.response.body.id);
     });
   });
 });
