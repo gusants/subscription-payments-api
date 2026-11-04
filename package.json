@@ -40,6 +40,7 @@
     "@bull-board/api": "^9.11.0",
     "@bull-board/express": "^9.11.0",
     "@bull-board/nestjs": "^9.11.0",
+    "@google/genai": "~2.32.0",
     "@nestjs/bullmq": "^12.0.0",
     "@nestjs/common": "^12.0.1",
     "@nestjs/config": "^12.0.1",

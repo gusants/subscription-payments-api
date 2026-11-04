@@ -68,6 +68,10 @@ export const envSchema = z.object({
   CHARGE_ATTEMPT_LEASE_SECONDS: z.coerce.number().int().positive().default(30),
   IDEMPOTENCY_TTL_SECONDS: z.coerce.number().int().positive().default(86400),
   IDEMPOTENCY_LOCK_TTL_SECONDS: z.coerce.number().int().positive().default(60),
+  LLM_PROVIDER: z.enum(['fake', 'gemini']).default('fake'),
+  LLM_MODEL: z.string().min(1).default('gemini-3.5-flash-lite'),
+  LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
+  GEMINI_API_KEY: z.string().min(1).optional(),
   OTEL_ENABLED: z.stringbool().default(false),
   OTEL_SERVICE_NAME: z.string().min(1).default('subscription-payments-api'),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.url().optional(),
@@ -87,6 +91,10 @@ function isUnacknowledgedAcceleratedRetries({
   );
 }
 
+function isGeminiWithoutApiKey({ LLM_PROVIDER, GEMINI_API_KEY }: Env): boolean {
+  return LLM_PROVIDER === 'gemini' && GEMINI_API_KEY === undefined;
+}
+
 export function validateEnv(rawEnv: Record<string, unknown>): Env {
   const result = envSchema.safeParse(rawEnv);
   if (!result.success) {
@@ -97,6 +105,11 @@ export function validateEnv(rawEnv: Record<string, unknown>): Env {
   if (isUnacknowledgedAcceleratedRetries(result.data)) {
     throw new Error(
       'Invalid environment variables:\nRETRY_INTERVAL_UNIT=minutes compresses the dunning calendar (D+1, D+3, D+7) to minutes and is refused when NODE_ENV=production; set ALLOW_ACCELERATED_RETRIES=true to run it anyway (demo only)',
+    );
+  }
+  if (isGeminiWithoutApiKey(result.data)) {
+    throw new Error(
+      'Invalid environment variables:\nGEMINI_API_KEY is required when LLM_PROVIDER=gemini',
     );
   }
   return result.data;

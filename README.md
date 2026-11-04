@@ -156,6 +156,10 @@ A retry job separates a business failure from a technical one:
 - `GatewayUnavailableError` is technical. The worker rethrows it and BullMQ re-runs the job up to 5 attempts with exponential backoff (5 s, 10 s, 20 s, 40 s). It records no payment attempt, so `attempt_count` does not move, and it does not touch `retry_count`: the re-run stays inside the same calendar slot. The re-run finds the charge `pending` with the retry already started (or, for pix/boleto, the live charge of the period created by this retry) and resumes it: it asks the gateway for the charge of the attempt key first and only re-sends the same key if the gateway never received it, so nothing is charged twice. A job that exhausts its attempts stays in the failed set (the DLQ in Bull Board) with the charge `pending`; reconciliation of pending charges picks it up.
 - `GatewayOutcomeUnknownError` (the response was lost, the gateway may have processed it) is not retried blindly: the job completes and the charge stays `pending` with its attempt key. The charge flow's lease and reconciliation, or the gateway webhook, resolve it by asking the gateway about the attempt key. When it settles as `failed` the next dunning retry is scheduled as usual.
 
+## LLM provider
+
+`LLM_PROVIDER=fake` (default) answers deterministic JSON with no network and no key, so tests and CI never call a model. `LLM_PROVIDER=gemini` uses the official `@google/genai` SDK and requires `GEMINI_API_KEY`. `LLM_MODEL` (default `gemini-3.5-flash-lite`) and `LLM_TIMEOUT_MS` (default 8000, enforced with an `AbortSignal`) apply to both.
+
 ## Payment gateway
 
 `PAYMENT_GATEWAY=fake` (the only adapter for now) stores its customers and charges in the JSON file at `FAKE_GATEWAY_DATA_FILE`. Magic card tokens: `tok_success`, `tok_insufficient_funds`, `tok_expired_card`, `tok_fail_then_success` (declines the first attempt of a charge, approves the next), `tok_timeout_then_success` (the first call for a charge reference fails as gateway unavailable and stores nothing, later calls approve; the memory of that first timeout lives in the process) and anything else is declined as `invalid_token`.

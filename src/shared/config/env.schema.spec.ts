@@ -30,9 +30,56 @@ describe('validateEnv', () => {
       CHARGE_ATTEMPT_LEASE_SECONDS: 30,
       IDEMPOTENCY_TTL_SECONDS: 86400,
       IDEMPOTENCY_LOCK_TTL_SECONDS: 60,
+      LLM_PROVIDER: 'fake',
+      LLM_MODEL: 'gemini-3.5-flash-lite',
+      LLM_TIMEOUT_MS: 8000,
       OTEL_ENABLED: false,
       OTEL_SERVICE_NAME: 'subscription-payments-api',
     });
+  });
+
+  it('rejects an unknown LLM provider', () => {
+    expect(() => validateEnv({ ...validEnv, LLM_PROVIDER: 'openai' })).toThrow(
+      /LLM_PROVIDER/,
+    );
+  });
+
+  it('requires GEMINI_API_KEY when the provider is gemini', () => {
+    expect(() => validateEnv({ ...validEnv, LLM_PROVIDER: 'gemini' })).toThrow(
+      /GEMINI_API_KEY is required/,
+    );
+  });
+
+  it('rejects an empty GEMINI_API_KEY for the gemini provider', () => {
+    expect(() =>
+      validateEnv({ ...validEnv, LLM_PROVIDER: 'gemini', GEMINI_API_KEY: '' }),
+    ).toThrow(/GEMINI_API_KEY/);
+  });
+
+  it('accepts the gemini provider with an API key and a custom model', () => {
+    expect(
+      validateEnv({
+        ...validEnv,
+        LLM_PROVIDER: 'gemini',
+        GEMINI_API_KEY: 'key',
+        LLM_MODEL: 'gemini-3.6-flash',
+        LLM_TIMEOUT_MS: '3000',
+      }),
+    ).toMatchObject({
+      LLM_PROVIDER: 'gemini',
+      LLM_MODEL: 'gemini-3.6-flash',
+      LLM_TIMEOUT_MS: 3000,
+    });
+  });
+
+  it('does not need GEMINI_API_KEY for the fake provider', () => {
+    expect(validateEnv(validEnv).GEMINI_API_KEY).toBeUndefined();
+  });
+
+  it.each(['0', '-1', 'abc'])('rejects LLM_TIMEOUT_MS=%s', (raw) => {
+    expect(() => validateEnv({ ...validEnv, LLM_TIMEOUT_MS: raw })).toThrow(
+      /LLM_TIMEOUT_MS/,
+    );
   });
 
   it('rejects an OTLP endpoint that is not a URL', () => {
