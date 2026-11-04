@@ -26,6 +26,7 @@ import type {
   Charge,
   ChargeSettlementRecord,
   RecordedOutcome,
+  RenewalCandidate,
 } from './charge.js';
 import { ChargesRepository } from './charges.repository.js';
 import {
@@ -33,8 +34,10 @@ import {
   type BillableSubscription,
   expirySettlement,
   assertTransition as assertChargeTransition,
+  newRenewalCharge,
   newRetryCharge,
   nextGatewayAttempt,
+  periodAdvanceAfterPaid,
   statusesAllowedToTransitionTo as chargeStatusesAllowedToTransitionTo,
   subscriptionStatusAfterCharge,
   toChargeOutcome,
@@ -127,7 +130,7 @@ export class ChargeProcessor {
     retryNumber: number,
   ): Promise<ProcessedCharge> {
     const target = await this.resolveTarget(expired);
-    const created = await this.billing.createRetryCharge(
+    const created = await this.billing.createPeriodCharge(
       newRetryCharge(
         expired,
         retryNumber,
@@ -146,6 +149,22 @@ export class ChargeProcessor {
     throw new ConflictError(
       `Period of charge ${expired.id} already has a live charge`,
     );
+  }
+
+  async renew(candidate: RenewalCandidate): Promise<ProcessedCharge | null> {
+    const { subscription } = candidate;
+    assertBillable(subscription);
+    const customer = await this.resolveCustomer(subscription);
+    const created = await this.billing.createPeriodCharge(
+      newRenewalCharge(
+        candidate,
+        generateId(ID_PREFIXES.charge),
+        this.clock.now(),
+      ),
+    );
+    return created
+      ? this.process({ charge: created, subscription, customer })
+      : null;
   }
 
   async resume(charge: Charge): Promise<ProcessedCharge> {
@@ -192,20 +211,24 @@ export class ChargeProcessor {
       throw new NotFoundError(`Charge ${charge.id} not found`);
     }
     assertBillable(found.subscription);
-    const customer = await this.customers.findById(
-      found.subscription.customerId,
-    );
-    if (!customer?.gatewayCustomerId) {
-      throw new UnprocessableError(
-        `Customer ${found.subscription.customerId} has no gateway customer`,
-        { transient: true },
-      );
-    }
     return {
       charge,
       subscription: found.subscription,
-      customer: { ...customer, gatewayCustomerId: customer.gatewayCustomerId },
+      customer: await this.resolveCustomer(found.subscription),
     };
+  }
+
+  private async resolveCustomer({
+    customerId,
+  }: Subscription): Promise<AttemptTarget['customer']> {
+    const customer = await this.customers.findById(customerId);
+    if (!customer?.gatewayCustomerId) {
+      throw new UnprocessableError(
+        `Customer ${customerId} has no gateway customer`,
+        { transient: true },
+      );
+    }
+    return { ...customer, gatewayCustomerId: customer.gatewayCustomerId };
   }
 
   private toGatewayAttempt(target: AttemptTarget): GatewayAttempt {
@@ -353,6 +376,10 @@ export class ChargeProcessor {
       subscription.status,
       outcome.chargeStatus,
     );
+    const period =
+      outcome.chargeStatus === 'paid'
+        ? periodAdvanceAfterPaid(charge, subscription)
+        : null;
     return this.persist(
       {
         charge: {
@@ -382,6 +409,7 @@ export class ChargeProcessor {
               subscriptionStatusesAllowedToTransitionTo(subscriptionStatus),
             to: subscriptionStatus,
           },
+          ...(period && { period }),
         },
       },
       outcome.failureReason,

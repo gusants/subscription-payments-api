@@ -23,6 +23,7 @@ describe('validateEnv', () => {
       FAKE_GATEWAY_BOLETO_EXPIRATION_SECONDS: 259200,
       FAKE_GATEWAY_EXPIRATION_SWEEP_INTERVAL_MS: 5000,
       RETRY_INTERVAL_UNIT: 'days',
+      RENEWAL_BATCH_SIZE: 100,
       WORKERS_ENABLED: true,
       CHARGE_ATTEMPT_LEASE_SECONDS: 30,
       IDEMPOTENCY_TTL_SECONDS: 86400,
@@ -82,6 +83,25 @@ describe('validateEnv', () => {
       validateEnv({ ...validEnv, RETRY_INTERVAL_UNIT: unit })
         .RETRY_INTERVAL_UNIT,
     ).toBe(unit);
+  });
+
+  it('leaves the renewal interval unset so it follows the retry unit', () => {
+    expect(validateEnv(validEnv).RENEWAL_JOB_INTERVAL_SECONDS).toBeUndefined();
+  });
+
+  it.each([['0'], ['-5'], ['1.5']])(
+    'rejects RENEWAL_JOB_INTERVAL_SECONDS=%s',
+    (raw) => {
+      expect(() =>
+        validateEnv({ ...validEnv, RENEWAL_JOB_INTERVAL_SECONDS: raw }),
+      ).toThrow(/RENEWAL_JOB_INTERVAL_SECONDS/);
+    },
+  );
+
+  it('rejects a renewal batch above the maximum', () => {
+    expect(() =>
+      validateEnv({ ...validEnv, RENEWAL_BATCH_SIZE: '1001' }),
+    ).toThrow(/RENEWAL_BATCH_SIZE/);
   });
 
   it('rejects an invalid RETRY_INTERVAL_UNIT', () => {

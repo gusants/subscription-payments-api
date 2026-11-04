@@ -442,4 +442,45 @@ describe('decideWebhookEffect', () => {
       },
     );
   });
+
+  describe('period advance on payment', () => {
+    const renewalPeriodEnd = new Date('2026-04-01T12:00:00.000Z');
+
+    function renewalTarget(): WebhookTarget {
+      const base = target('pending', { subscriptionStatus: 'active' });
+      return {
+        ...base,
+        charge: { ...base.charge, periodEnd: renewalPeriodEnd },
+      };
+    }
+
+    it('moves the subscription to the period of a paid renewal', () => {
+      const decision = decide('charge.paid', renewalTarget());
+
+      expect(decision).toMatchObject({
+        settlement: {
+          subscription: { period: { start: now, end: renewalPeriodEnd } },
+        },
+      });
+    });
+
+    it('keeps the period when the paid charge is not a renewal', () => {
+      const decision = decide(
+        'charge.paid',
+        target('pending', { subscriptionStatus: 'active' }),
+      );
+
+      expect(decision).not.toMatchObject({
+        settlement: { subscription: { period: expect.anything() } },
+      });
+    });
+
+    it('does not move the period on a failure', () => {
+      const decision = decide('charge.failed', renewalTarget());
+
+      expect(decision).not.toMatchObject({
+        settlement: { subscription: { period: expect.anything() } },
+      });
+    });
+  });
 });

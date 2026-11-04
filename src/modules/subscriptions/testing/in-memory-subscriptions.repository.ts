@@ -1,4 +1,5 @@
 import type {
+  BillingPeriod,
   NewSubscription,
   StatusChange,
   Subscription,
@@ -35,6 +36,17 @@ export class InMemorySubscriptionsRepository extends SubscriptionsRepository {
     };
     this.subscriptions.set(id, updated);
     return Promise.resolve({ ...updated });
+  }
+
+  advancePeriod(id: string, { start, end }: BillingPeriod): void {
+    const found = this.subscriptions.get(id);
+    if (!found || found.currentPeriodEnd >= end) return;
+    this.subscriptions.set(id, {
+      ...found,
+      currentPeriodStart: start,
+      currentPeriodEnd: end,
+      updatedAt: new Date(),
+    });
   }
 
   changeStatus(

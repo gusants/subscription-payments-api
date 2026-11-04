@@ -56,7 +56,7 @@ export class PrismaBillingRepository extends BillingRepository {
     return count === 0 ? null : this.findChargeOrThrow(id);
   }
 
-  async createRetryCharge(charge: NewCharge): Promise<Charge | null> {
+  async createPeriodCharge(charge: NewCharge): Promise<Charge | null> {
     try {
       return toCharge(await this.prisma.charge.create({ data: charge }));
     } catch (error) {

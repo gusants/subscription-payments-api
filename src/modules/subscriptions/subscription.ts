@@ -32,6 +32,11 @@ export type NewSubscription = Pick<
   | 'currentPeriodEnd'
 >;
 
+export interface BillingPeriod {
+  start: Date;
+  end: Date;
+}
+
 export interface StatusChange {
   fromAnyOf: readonly SubscriptionStatus[];
   to: SubscriptionStatus;

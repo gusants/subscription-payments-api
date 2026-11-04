@@ -63,6 +63,7 @@ Jobs keep the last 1000 completed (or 24h, whichever bound is hit first). Failed
 
 - `WORKERS_ENABLED` (default true): when false the process only enqueues. `pnpm start:worker` (`pnpm start:worker:prod` after a build) boots the same modules as an application context, with no HTTP server and workers forced on, so workers can run in their own process: run the API with `WORKERS_ENABLED=false` and the worker separately. Mind the single-process fake gateway store (see Payment gateway): with the fake gateway the workers must stay in the API process.
 - `RETRY_INTERVAL_UNIT` (`days` default, or `minutes`; the Docker demo uses `minutes`): unit of the dunning calendar. Retries fall on D+1, D+3 and D+7, each measured from the original failure (not chained from the previous retry); after the third retry the charge is exhausted. Retry jobs get the deterministic id `retry:{chargeId}:{attempt}`, so scheduling the same retry twice yields one job.
+- `RENEWAL_JOB_INTERVAL_SECONDS` (optional): how often the renewal sweep runs. Defaults to 3600 (hourly) with `RETRY_INTERVAL_UNIT=days` and to 30 with `minutes`. `RENEWAL_BATCH_SIZE` (default 100, max 1000): subscriptions renewed per sweep.
 - `BULL_BOARD_ENABLED`: Bull Board is served at `/queues` (not in Swagger or `openapi.json`). Defaults to true outside `NODE_ENV=production` and false in production unless set; the Docker demo sets it to true.
 
 ### Dunning retries
@@ -73,6 +74,15 @@ When a charge fails (declined by the gateway, a `charge.failed` webhook, or a pi
 - The worker (`WORKERS_ENABLED`) runs a retry only if the charge still matches it: a `failed` card charge with exactly `n - 1` retries is resubmitted as a new attempt (`{chargeId}:{attempts + 1}` key) and `retry_count` becomes `n`; stale or duplicated jobs are skipped.
 - Pix and boleto: `expired` is terminal, so each retry issues a new `pending` charge for the same period carrying `first_failed_at` and `retry_count`. The unique index on (`subscription_id`, `period_start`) is partial and excludes `expired` charges, so a period has at most one live charge.
 - After the third retry fails the charge becomes `uncollectible` (an expired pix/boleto charge stays `expired`) and the subscription `canceled`, in one transaction, guarded by the current status so a concurrent payment wins.
+
+### Subscription renewals
+
+A repeatable job (BullMQ job scheduler `subscription-renewals`, upserted at worker boot so several instances share one schedule) sweeps `active` subscriptions whose `current_period_end` has passed and that have no charge yet for the next period. For each one it creates the charge for the period starting at `current_period_end` (ending at `computePeriodEnd(billing_anchor, interval, n)`, amount of the plan today) and runs it through the same `ChargeProcessor` as the first charge, outside any transaction. A failed card charge enters the dunning calendar; a pix/boleto charge waits for its webhook.
+
+- One charge per period: the partial unique index on (`subscription_id`, `period_start`) rejects a second one, and a unique violation is treated as already generated. The sweep also skips any subscription that already has a charge, in any status, for that period: dunning owns it from then on, so a failed or expired renewal is never duplicated by the sweep.
+- The period only advances when money lands: a `paid` settlement (charge flow or webhook) moves `current_period_start`/`current_period_end` to the paid charge's period, in the same transaction, and never backwards. Until then the subscription keeps its old period and, if the renewal fails, goes `past_due`.
+- Not renewed: `canceled` (cancellation is immediate, there is no cancel-at-period-end), `past_due` (its current period is unpaid; dunning handles it) and `incomplete`.
+- The sweep takes at most `RENEWAL_BATCH_SIZE` subscriptions, oldest period first; one failing subscription is logged (subscription id and period) and does not stop the batch. A renewal charge left `pending` by a technical failure is recovered by reconciliation.
 
 ### Technical retries
 

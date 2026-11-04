@@ -73,6 +73,18 @@ export async function applyChargeOutcome(
     });
   }
   if (attempt) await tx.paymentAttempt.create({ data: attempt });
+  if (subscription.period) {
+    await tx.subscription.updateMany({
+      where: {
+        id: subscription.id,
+        currentPeriodEnd: { lt: subscription.period.end },
+      },
+      data: {
+        currentPeriodStart: subscription.period.start,
+        currentPeriodEnd: subscription.period.end,
+      },
+    });
+  }
   const changed = subscription.change
     ? await changeSubscription(tx, subscription.id, subscription.change)
     : null;

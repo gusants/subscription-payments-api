@@ -43,6 +43,8 @@ export const envSchema = z.object({
     .default(0),
   FAKE_GATEWAY_WEBHOOK_DISPATCH_ENABLED: z.stringbool().default(true),
   RETRY_INTERVAL_UNIT: z.enum(['days', 'minutes']).default('days'),
+  RENEWAL_JOB_INTERVAL_SECONDS: z.coerce.number().int().positive().optional(),
+  RENEWAL_BATCH_SIZE: z.coerce.number().int().positive().max(1000).default(100),
   WORKERS_ENABLED: z.stringbool().default(true),
   BULL_BOARD_ENABLED: z.stringbool().optional(),
   CHARGE_ATTEMPT_LEASE_SECONDS: z.coerce.number().int().positive().default(30),

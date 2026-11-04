@@ -22,3 +22,8 @@ export {
   type DunningStep,
 } from './dunning-step.js';
 export { newRetryCharge } from './retry-charge.js';
+export {
+  newRenewalCharge,
+  nextBillingPeriod,
+  periodAdvanceAfterPaid,
+} from './renewal.js';

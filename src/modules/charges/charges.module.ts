@@ -7,6 +7,10 @@ import { CHARGE_ATTEMPT_LEASE_MS } from './charge-attempt-lease.js';
 import { ChargeDunning } from './charge-dunning.js';
 import { ChargeProcessor } from './charge-processor.js';
 import { ChargeRetryRunner } from './charge-retry-runner.js';
+import { PrismaRenewalsRepository } from './prisma-renewals.repository.js';
+import { RENEWAL_BATCH_SIZE } from './renewal-batch-size.js';
+import { RenewalsRepository } from './renewals.repository.js';
+import { SubscriptionRenewalRunner } from './subscription-renewal-runner.js';
 import { DUNNING_INTERVAL_UNIT } from './dunning-interval-unit.js';
 import { ChargesController } from './charges.controller.js';
 import { ChargesRepository } from './charges.repository.js';
@@ -24,6 +28,14 @@ const MILLISECONDS_PER_SECOND = 1000;
     ChargeProcessor,
     ChargeDunning,
     ChargeRetryRunner,
+    SubscriptionRenewalRunner,
+    { provide: RenewalsRepository, useClass: PrismaRenewalsRepository },
+    {
+      provide: RENEWAL_BATCH_SIZE,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>) =>
+        config.get('RENEWAL_BATCH_SIZE', { infer: true }),
+    },
     { provide: BillingRepository, useClass: PrismaBillingRepository },
     { provide: ChargesRepository, useClass: PrismaChargesRepository },
     {
@@ -45,6 +57,7 @@ const MILLISECONDS_PER_SECOND = 1000;
     ChargeProcessor,
     ChargeDunning,
     ChargeRetryRunner,
+    SubscriptionRenewalRunner,
   ],
 })
 export class ChargesModule {}

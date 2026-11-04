@@ -24,7 +24,7 @@ export abstract class BillingRepository {
     retryNumber: number,
   ): Promise<Charge | null>;
 
-  abstract createRetryCharge(charge: NewCharge): Promise<Charge | null>;
+  abstract createPeriodCharge(charge: NewCharge): Promise<Charge | null>;
 
   abstract recordDunningExhaustion(
     exhaustion: DunningExhaustion,

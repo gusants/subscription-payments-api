@@ -8,6 +8,7 @@ import {
   canTransition,
   statusesAllowedToTransitionTo as chargeStatusesAllowedToTransitionTo,
   expirySettlement,
+  periodAdvanceAfterPaid,
   subscriptionChange,
   subscriptionStatusAfterCharge,
   toChargeOutcome,
@@ -115,6 +116,10 @@ export function decideWebhookEffect({
       }),
     };
   }
+  const period =
+    outcome.chargeStatus === 'paid'
+      ? periodAdvanceAfterPaid(charge, subscription)
+      : null;
   return {
     outcome: 'applied',
     ...(to === 'paid' &&
@@ -150,6 +155,7 @@ export function decideWebhookEffect({
           ),
           now,
         ),
+        ...(period && { period }),
       },
     },
   };

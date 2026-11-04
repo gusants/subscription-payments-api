@@ -2,7 +2,9 @@ import type {
   GatewayFailureReason,
   PaymentInstructions,
 } from '../../gateway/index.js';
+import type { Plan } from '../plans/plan.js';
 import type {
+  BillingPeriod,
   PaymentMethod,
   StatusChange,
   Subscription,
@@ -73,7 +75,11 @@ export interface ChargeSettlement {
 export interface ChargeOutcomeRecord {
   charge: ChargeSettlement;
   attempt: NewPaymentAttempt;
-  subscription: { id: string; change: StatusChange | null };
+  subscription: {
+    id: string;
+    change: StatusChange | null;
+    period?: BillingPeriod;
+  };
 }
 
 export type ChargeSettlementRecord = Omit<ChargeOutcomeRecord, 'attempt'> & {
@@ -112,6 +118,11 @@ export type AttachedGatewayCharge = Pick<
 
 export interface ChargeWithAttempts extends Charge {
   attempts: PaymentAttempt[];
+}
+
+export interface RenewalCandidate {
+  subscription: Subscription;
+  plan: Pick<Plan, 'amountCents' | 'interval'>;
 }
 
 export interface ChargeWithSubscription {

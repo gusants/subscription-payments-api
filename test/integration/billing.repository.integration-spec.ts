@@ -197,6 +197,42 @@ describe('PrismaBillingRepository (integration)', () => {
       ]);
     });
 
+    it('advances the billing period together with a paid renewal', async () => {
+      const { subscription, charge } = await seedFirstCharge();
+      const nextEnd = new Date('2026-03-31T10:30:00.000Z');
+
+      const settled = await repository.recordChargeOutcome(
+        outcomeRecord(subscription.id, charge.id, {
+          subscription: {
+            id: subscription.id,
+            change: { fromAnyOf: ['incomplete'], to: 'active' },
+            period: { start: periodEnd, end: nextEnd },
+          },
+        }),
+      );
+
+      expect(settled.subscription).toMatchObject({
+        currentPeriodStart: periodEnd,
+        currentPeriodEnd: nextEnd,
+      });
+    });
+
+    it('never moves the billing period backwards', async () => {
+      const { subscription, charge } = await seedFirstCharge();
+
+      const settled = await repository.recordChargeOutcome(
+        outcomeRecord(subscription.id, charge.id, {
+          subscription: {
+            id: subscription.id,
+            change: { fromAnyOf: ['incomplete'], to: 'active' },
+            period: { start: periodStart, end: periodStart },
+          },
+        }),
+      );
+
+      expect(settled.subscription.currentPeriodEnd).toEqual(periodEnd);
+    });
+
     it('settles a declined charge as failed with the failure reason and no paidAt', async () => {
       const { subscription, charge } = await seedFirstCharge();
 
@@ -703,7 +739,7 @@ describe('PrismaBillingRepository (integration)', () => {
     });
   });
 
-  describe('createRetryCharge', () => {
+  describe('createPeriodCharge', () => {
     async function seedExpiredCharge() {
       const subscription = {
         ...newSubscription(),
@@ -740,7 +776,7 @@ describe('PrismaBillingRepository (integration)', () => {
     it('stores a new charge for the period of an expired one', async () => {
       const { charge } = await seedExpiredCharge();
 
-      const created = await repository.createRetryCharge(retryOf(charge, 1));
+      const created = await repository.createPeriodCharge(retryOf(charge, 1));
 
       expect(created).toMatchObject({
         status: 'pending',
@@ -752,9 +788,9 @@ describe('PrismaBillingRepository (integration)', () => {
 
     it('answers null instead of throwing when the period already has a live charge', async () => {
       const { charge } = await seedExpiredCharge();
-      await repository.createRetryCharge(retryOf(charge, 1));
+      await repository.createPeriodCharge(retryOf(charge, 1));
 
-      const duplicate = await repository.createRetryCharge(retryOf(charge, 1));
+      const duplicate = await repository.createPeriodCharge(retryOf(charge, 1));
 
       expect(duplicate).toBeNull();
       expect(await prisma.charge.count()).toBe(2);
@@ -765,7 +801,7 @@ describe('PrismaBillingRepository (integration)', () => {
 
       const results = await Promise.all(
         Array.from({ length: 5 }, () =>
-          repository.createRetryCharge(retryOf(charge, 1)),
+          repository.createPeriodCharge(retryOf(charge, 1)),
         ),
       );
 
@@ -774,13 +810,13 @@ describe('PrismaBillingRepository (integration)', () => {
 
     it('allows a further reissue once the previous reissue expired too', async () => {
       const { charge } = await seedExpiredCharge();
-      const first = await repository.createRetryCharge(retryOf(charge, 1));
+      const first = await repository.createPeriodCharge(retryOf(charge, 1));
       await prisma.charge.update({
         where: { id: first!.id },
         data: { status: 'expired' },
       });
 
-      const second = await repository.createRetryCharge(retryOf(charge, 2));
+      const second = await repository.createPeriodCharge(retryOf(charge, 2));
 
       expect(second).toMatchObject({ retryCount: 2, status: 'pending' });
     });

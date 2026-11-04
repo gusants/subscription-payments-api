@@ -1,0 +1,1 @@
+export const RENEWAL_INTERVAL_MS = Symbol('RENEWAL_INTERVAL_MS');

@@ -34,7 +34,7 @@ export class InMemoryBillingRepository extends BillingRepository {
     return { subscription: created, charge: { ...createdCharge } };
   }
 
-  createRetryCharge(charge: NewCharge): Promise<Charge | null> {
+  createPeriodCharge(charge: NewCharge): Promise<Charge | null> {
     const periodTaken = this.charges().some(
       (found) =>
         found.subscriptionId === charge.subscriptionId &&
@@ -135,6 +135,9 @@ export class InMemoryBillingRepository extends BillingRepository {
     };
     this.stored.set(settled.id, settled);
     if (attempt) this.recorded.push({ ...attempt, createdAt: new Date() });
+    if (subscription.period) {
+      this.subscriptions.advancePeriod(subscription.id, subscription.period);
+    }
     const changed = subscription.change
       ? await this.subscriptions.changeStatus(
           subscription.id,
