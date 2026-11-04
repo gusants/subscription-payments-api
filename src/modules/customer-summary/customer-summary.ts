@@ -11,7 +11,10 @@ export interface SummaryRecord {
 }
 
 export type NarrationFailure =
-  LlmFailureReason | 'invalid_output' | 'unsupported_number';
+  | LlmFailureReason
+  | 'invalid_output'
+  | 'unsupported_number'
+  | 'rate_limited_locally';
 
 export interface LlmUsage {
   model: string;

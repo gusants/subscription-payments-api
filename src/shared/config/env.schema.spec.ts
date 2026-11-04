@@ -36,6 +36,8 @@ describe('validateEnv', () => {
       LLM_MODEL: 'gemini-3.5-flash-lite',
       LLM_TIMEOUT_MS: 8000,
       LLM_THINKING_LEVEL: 'minimal',
+      LLM_MAX_CALLS_PER_MINUTE: 60,
+      CUSTOMER_SUMMARY_MEMORY_CACHE_MAX_ENTRIES: 500,
       OTEL_ENABLED: false,
       OTEL_SERVICE_NAME: 'subscription-payments-api',
     });
@@ -87,6 +89,13 @@ describe('validateEnv', () => {
       ).toMatchObject({ LLM_THINKING_LEVEL: level });
     },
   );
+
+  it.each([
+    'LLM_MAX_CALLS_PER_MINUTE',
+    'CUSTOMER_SUMMARY_MEMORY_CACHE_MAX_ENTRIES',
+  ])('rejects a non-positive %s', (name) => {
+    expect(() => validateEnv({ ...validEnv, [name]: '0' })).toThrow(name);
+  });
 
   it('rejects an unknown LLM_THINKING_LEVEL', () => {
     expect(() =>

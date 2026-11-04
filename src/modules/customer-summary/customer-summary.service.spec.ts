@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { LlmCallLimiter } from '../../llm/llm-call-limiter.js';
 import { FakeLlmProvider } from '../../llm/fake-llm.provider.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import { NotFoundError } from '../../shared/errors/index.js';
@@ -6,6 +7,7 @@ import { CachedSummaryResolver } from './cached-summary-resolver.js';
 import type { CustomerPaymentRecord } from './customer-payment-record.js';
 import { CustomerSummaryService } from './customer-summary.service.js';
 import { lastEventId, summaryCacheKey } from './domain/index.js';
+import { newSummaryMemory } from './testing/unbounded-summary-memory.js';
 import { SummaryNarrator } from './summary-narrator.js';
 import { InMemoryCustomerSummaryRepository } from './testing/in-memory-customer-summary.repository.js';
 import { InMemorySummaryCacheStore } from './testing/in-memory-summary-cache.store.js';
@@ -56,14 +58,23 @@ describe('CustomerSummaryService', () => {
     const clock = new FixedClock(NOW);
     service = new CustomerSummaryService(
       records,
-      new SummaryNarrator(llm, { version: 'v1', text: 'prompt' }, clock),
-      new CachedSummaryResolver(store, {
-        ttlSeconds: 3600,
-        fallbackTtlSeconds: 30,
-        lockSeconds: 20,
-        waitMs: 100,
-        pollMs: 5,
-      }),
+      new SummaryNarrator(
+        llm,
+        { version: 'v1', text: 'prompt' },
+        clock,
+        new LlmCallLimiter(1000, clock),
+      ),
+      new CachedSummaryResolver(
+        store,
+        {
+          ttlSeconds: 3600,
+          fallbackTtlSeconds: 30,
+          lockSeconds: 20,
+          waitMs: 100,
+          pollMs: 5,
+        },
+        newSummaryMemory(clock),
+      ),
       clock,
     );
     records.put(paymentsOf());

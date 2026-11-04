@@ -1,4 +1,5 @@
 import {
+  LlmCallLimiter,
   LlmProvider,
   LlmProviderError,
   type LlmJsonResponse,
@@ -27,6 +28,7 @@ export class SummaryNarrator {
     private readonly llm: LlmProvider,
     private readonly prompt: Prompt,
     private readonly clock: Clock,
+    private readonly limiter: LlmCallLimiter,
   ) {}
 
   async narrate(context: AnonymizedContext): Promise<Narration> {
@@ -51,6 +53,9 @@ export class SummaryNarrator {
   private async askLlm(
     context: AnonymizedContext,
   ): Promise<{ response: LlmJsonResponse } | { failure: NarrationFailure }> {
+    if (!this.limiter.tryAcquire()) {
+      return { failure: 'rate_limited_locally' };
+    }
     try {
       const response = await this.llm.generateJson({
         systemPrompt: this.prompt.text,

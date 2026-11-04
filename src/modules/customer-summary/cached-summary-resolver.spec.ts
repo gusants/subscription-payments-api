@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import type { Narration, SummaryRecord } from './customer-summary.js';
 import { summaryCacheKey } from './domain/index.js';
 import {
@@ -6,6 +7,7 @@ import {
   type GenerateSummary,
 } from './cached-summary-resolver.js';
 import type { SummaryCacheOptions } from './summary-cache.options.js';
+import { newSummaryMemory } from './testing/unbounded-summary-memory.js';
 import { InMemorySummaryCacheStore } from './testing/in-memory-summary-cache.store.js';
 
 const options: SummaryCacheOptions = {
@@ -53,7 +55,7 @@ describe('CachedSummaryResolver', () => {
 
   beforeEach(() => {
     store = new InMemorySummaryCacheStore();
-    resolver = new CachedSummaryResolver(store, options);
+    resolver = new CachedSummaryResolver(store, options, newSummaryMemory());
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 
@@ -130,7 +132,7 @@ describe('CachedSummaryResolver', () => {
   });
 
   it('makes one generation across processes sharing the store', async () => {
-    const other = new CachedSummaryResolver(store, options);
+    const other = new CachedSummaryResolver(store, options, newSummaryMemory());
     const answer = deferred<Narration>();
     const generate = vi.fn<GenerateSummary>(() => answer.promise);
 
@@ -145,7 +147,7 @@ describe('CachedSummaryResolver', () => {
   });
 
   it('shares a fallback with the waiters instead of retrying the provider', async () => {
-    const other = new CachedSummaryResolver(store, options);
+    const other = new CachedSummaryResolver(store, options, newSummaryMemory());
     const answer = deferred<Narration>();
     const generate = vi.fn<GenerateSummary>(() => answer.promise);
 
@@ -178,6 +180,50 @@ describe('CachedSummaryResolver', () => {
 
     expect(result).toEqual({ narration: narrationOf('llm'), cache: 'bypass' });
     expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('serves repeated requests from memory while the store is down', async () => {
+    store.failWith(new Error('Redis is down'));
+    const generate = vi.fn<GenerateSummary>(async () => narrationOf('llm'));
+
+    await resolver.resolve('cus_1', 'evt_1', generate);
+    const second = await resolver.resolve('cus_1', 'evt_1', generate);
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(second).toEqual({
+      narration: { record: recordOf('llm'), usage: null, failure: null },
+      cache: 'memory',
+    });
+  });
+
+  it('keeps a fallback in memory only for the short TTL', async () => {
+    const clock = new FixedClock(new Date('2026-06-01T00:00:00.000Z'));
+    const shortLived = new CachedSummaryResolver(
+      store,
+      options,
+      newSummaryMemory(clock),
+    );
+    store.failWith(new Error('Redis is down'));
+    const generate = vi.fn<GenerateSummary>(async () =>
+      narrationOf('fallback'),
+    );
+
+    await shortLived.resolve('cus_1', 'evt_1', generate);
+    clock.set(new Date('2026-06-01T00:00:31.000Z'));
+    await shortLived.resolve('cus_1', 'evt_1', generate);
+
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not use memory while the store is healthy', async () => {
+    const generate = vi.fn<GenerateSummary>(async () => narrationOf('llm'));
+    await resolver.resolve('cus_1', 'evt_1', generate);
+    store.records.clear();
+
+    const result = await resolver.resolve('cus_1', 'evt_1', generate);
+
+    expect(result.cache).toBe('miss');
+    expect(generate).toHaveBeenCalledTimes(2);
   });
 
   it('still coalesces in-process requests while the store is down', async () => {

@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { GeminiLlmProvider } from '../llm/gemini-llm.provider.js';
 import {
+  LlmCallLimiter,
   LlmProvider,
   LlmProviderError,
   type LlmJsonRequest,
@@ -128,9 +129,12 @@ const context = buildAnonymizedContext({
 });
 const prompt = await loadCustomerSummaryPrompt();
 
-const narration = await new SummaryNarrator(recorder, prompt, clock).narrate(
-  context,
-);
+const narration = await new SummaryNarrator(
+  recorder,
+  prompt,
+  clock,
+  new LlmCallLimiter(1, clock),
+).narrate(context);
 
 console.log(
   JSON.stringify(

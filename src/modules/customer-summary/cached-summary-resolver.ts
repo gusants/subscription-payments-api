@@ -2,10 +2,11 @@ import { Logger } from '@nestjs/common';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { Narration, SummaryRecord } from './customer-summary.js';
 import { summaryCacheKey } from './domain/index.js';
+import type { LruSummaryCache } from './lru-summary-cache.js';
 import type { SummaryCacheOptions } from './summary-cache.options.js';
 import { SummaryCacheStore } from './summary-cache.store.js';
 
-export type CacheOutcome = 'hit' | 'miss' | 'coalesced' | 'bypass';
+export type CacheOutcome = 'hit' | 'miss' | 'coalesced' | 'bypass' | 'memory';
 
 export interface ResolvedSummary {
   narration: Narration;
@@ -23,6 +24,7 @@ export class CachedSummaryResolver {
   constructor(
     private readonly store: SummaryCacheStore,
     private readonly options: SummaryCacheOptions,
+    private readonly memory: LruSummaryCache,
   ) {}
 
   resolve(
@@ -53,7 +55,7 @@ export class CachedSummaryResolver {
     } catch (error) {
       if (!(error instanceof CacheUnavailableError)) throw error;
       this.logger.warn(`summary cache unavailable: ${describe(error.cause)}`);
-      return { narration: await generate(), cache: 'bypass' };
+      return this.generateWithoutStore(key, generate);
     }
   }
 
@@ -71,7 +73,22 @@ export class CachedSummaryResolver {
       const cached = await this.viaStore(() => this.store.find(key));
       if (cached) return sharedResult(cached);
     }
-    return { narration: await generate(), cache: 'bypass' };
+    return this.generateWithoutStore(key, generate);
+  }
+
+  private async generateWithoutStore(
+    key: string,
+    generate: GenerateSummary,
+  ): Promise<ResolvedSummary> {
+    const remembered = this.memory.find(key);
+    if (remembered) return { narration: noCall(remembered), cache: 'memory' };
+    const narration = await generate();
+    this.memory.save(
+      key,
+      narration.record,
+      this.ttlSecondsOf(narration.record),
+    );
+    return { narration, cache: 'bypass' };
   }
 
   private async generateHoldingLock(
@@ -92,6 +109,12 @@ export class CachedSummaryResolver {
     }
   }
 
+  private ttlSecondsOf(record: SummaryRecord): number {
+    return record.source === 'llm'
+      ? this.options.ttlSeconds
+      : this.options.fallbackTtlSeconds;
+  }
+
   private async viaStore<T>(operation: () => Promise<T>): Promise<T> {
     try {
       return await operation();
@@ -101,12 +124,8 @@ export class CachedSummaryResolver {
   }
 
   private async saveQuietly(key: string, record: SummaryRecord): Promise<void> {
-    const ttlSeconds =
-      record.source === 'llm'
-        ? this.options.ttlSeconds
-        : this.options.fallbackTtlSeconds;
     try {
-      await this.store.save(key, record, ttlSeconds);
+      await this.store.save(key, record, this.ttlSecondsOf(record));
     } catch (error) {
       this.logger.warn(`summary cache write failed: ${describe(error)}`);
     }

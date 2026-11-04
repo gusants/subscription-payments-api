@@ -9,6 +9,7 @@ import {
   type LlmJsonRequest,
   type LlmJsonResponse,
 } from '../../llm/index.js';
+import { LlmCallLimiter } from '../../llm/llm-call-limiter.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import {
   buildAnonymizedContext,
@@ -58,8 +59,14 @@ function replyWith(text: string): ScriptedLlm {
   );
 }
 
-function narratorFor(llm: LlmProvider): SummaryNarrator {
-  return new SummaryNarrator(llm, prompt, new FixedClock(NOW));
+function narratorFor(llm: LlmProvider, callsPerMinute = 1000): SummaryNarrator {
+  const clock = new FixedClock(NOW);
+  return new SummaryNarrator(
+    llm,
+    prompt,
+    clock,
+    new LlmCallLimiter(callsPerMinute, clock),
+  );
 }
 
 describe('SummaryNarrator', () => {
@@ -133,6 +140,22 @@ describe('SummaryNarrator', () => {
 
     expect(narration.record.source).toBe('llm');
     expect(narration.failure).toBeNull();
+  });
+
+  it('answers with the fallback and no provider call once the local limit is spent', async () => {
+    const llm = replyWith(FAKE_LLM_JSON);
+    const narrator = narratorFor(llm, 1);
+
+    const first = await narrator.narrate(context);
+    const second = await narrator.narrate(context);
+
+    expect(first.record.source).toBe('llm');
+    expect(second).toMatchObject({
+      record: { source: 'fallback' },
+      usage: null,
+      failure: 'rate_limited_locally',
+    });
+    expect(llm.requests).toHaveLength(1);
   });
 
   it('never uses numbers coming from the LLM', async () => {

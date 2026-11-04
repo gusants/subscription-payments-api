@@ -5,6 +5,7 @@ import { Clock } from '../shared/clock/clock.js';
 import type { Env } from '../shared/config/env.schema.js';
 import { FakeLlmProvider } from './fake-llm.provider.js';
 import { GeminiLlmProvider } from './gemini-llm.provider.js';
+import { LlmCallLimiter } from './llm-call-limiter.js';
 import { LlmProvider } from './llm-provider.js';
 import { LLM_OPTIONS, type LlmOptions } from './llm.options.js';
 
@@ -41,7 +42,16 @@ import { LLM_OPTIONS, type LlmOptions } from './llm.options.js';
         return providers[config.get('LLM_PROVIDER', { infer: true })]();
       },
     },
+    {
+      provide: LlmCallLimiter,
+      inject: [ConfigService, Clock],
+      useFactory: (config: ConfigService<Env, true>, clock: Clock) =>
+        new LlmCallLimiter(
+          config.get('LLM_MAX_CALLS_PER_MINUTE', { infer: true }),
+          clock,
+        ),
+    },
   ],
-  exports: [LlmProvider],
+  exports: [LlmProvider, LlmCallLimiter],
 })
 export class LlmModule {}

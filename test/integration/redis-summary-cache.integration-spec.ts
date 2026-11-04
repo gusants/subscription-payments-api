@@ -9,6 +9,7 @@ import type {
 } from '../../src/modules/customer-summary/customer-summary.js';
 import { summaryCacheKey } from '../../src/modules/customer-summary/domain/index.js';
 import { RedisSummaryCacheStore } from '../../src/modules/customer-summary/redis-summary-cache.store.js';
+import { newSummaryMemory } from '../../src/modules/customer-summary/testing/unbounded-summary-memory.js';
 import type { SummaryCacheOptions } from '../../src/modules/customer-summary/summary-cache.options.js';
 import { createAppRedisClient } from '../../src/shared/redis/app-redis-client.js';
 
@@ -135,7 +136,7 @@ describe('Redis summary cache (integration)', () => {
     it('makes one generation for simultaneous requests from several instances', async () => {
       const instances = Array.from(
         { length: 3 },
-        () => new CachedSummaryResolver(store, options),
+        () => new CachedSummaryResolver(store, options, newSummaryMemory()),
       );
       const generate = vi.fn(async () => {
         await new Promise((resolve) => setTimeout(resolve, 150));
@@ -161,7 +162,11 @@ describe('Redis summary cache (integration)', () => {
     });
 
     it('serves later requests from the cache and regenerates for a new event', async () => {
-      const resolver = new CachedSummaryResolver(store, options);
+      const resolver = new CachedSummaryResolver(
+        store,
+        options,
+        newSummaryMemory(),
+      );
       const generate = vi.fn(async () => narration('llm'));
 
       await resolver.resolve(customerId, 'evt_1', generate);
@@ -174,8 +179,16 @@ describe('Redis summary cache (integration)', () => {
     });
 
     it('shares a fallback among waiters and expires it after the short TTL', async () => {
-      const resolver = new CachedSummaryResolver(store, options);
-      const other = new CachedSummaryResolver(store, options);
+      const resolver = new CachedSummaryResolver(
+        store,
+        options,
+        newSummaryMemory(),
+      );
+      const other = new CachedSummaryResolver(
+        store,
+        options,
+        newSummaryMemory(),
+      );
       const generate = vi.fn(async () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
         return narration('fallback');
@@ -192,7 +205,11 @@ describe('Redis summary cache (integration)', () => {
     });
 
     it('releases the lock after generating', async () => {
-      const resolver = new CachedSummaryResolver(store, options);
+      const resolver = new CachedSummaryResolver(
+        store,
+        options,
+        newSummaryMemory(),
+      );
 
       await resolver.resolve(customerId, 'evt_1', async () => narration('llm'));
 
@@ -208,6 +225,7 @@ describe('Redis summary cache (integration)', () => {
       const resolver = new CachedSummaryResolver(
         new RedisSummaryCacheStore(downRedis),
         options,
+        newSummaryMemory(),
       );
       const generate = vi.fn(async () => narration('llm'));
 

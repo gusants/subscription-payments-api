@@ -1,10 +1,12 @@
 import { Logger } from '@nestjs/common';
+import { LlmCallLimiter } from '../../llm/llm-call-limiter.js';
 import { FakeLlmProvider } from '../../llm/fake-llm.provider.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import { NotFoundError } from '../../shared/errors/index.js';
 import { CachedSummaryResolver } from './cached-summary-resolver.js';
 import { CustomerSummaryController } from './customer-summary.controller.js';
 import { CustomerSummaryService } from './customer-summary.service.js';
+import { newSummaryMemory } from './testing/unbounded-summary-memory.js';
 import { SummaryNarrator } from './summary-narrator.js';
 import { InMemoryCustomerSummaryRepository } from './testing/in-memory-customer-summary.repository.js';
 import { InMemorySummaryCacheStore } from './testing/in-memory-summary-cache.store.js';
@@ -24,14 +26,19 @@ describe('CustomerSummaryController', () => {
           new FakeLlmProvider({ model: 'fake-llm', timeoutMs: 20 }),
           { version: 'v1', text: 'prompt' },
           clock,
+          new LlmCallLimiter(1000, clock),
         ),
-        new CachedSummaryResolver(new InMemorySummaryCacheStore(), {
-          ttlSeconds: 60,
-          fallbackTtlSeconds: 30,
-          lockSeconds: 20,
-          waitMs: 50,
-          pollMs: 5,
-        }),
+        new CachedSummaryResolver(
+          new InMemorySummaryCacheStore(),
+          {
+            ttlSeconds: 60,
+            fallbackTtlSeconds: 30,
+            lockSeconds: 20,
+            waitMs: 50,
+            pollMs: 5,
+          },
+          newSummaryMemory(clock),
+        ),
         clock,
       ),
     );

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Redis } from 'ioredis';
-import { LlmModule, LlmProvider } from '../../llm/index.js';
+import { LlmCallLimiter, LlmModule, LlmProvider } from '../../llm/index.js';
 import {
   loadCustomerSummaryPrompt,
   type Prompt,
@@ -14,6 +14,7 @@ import { CustomerSummaryController } from './customer-summary.controller.js';
 import { CustomerSummaryRepository } from './customer-summary.repository.js';
 import { CustomerSummaryService } from './customer-summary.service.js';
 import { PrismaCustomerSummaryRepository } from './prisma-customer-summary.repository.js';
+import { LruSummaryCache } from './lru-summary-cache.js';
 import { RedisSummaryCacheStore } from './redis-summary-cache.store.js';
 import {
   SUMMARY_CACHE_OPTIONS,
@@ -40,9 +41,13 @@ const POLL_MS = 50;
     { provide: CUSTOMER_SUMMARY_PROMPT, useFactory: loadCustomerSummaryPrompt },
     {
       provide: SummaryNarrator,
-      inject: [LlmProvider, CUSTOMER_SUMMARY_PROMPT, Clock],
-      useFactory: (llm: LlmProvider, prompt: Prompt, clock: Clock) =>
-        new SummaryNarrator(llm, prompt, clock),
+      inject: [LlmProvider, CUSTOMER_SUMMARY_PROMPT, Clock, LlmCallLimiter],
+      useFactory: (
+        llm: LlmProvider,
+        prompt: Prompt,
+        clock: Clock,
+        limiter: LlmCallLimiter,
+      ) => new SummaryNarrator(llm, prompt, clock, limiter),
     },
     {
       provide: SUMMARY_CACHE_OPTIONS,
@@ -71,10 +76,24 @@ const POLL_MS = 50;
       useFactory: (redis: Redis) => new RedisSummaryCacheStore(redis),
     },
     {
+      provide: LruSummaryCache,
+      inject: [ConfigService, Clock],
+      useFactory: (config: ConfigService<Env, true>, clock: Clock) =>
+        new LruSummaryCache(
+          config.get('CUSTOMER_SUMMARY_MEMORY_CACHE_MAX_ENTRIES', {
+            infer: true,
+          }),
+          clock,
+        ),
+    },
+    {
       provide: CachedSummaryResolver,
-      inject: [SummaryCacheStore, SUMMARY_CACHE_OPTIONS],
-      useFactory: (store: SummaryCacheStore, options: SummaryCacheOptions) =>
-        new CachedSummaryResolver(store, options),
+      inject: [SummaryCacheStore, SUMMARY_CACHE_OPTIONS, LruSummaryCache],
+      useFactory: (
+        store: SummaryCacheStore,
+        options: SummaryCacheOptions,
+        memory: LruSummaryCache,
+      ) => new CachedSummaryResolver(store, options, memory),
     },
   ],
 })
