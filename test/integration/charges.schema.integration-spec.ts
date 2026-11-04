@@ -190,6 +190,16 @@ describe('charges schema (integration)', () => {
     );
   });
 
+  it('keeps the period unique index partial so expired charges stay out of it', async () => {
+    const [{ indexdef }] = await prisma.$queryRaw<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes
+      WHERE indexname = 'charges_subscription_id_period_start_key'`;
+
+    expect(indexdef).toMatch(/^CREATE UNIQUE INDEX/);
+    expect(indexdef).toMatch(/\(subscription_id, period_start\)/);
+    expect(indexdef).toMatch(/WHERE .*status <> 'expired'/);
+  });
+
   it('rejects a duplicated gateway attempt key but allows many nulls', async () => {
     await prisma.charge.create({
       data: chargeData({ gatewayAttemptKey: 'ch_1:1' }),

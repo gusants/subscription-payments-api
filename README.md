@@ -51,6 +51,10 @@ pnpm start:dev
 
 Environment variables are validated at startup. See `.env.example` for the full list; `LOG_LEVEL` controls verbosity (`info` by default). Logs are JSON, pretty-printed when `NODE_ENV=development`.
 
+## Database
+
+Migrations live in `prisma/migrations`. The unique index `charges_subscription_id_period_start_key` on `charges` (`subscription_id`, `period_start`) is partial (`WHERE status <> 'expired'`) and is declared only in the migration `20261109120000_dunning_state_and_partial_period_unique`, not in `prisma/schema.prisma`: Prisma 7 expresses partial indexes only behind the `partialIndexes` preview feature, which this project does not enable. Prisma's introspection ignores the partial index, so `prisma migrate dev` and `prisma migrate diff` report no drift and do not try to drop it (checked against the migrated database). Do not recreate that index from the schema or edit it outside a migration; an integration test (`test/integration/charges.schema.integration-spec.ts`) reads `pg_indexes.indexdef` and fails if the predicate is lost.
+
 ## Health
 
 `GET /health` reports the status of Postgres and Redis and returns `503` when either is down.
