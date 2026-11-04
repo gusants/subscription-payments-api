@@ -7,6 +7,19 @@ import {
 } from '../idempotency.store.js';
 
 type Operation = 'acquire' | 'complete' | 'release' | 'extendLock';
+
+export type FailedRedisCommand = Error & {
+  command: { name: string; args: unknown[] };
+};
+
+function failureLikeRedis(
+  operation: Operation,
+  key: string,
+): FailedRedisCommand {
+  return Object.assign(new Error(`in-memory store ${operation} failed`), {
+    command: { name: 'eval', args: ['<script>', 1, key] },
+  });
+}
 type Entry = { record: IdempotencyRecord; lockToken?: string };
 
 export class InMemoryIdempotencyStore extends IdempotencyStore {
@@ -20,7 +33,7 @@ export class InMemoryIdempotencyStore extends IdempotencyStore {
   }
 
   async acquire(key: string, fingerprint: string): Promise<AcquireResult> {
-    this.throwIfFailing('acquire');
+    this.throwIfFailing('acquire', key);
     const existing = this.entries.get(key);
     if (existing) {
       return { acquired: false, existing: existing.record };
@@ -39,7 +52,7 @@ export class InMemoryIdempotencyStore extends IdempotencyStore {
     fingerprint: string,
     response: StoredResponse,
   ): Promise<boolean> {
-    this.throwIfFailing('complete');
+    this.throwIfFailing('complete', key);
     if (this.entries.get(key)?.lockToken !== lockToken) return false;
     this.entries.set(key, {
       record: { state: 'completed', fingerprint, response },
@@ -48,27 +61,27 @@ export class InMemoryIdempotencyStore extends IdempotencyStore {
   }
 
   async release(key: string, lockToken: string): Promise<boolean> {
-    this.throwIfFailing('release');
+    this.throwIfFailing('release', key);
     if (this.entries.get(key)?.lockToken !== lockToken) return false;
     this.entries.delete(key);
     return true;
   }
 
   async extendLock(key: string, lockToken: string): Promise<boolean> {
-    this.throwIfFailing('extendLock');
+    this.throwIfFailing('extendLock', key);
     if (this.entries.get(key)?.lockToken !== lockToken) return false;
     this.extensions += 1;
     return true;
   }
 
-  private throwIfFailing(operation: Operation): void {
+  private throwIfFailing(operation: Operation, key: string): void {
     const remaining = this.transientFailures.get(operation) ?? 0;
     if (remaining > 0) {
       this.transientFailures.set(operation, remaining - 1);
-      throw new Error(`in-memory store ${operation} failed`);
+      throw failureLikeRedis(operation, key);
     }
     if (this.failingOperations.has(operation)) {
-      throw new Error(`in-memory store ${operation} failed`);
+      throw failureLikeRedis(operation, key);
     }
   }
 }

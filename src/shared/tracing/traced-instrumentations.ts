@@ -20,6 +20,10 @@ export function redactedQueryAttributes(request: IncomingMessage): Attributes {
   return hasQueryString(request.url ?? '') ? { 'url.query': REDACTED } : {};
 }
 
+export function redisCommandNameOnly(commandName: string): string {
+  return commandName;
+}
+
 export function tracedInstrumentations() {
   return [
     new HttpInstrumentation({
@@ -33,6 +37,9 @@ export function tracedInstrumentations() {
       requireParentSpan: true,
       ignoreConnectSpans: true,
     }),
-    new IORedisInstrumentation({ requireParentSpan: true }),
+    new IORedisInstrumentation({
+      requireParentSpan: true,
+      dbStatementSerializer: redisCommandNameOnly,
+    }),
   ];
 }

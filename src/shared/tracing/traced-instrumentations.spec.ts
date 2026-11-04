@@ -3,6 +3,7 @@ import type { IncomingMessage } from 'node:http';
 import { REDACTED } from '../logging/redact-paths.js';
 import {
   redactedQueryAttributes,
+  redisCommandNameOnly,
   tracedInstrumentations,
 } from './traced-instrumentations.js';
 
@@ -57,5 +58,21 @@ describe('tracedInstrumentations', () => {
       }),
       expect.objectContaining({ requireParentSpan: true }),
     ]);
+  });
+
+  it('records the redis command name without its arguments', () => {
+    const { dbStatementSerializer } = instrumentations[3]!.getConfig() as {
+      dbStatementSerializer?: (name: string, args: unknown[]) => string;
+    };
+
+    expect(dbStatementSerializer).toBe(redisCommandNameOnly);
+    expect(
+      dbStatementSerializer?.('evalsha', [
+        'sha1',
+        1,
+        'idempotency:POST:/subscriptions:client-key',
+        '{"state":"completed","response":{"email":"ana@example.com"}}',
+      ]),
+    ).toBe('evalsha');
   });
 });

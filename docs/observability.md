@@ -40,6 +40,8 @@ Pino `redact` (`src/shared/logging/redact-paths.ts`) replaces the value with `[R
 
 Query strings can carry personal data (`GET /customers?search=` matches e-mails), so their values are never written. The request serializer (`src/shared/logging/request-serializer.ts`) logs `req.url` as `/customers?[Redacted]` and drops `req.query`; with tracing on, the http server span records `url.query` as `[Redacted]` (`startIncomingSpanHook` in `src/shared/tracing/traced-instrumentations.ts`). The path and the route stay readable.
 
+The `Idempotency-Key` value never appears outside the header redaction either: the idempotency interceptor names a key in its log lines as `<METHOD> <path> (Idempotency-Key sha256 <first 12 hex chars>)` (`describeIdempotencyKey` in `src/shared/idempotency/idempotency-key.ts`), and logs the message and stack of a Redis failure, never the error object (ioredis attaches the command arguments to it). With tracing on, ioredis spans record `db.query.text` as the command name only (`evalsha`, `hgetall`), since the idempotency scripts carry the key and the stored response body in their arguments. To find the lines of a known key, compute the same digest: `printf %s "$KEY" | shasum -a 256 | cut -c1-12`.
+
 The e2e journey test asserts that neither the card token nor the customer e-mail appears in the captured logs, including after a customer search by e-mail.
 
 ## Walkthrough: `tok_fail_then_success`

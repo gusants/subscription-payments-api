@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import {
   buildStoreKey,
+  describeIdempotencyKey,
   fingerprintRequest,
   parseIdempotencyKey,
   readIdempotencyKey,
@@ -42,6 +43,24 @@ describe('buildStoreKey', () => {
     expect(buildStoreKey('POST', '/charges/ch_x/retry', 'k1')).toBe(
       'idempotency:POST:/charges/ch_x/retry:k1',
     );
+  });
+});
+
+describe('describeIdempotencyKey', () => {
+  it('names the route and a short digest instead of the key', () => {
+    const label = describeIdempotencyKey('POST', '/subscriptions', 'k-secret');
+
+    expect(label).toMatch(
+      /^POST \/subscriptions \(Idempotency-Key sha256 [0-9a-f]{12}\)$/,
+    );
+    expect(label).not.toContain('k-secret');
+  });
+
+  it('tells two keys apart and gives the same key the same digest', () => {
+    const label = (key: string) => describeIdempotencyKey('POST', '/p', key);
+
+    expect(label('k1')).toBe(label('k1'));
+    expect(label('k1')).not.toBe(label('k2'));
   });
 });
 

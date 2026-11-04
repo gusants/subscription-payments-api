@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { canonicalJson } from './canonical-json.js';
 
 const VALID_KEY = /^[\x20-\x7E]{1,255}$/;
+const LOGGED_KEY_DIGEST_LENGTH = 12;
 
 export function parseIdempotencyKey(raw: string): string {
   if (!VALID_KEY.test(raw)) {
@@ -29,6 +30,18 @@ export function buildStoreKey(
   idempotencyKey: string,
 ): string {
   return `idempotency:${method}:${path}:${idempotencyKey}`;
+}
+
+export function describeIdempotencyKey(
+  method: string,
+  path: string,
+  idempotencyKey: string,
+): string {
+  const digest = createHash('sha256')
+    .update(idempotencyKey)
+    .digest('hex')
+    .slice(0, LOGGED_KEY_DIGEST_LENGTH);
+  return `${method} ${path} (Idempotency-Key sha256 ${digest})`;
 }
 
 export function fingerprintRequest(

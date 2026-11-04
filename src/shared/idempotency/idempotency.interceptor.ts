@@ -25,6 +25,7 @@ import {
 } from './idempotency.constants.js';
 import {
   buildStoreKey,
+  describeIdempotencyKey,
   fingerprintRequest,
   readIdempotencyKey,
 } from './idempotency-key.js';
@@ -46,6 +47,9 @@ const delay = (ms: number): Promise<void> =>
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+const stackOf = (error: unknown): string =>
+  error instanceof Error ? (error.stack ?? error.message) : String(error);
+
 const STORED_ERROR_STATUSES: ReadonlySet<number> = new Set([
   HttpStatus.NOT_FOUND,
   HttpStatus.CONFLICT,
@@ -57,7 +61,12 @@ function isStorable(error: unknown, statusCode: number): boolean {
   return !transient && STORED_ERROR_STATUSES.has(statusCode);
 }
 
-type Claim = { storeKey: string; fingerprint: string; lockToken: string };
+type Claim = {
+  storeKey: string;
+  keyLabel: string;
+  fingerprint: string;
+  lockToken: string;
+};
 
 @Injectable()
 export class IdempotencyInterceptor implements NestInterceptor {
@@ -92,12 +101,18 @@ export class IdempotencyInterceptor implements NestInterceptor {
       request.body,
     );
     const storeKey = buildStoreKey(request.method, request.path, key);
+    const keyLabel = describeIdempotencyKey(request.method, request.path, key);
 
-    const acquisition = await this.acquire(storeKey, fingerprint);
+    const acquisition = await this.acquire(storeKey, fingerprint, keyLabel);
     if (!acquisition.acquired) {
       return this.replay(acquisition.existing, fingerprint, response);
     }
-    const claim = { storeKey, fingerprint, lockToken: acquisition.lockToken };
+    const claim = {
+      storeKey,
+      keyLabel,
+      fingerprint,
+      lockToken: acquisition.lockToken,
+    };
     return from(this.execute(next, claim, response));
   }
 
@@ -114,11 +129,15 @@ export class IdempotencyInterceptor implements NestInterceptor {
   private async acquire(
     storeKey: string,
     fingerprint: string,
+    keyLabel: string,
   ): Promise<AcquireResult> {
     try {
       return await this.store.acquire(storeKey, fingerprint);
     } catch (error) {
-      this.logger.error(error);
+      this.logger.error(
+        `Could not acquire idempotency lock for ${keyLabel}: ${messageOf(error)}`,
+        stackOf(error),
+      );
       throw new ServiceUnavailableError('Idempotency store unavailable');
     }
   }
@@ -174,11 +193,11 @@ export class IdempotencyInterceptor implements NestInterceptor {
       extend: () => this.store.extendLock(claim.storeKey, claim.lockToken),
       onLost: () =>
         this.logger.error(
-          `Idempotency lock ${claim.storeKey} was lost while the handler was running; the same key may run again`,
+          `Idempotency lock for ${claim.keyLabel} was lost while the handler was running; the same key may run again`,
         ),
       onFailure: (error) =>
         this.logger.warn(
-          `Could not extend idempotency lock ${claim.storeKey}: ${messageOf(error)}`,
+          `Could not extend idempotency lock for ${claim.keyLabel}: ${messageOf(error)}`,
         ),
     });
     try {
@@ -222,15 +241,15 @@ export class IdempotencyInterceptor implements NestInterceptor {
       try {
         if (!(await operation())) {
           this.logger.error(
-            `Idempotency lock ${claim.storeKey} was lost before it could be ${action}d`,
+            `Idempotency lock for ${claim.keyLabel} was lost before it could be ${action}d`,
           );
         }
         return;
       } catch (error) {
         if (attempt === SETTLE_ATTEMPTS) {
           this.logger.error(
-            `Could not ${action} idempotency record ${claim.storeKey} after ${attempt} attempts; it expires with the lock TTL`,
-            error instanceof Error ? error.stack : String(error),
+            `Could not ${action} idempotency record for ${claim.keyLabel} after ${attempt} attempts; it expires with the lock TTL`,
+            stackOf(error),
           );
           return;
         }

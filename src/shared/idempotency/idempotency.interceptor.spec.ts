@@ -20,6 +20,7 @@ import { UnprocessableError } from '../errors/unprocessable.error.js';
 import { HttpModule } from '../http/http.module.js';
 import { IDEMPOTENCY_LOCK_HEARTBEAT_MS } from './idempotency.constants.js';
 import { IdempotencyInterceptor } from './idempotency.interceptor.js';
+import { describeIdempotencyKey } from './idempotency-key.js';
 import { IdempotencyStore } from './idempotency.store.js';
 import { Idempotent } from './idempotent.decorator.js';
 import { InMemoryIdempotencyStore } from './testing/in-memory-idempotency.store.js';
@@ -112,12 +113,15 @@ describe('IdempotencyInterceptor', () => {
   }
 
   let errorLog: ReturnType<typeof vi.spyOn>;
+  let warnLog: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
     errorLog = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
-    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    warnLog = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
     store = new InMemoryIdempotencyStore();
     probe.executions = 0;
     app = await createApp();
@@ -127,6 +131,12 @@ describe('IdempotencyInterceptor', () => {
     await app.close();
     vi.restoreAllMocks();
   });
+
+  const expectNoLoggedKey = () => {
+    const logged = JSON.stringify(errorLog.mock.calls);
+    expect(logged).not.toContain('k1');
+    expect(logged).not.toContain('idempotency:');
+  };
 
   const post = (path: string, key?: string) => {
     const req = request(app.getHttpServer()).post(path);
@@ -294,6 +304,13 @@ describe('IdempotencyInterceptor', () => {
 
     expect(response.body.message).toBe('Idempotency store unavailable');
     expect(probe.executions).toBe(0);
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `Could not acquire idempotency lock for ${describeIdempotencyKey('POST', '/widgets', 'k1')}`,
+      ),
+      expect.any(String),
+    );
+    expectNoLoggedKey();
   });
 
   it('still answers the real response when the store fails to record it', async () => {
@@ -371,9 +388,12 @@ describe('IdempotencyInterceptor', () => {
 
       expect(response.status).toBe(200);
       expect(errorLog).toHaveBeenCalledWith(
-        expect.stringContaining('idempotency:POST:/widgets/slow/act:k1'),
+        expect.stringContaining(
+          describeIdempotencyKey('POST', '/widgets/slow/act', 'k1'),
+        ),
       );
       expect(errorLog).toHaveBeenCalledTimes(2);
+      expectNoLoggedKey();
     });
 
     it('keeps heartbeating after a failed extension and does not fail the request', async () => {
@@ -383,6 +403,10 @@ describe('IdempotencyInterceptor', () => {
 
       expect(response.status).toBe(200);
       expect(store.extensions).toBeGreaterThanOrEqual(1);
+      expect(warnLog).toHaveBeenCalledWith(
+        `Could not extend idempotency lock for ${describeIdempotencyKey('POST', '/widgets/slow/act', 'k1')}: in-memory store extendLock failed`,
+      );
+      expect(JSON.stringify(warnLog.mock.calls)).not.toContain('k1');
     });
   });
 
@@ -403,9 +427,12 @@ describe('IdempotencyInterceptor', () => {
       await post('/widgets', 'k1').send({ name: 'a' }).expect(201);
 
       expect(errorLog).toHaveBeenCalledWith(
-        expect.stringContaining('idempotency:POST:/widgets:k1'),
+        expect.stringContaining(
+          describeIdempotencyKey('POST', '/widgets', 'k1'),
+        ),
         expect.any(String),
       );
+      expectNoLoggedKey();
     });
   });
 });
