@@ -34,11 +34,11 @@ export class PrismaSubscriptionsRepository extends SubscriptionsRepository {
 
   async changeStatus(
     id: string,
-    { fromAnyOf, to, canceledAt }: StatusChange,
+    { fromAnyOf, to, canceledAt, cancelReason }: StatusChange,
   ): Promise<Subscription | null> {
     const { count } = await this.prisma.subscription.updateMany({
       where: { id, status: { in: [...fromAnyOf] } },
-      data: { status: to, ...(canceledAt && { canceledAt }) },
+      data: { status: to, ...(canceledAt && { canceledAt, cancelReason }) },
     });
     return count === 0 ? null : this.findById(id);
   }

@@ -65,6 +65,7 @@ describe('SubscriptionsController', () => {
       currentPeriodStart: '2026-11-03T10:00:00.000Z',
       currentPeriodEnd: '2026-12-03T10:00:00.000Z',
       canceledAt: null,
+      cancelReason: null,
       latestCharge: {
         status: 'pending',
         amountCents: 1990,

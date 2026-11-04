@@ -103,6 +103,7 @@ describe('SubscriptionsService', () => {
         status: 'active',
         cardToken: 'tok_success',
         canceledAt: null,
+        cancelReason: null,
         billingAnchor: startedAt,
         currentPeriodStart: startedAt,
         currentPeriodEnd: new Date('2026-02-28T10:30:00.000Z'),
@@ -514,6 +515,7 @@ describe('SubscriptionsService', () => {
         id: subscription.id,
         status: 'canceled',
         canceledAt,
+        cancelReason: 'customer_request',
       });
       await expect(service.getById(subscription.id)).resolves.toMatchObject({
         status: 'canceled',

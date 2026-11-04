@@ -114,6 +114,7 @@ describe('Subscriptions (e2e)', () => {
         currentPeriodStart: '2026-01-31T10:30:00.000Z',
         currentPeriodEnd: '2026-02-28T10:30:00.000Z',
         canceledAt: null,
+        cancelReason: null,
         createdAt: expect.any(String),
         updatedAt: expect.any(String),
         latestCharge: {
@@ -209,6 +210,7 @@ describe('Subscriptions (e2e)', () => {
         currentPeriodStart: '2026-01-31T10:30:00.000Z',
         currentPeriodEnd: '2026-02-28T10:30:00.000Z',
         canceledAt: null,
+        cancelReason: null,
         createdAt: expect.any(String),
         updatedAt: expect.any(String),
         latestCharge: {
@@ -446,6 +448,7 @@ describe('Subscriptions (e2e)', () => {
         id: subscription.id,
         status: 'canceled',
         canceledAt: expect.any(String),
+        cancelReason: 'customer_request',
       });
     });
 

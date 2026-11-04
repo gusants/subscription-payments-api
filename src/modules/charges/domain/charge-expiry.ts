@@ -33,6 +33,7 @@ export function expirySettlement({
         subscription,
         subscriptionStatusAfterExpiry(subscription.status),
         now,
+        'initial_payment_expired',
       ),
     },
   };

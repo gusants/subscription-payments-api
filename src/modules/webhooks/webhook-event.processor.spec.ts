@@ -263,6 +263,7 @@ describe('WebhookEventProcessor', () => {
     expect(await subscriptionNow()).toMatchObject({
       status: 'canceled',
       canceledAt: now,
+      cancelReason: 'initial_payment_expired',
     });
   });
 

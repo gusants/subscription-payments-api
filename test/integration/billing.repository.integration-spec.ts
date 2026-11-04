@@ -858,6 +858,7 @@ describe('PrismaBillingRepository (integration)', () => {
           ],
           to: 'canceled' as const,
           canceledAt: periodEnd,
+          cancelReason: 'payment_failed' as const,
         },
       },
     });
@@ -878,7 +879,11 @@ describe('PrismaBillingRepository (integration)', () => {
         await prisma.subscription.findUniqueOrThrow({
           where: { id: subscription.id },
         }),
-      ).toMatchObject({ status: 'canceled', canceledAt: periodEnd });
+      ).toMatchObject({
+        status: 'canceled',
+        canceledAt: periodEnd,
+        cancelReason: 'payment_failed',
+      });
     });
 
     it('changes nothing when the charge left the failed status meanwhile', async () => {

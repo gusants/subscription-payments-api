@@ -67,6 +67,7 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
       expect(created).toEqual({
         ...input,
         canceledAt: null,
+        cancelReason: null,
         createdAt: expect.any(Date),
         updatedAt: expect.any(Date),
       });
@@ -173,9 +174,14 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
         fromAnyOf: ['incomplete'],
         to: 'canceled',
         canceledAt,
+        cancelReason: 'customer_request',
       });
 
-      expect(changed).toMatchObject({ status: 'canceled', canceledAt });
+      expect(changed).toMatchObject({
+        status: 'canceled',
+        canceledAt,
+        cancelReason: 'customer_request',
+      });
     });
 
     it('returns null and leaves the row untouched when the from-status does not match', async () => {

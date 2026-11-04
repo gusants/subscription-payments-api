@@ -17,6 +17,7 @@ export function toSubscriptionResponse(
     currentPeriodStart: subscription.currentPeriodStart.toISOString(),
     currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
     canceledAt: subscription.canceledAt?.toISOString() ?? null,
+    cancelReason: subscription.cancelReason,
     createdAt: subscription.createdAt.toISOString(),
     updatedAt: subscription.updatedAt.toISOString(),
   };

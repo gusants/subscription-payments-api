@@ -53,6 +53,7 @@ describe('decideWebhookEffect', () => {
     currentPeriodStart: now,
     currentPeriodEnd: now,
     canceledAt: null,
+    cancelReason: null,
     createdAt: now,
     updatedAt: now,
   });
@@ -407,6 +408,7 @@ describe('decideWebhookEffect', () => {
               fromAnyOf: ['incomplete', 'active', 'past_due'],
               to: 'canceled',
               canceledAt: now,
+              cancelReason: 'initial_payment_expired',
             },
           },
         },

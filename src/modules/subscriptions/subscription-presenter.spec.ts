@@ -15,6 +15,7 @@ const subscription: Subscription = {
   currentPeriodStart: new Date('2026-11-03T10:00:00.000Z'),
   currentPeriodEnd: new Date('2026-12-03T10:00:00.000Z'),
   canceledAt: null,
+  cancelReason: null,
   createdAt: new Date('2026-11-03T10:00:01.000Z'),
   updatedAt: new Date('2026-11-03T10:00:02.000Z'),
 };
@@ -31,6 +32,7 @@ describe('toSubscriptionResponse', () => {
       currentPeriodStart: '2026-11-03T10:00:00.000Z',
       currentPeriodEnd: '2026-12-03T10:00:00.000Z',
       canceledAt: null,
+      cancelReason: null,
       createdAt: '2026-11-03T10:00:01.000Z',
       updatedAt: '2026-11-03T10:00:02.000Z',
     });

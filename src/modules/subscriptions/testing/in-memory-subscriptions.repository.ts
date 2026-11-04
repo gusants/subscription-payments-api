@@ -14,6 +14,7 @@ export class InMemorySubscriptionsRepository extends SubscriptionsRepository {
     const created: Subscription = {
       ...subscription,
       canceledAt: null,
+      cancelReason: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -51,7 +52,7 @@ export class InMemorySubscriptionsRepository extends SubscriptionsRepository {
 
   changeStatus(
     id: string,
-    { fromAnyOf, to, canceledAt }: StatusChange,
+    { fromAnyOf, to, canceledAt, cancelReason }: StatusChange,
   ): Promise<Subscription | null> {
     const found = this.subscriptions.get(id);
     if (!found || !fromAnyOf.includes(found.status)) {
@@ -61,6 +62,7 @@ export class InMemorySubscriptionsRepository extends SubscriptionsRepository {
       ...found,
       status: to,
       canceledAt: canceledAt ?? found.canceledAt,
+      cancelReason: cancelReason ?? found.cancelReason,
       updatedAt: new Date(),
     };
     this.subscriptions.set(id, updated);

@@ -41,7 +41,12 @@ function exhaustionOf({
         : null,
     subscription: {
       id: subscription.id,
-      change: subscriptionChange(subscription, 'canceled', now),
+      change: subscriptionChange(
+        subscription,
+        'canceled',
+        now,
+        'payment_failed',
+      ),
     },
   };
 }

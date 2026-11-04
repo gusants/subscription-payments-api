@@ -104,6 +104,7 @@ export class SubscriptionsService {
       fromAnyOf: statusesAllowedToTransitionTo('canceled'),
       to: 'canceled',
       canceledAt: this.clock.now(),
+      cancelReason: 'customer_request',
     });
     if (!canceled) {
       throw new ConflictError(`Subscription ${id} was modified concurrently`);

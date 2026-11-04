@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { CANCEL_REASONS } from '../cancel-reason.js';
 import { PAYMENT_METHODS } from '../subscription.js';
 import { SUBSCRIPTION_STATUSES } from '../subscription-status.js';
 
@@ -13,6 +14,7 @@ export const subscriptionResponseSchema = z.object({
   currentPeriodStart: z.iso.datetime(),
   currentPeriodEnd: z.iso.datetime(),
   canceledAt: z.iso.datetime().nullable(),
+  cancelReason: z.enum(CANCEL_REASONS).nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });

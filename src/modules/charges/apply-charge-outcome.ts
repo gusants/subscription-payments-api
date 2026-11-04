@@ -12,11 +12,11 @@ import { toCharge } from './prisma-charge.mapper.js';
 export function changeSubscription(
   tx: Prisma.TransactionClient,
   id: string,
-  { fromAnyOf, to, canceledAt }: StatusChange,
+  { fromAnyOf, to, canceledAt, cancelReason }: StatusChange,
 ): Prisma.PrismaPromise<Prisma.BatchPayload> {
   return tx.subscription.updateMany({
     where: { id, status: { in: [...fromAnyOf] } },
-    data: { status: to, ...(canceledAt && { canceledAt }) },
+    data: { status: to, ...(canceledAt && { canceledAt, cancelReason }) },
   });
 }
 

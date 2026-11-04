@@ -23,6 +23,7 @@ function candidate(
       currentPeriodStart: at('2026-01-31T10:30:00.000Z'),
       currentPeriodEnd: at('2026-02-28T10:30:00.000Z'),
       canceledAt: null,
+      cancelReason: null,
       createdAt: at('2026-01-31T10:30:00.000Z'),
       updatedAt: at('2026-01-31T10:30:00.000Z'),
       ...overrides,

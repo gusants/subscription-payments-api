@@ -1,3 +1,4 @@
+import type { CancelReason } from './cancel-reason.js';
 import type { SubscriptionStatus } from './subscription-status.js';
 
 export const PAYMENT_METHODS = ['card', 'pix', 'boleto'] as const;
@@ -15,6 +16,7 @@ export interface Subscription {
   currentPeriodStart: Date;
   currentPeriodEnd: Date;
   canceledAt: Date | null;
+  cancelReason: CancelReason | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -41,4 +43,5 @@ export interface StatusChange {
   fromAnyOf: readonly SubscriptionStatus[];
   to: SubscriptionStatus;
   canceledAt?: Date;
+  cancelReason?: CancelReason;
 }

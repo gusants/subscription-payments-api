@@ -783,6 +783,7 @@ describe('ChargeProcessor', () => {
       expect(processed.subscription).toMatchObject({
         status: 'canceled',
         canceledAt: afterLease,
+        cancelReason: 'initial_payment_expired',
       });
       expect(processed.failureReason).toBeNull();
       expect(billing.attempts()).toEqual([]);

@@ -96,6 +96,7 @@ describe('dunningStepAfterFailure', () => {
             fromAnyOf: ['incomplete', 'active', 'past_due'],
             to: 'canceled',
             canceledAt: failedAt,
+            cancelReason: 'payment_failed',
           },
         },
       },
