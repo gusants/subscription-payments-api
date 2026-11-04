@@ -1,9 +1,14 @@
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { PlanInterval } from '../../generated/prisma/enums.js';
+import {
+  nextRetryAt,
+  type RetryIntervalUnit,
+} from '../../modules/charges/domain/retry-schedule.js';
 import { computePeriodEnd } from '../../modules/subscriptions/domain/index.js';
 import {
   addDays,
   addHours,
+  addMilliseconds,
   startOfUtcDay,
   subtractMonths,
 } from './demo-dates.js';
@@ -31,6 +36,21 @@ interface Period {
 
 type ChargeParts = Pick<DemoSeed, 'charges' | 'attempts'>;
 
+export interface DemoSeedOptions {
+  retryUnit: RetryIntervalUnit;
+}
+
+interface DunningTimeline {
+  firstFailedAt: Date;
+  attemptTimes: Date[];
+  retryCount: number;
+}
+
+const MILLISECONDS_PER_RETRY_UNIT: Record<RetryIntervalUnit, number> = {
+  days: 86_400_000,
+  minutes: 60_000,
+};
+
 const MONTHS_PER_INTERVAL: Record<PlanInterval, number> = {
   monthly: 1,
   yearly: 12,
@@ -38,7 +58,6 @@ const MONTHS_PER_INTERVAL: Record<PlanInterval, number> = {
 
 const DUNNING_OFFSET_DAYS = [0, 1, 3, 7] as const;
 const FIRST_RETRY_DELAY_DAYS = 1;
-const SECOND_RETRY_DELAY_DAYS = 3;
 const PIX_EXPIRATION_HOURS = 1;
 const CUSTOMER_REQUEST_CANCELLATION_DELAY_DAYS = 6;
 const DEMO_EMAIL_DOMAIN = 'demo.example';
@@ -135,18 +154,11 @@ const cardAttempts = (
   period: Period,
   issue: number,
   results: readonly ('succeeded' | 'declined')[],
-  offsetsInDays: readonly number[],
+  times: readonly Date[],
 ): Prisma.PaymentAttemptCreateManyInput[] =>
   spec.method === 'card'
     ? results.map((result, i) =>
-        attempt(
-          spec,
-          period,
-          issue,
-          i + 1,
-          addDays(period.start, offsetsInDays[i] ?? 0),
-          result,
-        ),
+        attempt(spec, period, issue, i + 1, times[i] ?? period.start, result),
       )
     : [];
 
@@ -165,7 +177,7 @@ function paidOnTime(
         attemptCount: spec.method === 'card' ? 1 : 0,
       },
     ],
-    attempts: cardAttempts(spec, period, issue, ['succeeded'], [0]),
+    attempts: cardAttempts(spec, period, issue, ['succeeded'], [period.start]),
   };
 }
 
@@ -190,7 +202,7 @@ function paidAfterRetry(
       period,
       issue,
       ['declined', 'succeeded'],
-      [0, FIRST_RETRY_DELAY_DAYS],
+      [period.start, addDays(period.start, FIRST_RETRY_DELAY_DAYS)],
     ),
   };
 }
@@ -226,64 +238,70 @@ function dunningFailure(
   spec: DemoCustomerSpec,
   plan: DemoPlanSpec,
   period: Period,
-  retryCount: number,
   status: 'failed' | 'uncollectible',
-  nextRetryDelayDays: number | null,
+  { firstFailedAt, attemptTimes, retryCount }: DunningTimeline,
 ): ChargeParts {
   const issue = 0;
-  const results = Array.from(
-    { length: retryCount + 1 },
-    () => 'declined' as const,
-  );
+  const results = attemptTimes.map(() => 'declined' as const);
   return {
     charges: [
       {
         ...chargeBase(spec, plan, period, issue),
         status,
         retryCount,
-        firstFailedAt: period.start,
-        nextRetryAt:
-          nextRetryDelayDays === null
-            ? null
-            : addDays(period.start, nextRetryDelayDays),
+        firstFailedAt,
         attemptCount: results.length,
       },
     ],
-    attempts: cardAttempts(spec, period, issue, results, DUNNING_OFFSET_DAYS),
+    attempts: cardAttempts(spec, period, issue, results, attemptTimes),
   };
 }
 
-function pastDueFailure(
-  spec: DemoCustomerSpec,
-  plan: DemoPlanSpec,
-  period: Period,
-): ChargeParts {
-  const retryCount = spec.latestPeriodDaysAgo >= FIRST_RETRY_DELAY_DAYS ? 1 : 0;
-  const nextRetryDelay =
-    retryCount === 0 ? FIRST_RETRY_DELAY_DAYS : SECOND_RETRY_DELAY_DAYS;
-  return dunningFailure(
-    spec,
-    plan,
-    period,
-    retryCount,
-    'failed',
-    nextRetryDelay,
-  );
+function retriesMadeBy(
+  firstFailedAt: Date,
+  now: Date,
+  unit: RetryIntervalUnit,
+): number {
+  let retriesMade = 0;
+  for (
+    let due = nextRetryAt(firstFailedAt, retriesMade, unit);
+    due !== null && due.getTime() <= now.getTime();
+    due = nextRetryAt(firstFailedAt, retriesMade, unit)
+  ) {
+    retriesMade += 1;
+  }
+  return retriesMade;
 }
 
-function exhaustedFailure(
+function ongoingDunning(
   spec: DemoCustomerSpec,
-  plan: DemoPlanSpec,
-  period: Period,
-): ChargeParts {
-  return dunningFailure(
-    spec,
-    plan,
-    period,
-    DUNNING_OFFSET_DAYS.length - 1,
-    'uncollectible',
-    null,
+  now: Date,
+  unit: RetryIntervalUnit,
+): DunningTimeline {
+  const ageInUnits = spec.failureAgeInRetryUnits ?? 0;
+  const firstFailedAt = addMilliseconds(
+    now,
+    -ageInUnits * MILLISECONDS_PER_RETRY_UNIT[unit],
   );
+  const retryCount = retriesMadeBy(firstFailedAt, now, unit);
+  const retryTimes = Array.from({ length: retryCount }, (_, i) =>
+    nextRetryAt(firstFailedAt, i, unit),
+  ).filter((time): time is Date => time !== null);
+  return {
+    firstFailedAt,
+    attemptTimes: [firstFailedAt, ...retryTimes],
+    retryCount,
+  };
+}
+
+function exhaustedDunning(period: Period): DunningTimeline {
+  return {
+    firstFailedAt: period.start,
+    attemptTimes: DUNNING_OFFSET_DAYS.map((days) =>
+      addDays(period.start, days),
+    ),
+    retryCount: DUNNING_OFFSET_DAYS.length - 1,
+  };
 }
 
 function settledPeriod(
@@ -304,10 +322,26 @@ function latestPeriod(
   spec: DemoCustomerSpec,
   plan: DemoPlanSpec,
   period: Period,
+  now: Date,
+  unit: RetryIntervalUnit,
 ): ChargeParts {
-  if (spec.ending === 'pastDue') return pastDueFailure(spec, plan, period);
+  if (spec.ending === 'pastDue') {
+    return dunningFailure(
+      spec,
+      plan,
+      period,
+      'failed',
+      ongoingDunning(spec, now, unit),
+    );
+  }
   if (spec.ending === 'canceledPaymentFailed') {
-    return exhaustedFailure(spec, plan, period);
+    return dunningFailure(
+      spec,
+      plan,
+      period,
+      'uncollectible',
+      exhaustedDunning(period),
+    );
   }
   return settledPeriod(spec, plan, period);
 }
@@ -316,6 +350,8 @@ function chargesOf(
   spec: DemoCustomerSpec,
   plan: DemoPlanSpec,
   periods: Period[],
+  now: Date,
+  unit: RetryIntervalUnit,
 ): ChargeParts {
   const parts = emptyParts();
   periods.forEach((period, position) => {
@@ -323,7 +359,7 @@ function chargesOf(
     mergeParts(
       parts,
       isLatest
-        ? latestPeriod(spec, plan, period)
+        ? latestPeriod(spec, plan, period, now, unit)
         : settledPeriod(spec, plan, period),
     );
   });
@@ -391,7 +427,10 @@ function subscriptionOf(
   };
 }
 
-export function buildDemoSeed(now: Date): DemoSeed {
+export function buildDemoSeed(
+  now: Date,
+  { retryUnit }: DemoSeedOptions = { retryUnit: 'days' },
+): DemoSeed {
   const today = startOfUtcDay(now);
   const seed: DemoSeed = {
     plans: DEMO_PLANS.map((plan) => ({
@@ -417,7 +456,7 @@ export function buildDemoSeed(now: Date): DemoSeed {
       createdAt: (periods[0] as Period).start,
     });
     seed.subscriptions.push(subscriptionOf(spec, periods));
-    mergeParts(seed, chargesOf(spec, plan, periods));
+    mergeParts(seed, chargesOf(spec, plan, periods, now, retryUnit));
   }
   return seed;
 }

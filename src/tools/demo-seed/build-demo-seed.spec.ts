@@ -1,3 +1,5 @@
+import { overdueDunningCutoffs } from '../../modules/charges/domain/dunning-recovery.js';
+import type { RetryIntervalUnit } from '../../modules/charges/domain/retry-schedule.js';
 import { buildDemoSeed } from './build-demo-seed.js';
 
 const NOW = new Date('2026-11-04T15:30:00.000Z');
@@ -58,9 +60,6 @@ describe('buildDemoSeed', () => {
       expect(Boolean(charge.paidAt)).toBe(charge.status === 'paid');
       expect(charge.correlationId).toEqual(expect.any(String));
     }
-    for (const { status, nextRetryAt } of seed.charges) {
-      expect(status === 'failed').toBe(Boolean(nextRetryAt));
-    }
   });
 
   it('keeps retry history behind one declined attempt per failure', () => {
@@ -98,14 +97,49 @@ describe('buildDemoSeed', () => {
     ).toBeLessThanOrEqual(NOW.getTime());
   });
 
-  it('schedules the next retry of past-due charges after now', () => {
-    const nextRetries = seed.charges
-      .map(({ nextRetryAt }) => nextRetryAt)
-      .filter((date): date is Date => date instanceof Date);
+  it('leaves the unused next_retry_at column empty', () => {
+    expect(seed.charges.every(({ nextRetryAt }) => nextRetryAt == null)).toBe(
+      true,
+    );
+  });
 
-    expect(nextRetries.length).toBeGreaterThan(0);
-    for (const date of nextRetries) {
-      expect(date.getTime()).toBeGreaterThan(NOW.getTime());
-    }
+  describe.each<[RetryIntervalUnit, number]>([
+    ['days', 86_400_000],
+    ['minutes', 60_000],
+  ])('past-due charges under RETRY_INTERVAL_UNIT=%s', (retryUnit, unitMs) => {
+    const graceMs = 5 * 60_000;
+    const unitSeed = buildDemoSeed(NOW, { retryUnit });
+    const pastDueCharges = unitSeed.charges.filter(
+      ({ status }) => status === 'failed',
+    );
+
+    it('has one past-due charge per past-due subscription', () => {
+      const pastDue = unitSeed.subscriptions.filter(
+        ({ status }) => status === 'past_due',
+      );
+      expect(pastDueCharges).toHaveLength(pastDue.length);
+      expect(pastDue.length).toBeGreaterThan(0);
+    });
+
+    it('is not due for a dunning follow-up for at least one retry unit', () => {
+      const later = new Date(NOW.getTime() + unitMs);
+      const cutoffs = overdueDunningCutoffs(later, retryUnit, graceMs);
+      for (const { retryCount, firstFailedAt } of pastDueCharges) {
+        const [cutoff] = cutoffs.filter((c) => c.retryCount === retryCount);
+        expect(cutoff).toBeDefined();
+        expect((firstFailedAt as Date).getTime()).toBeGreaterThanOrEqual(
+          (cutoff as { failedBefore: Date }).failedBefore.getTime(),
+        );
+      }
+    });
+
+    it('records one declined attempt per retry made plus the first', () => {
+      for (const { id, retryCount } of pastDueCharges) {
+        const declined = unitSeed.attempts.filter(
+          ({ chargeId, result }) => chargeId === id && result === 'declined',
+        );
+        expect(declined).toHaveLength((retryCount ?? 0) + 1);
+      }
+    });
   });
 });

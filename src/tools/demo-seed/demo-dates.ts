@@ -9,6 +9,9 @@ export const startOfUtcDay = (date: Date): Date =>
 export const addDays = (date: Date, days: number): Date =>
   new Date(date.getTime() + days * MILLISECONDS_PER_DAY);
 
+export const addMilliseconds = (date: Date, milliseconds: number): Date =>
+  new Date(date.getTime() + milliseconds);
+
 export const addHours = (date: Date, hours: number): Date =>
   new Date(date.getTime() + hours * MILLISECONDS_PER_HOUR);
 

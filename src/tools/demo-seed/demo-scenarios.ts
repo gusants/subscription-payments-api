@@ -20,6 +20,7 @@ export interface DemoCustomerSpec {
   method: PaymentMethod;
   periodsBeforeLatest: number;
   latestPeriodDaysAgo: number;
+  failureAgeInRetryUnits?: number;
   lateRecoveredPeriods?: readonly number[];
   reissuedPeriods?: readonly number[];
   ending: DemoEnding;
@@ -130,6 +131,7 @@ export const DEMO_CUSTOMERS: readonly DemoCustomerSpec[] = [
     periodsBeforeLatest: 6,
     latestPeriodDaysAgo: 1,
     lateRecoveredPeriods: [2],
+    failureAgeInRetryUnits: 1,
     ending: 'pastDue',
   },
   {
@@ -139,6 +141,7 @@ export const DEMO_CUSTOMERS: readonly DemoCustomerSpec[] = [
     method: 'card',
     periodsBeforeLatest: 4,
     latestPeriodDaysAgo: 2,
+    failureAgeInRetryUnits: 3,
     ending: 'pastDue',
   },
   {
@@ -148,6 +151,7 @@ export const DEMO_CUSTOMERS: readonly DemoCustomerSpec[] = [
     method: 'card',
     periodsBeforeLatest: 3,
     latestPeriodDaysAgo: 0,
+    failureAgeInRetryUnits: 1,
     ending: 'pastDue',
   },
   {
