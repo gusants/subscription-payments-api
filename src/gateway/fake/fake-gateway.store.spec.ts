@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   FakeGatewayStore,
   type FakeGatewayData,
@@ -122,6 +122,27 @@ describe('FakeGatewayStore', () => {
     ).rejects.toThrow('boom');
 
     expect((await readJson(filePath)).customers).toHaveLength(1);
+  });
+
+  it('keeps the previous file intact and leaves no temporary file when the write fails', async () => {
+    const store = new FakeGatewayStore(filePath);
+    await store.transaction((data) => data.customers.push(customer('a')));
+    const storeDirectory = dirname(filePath);
+    await chmod(storeDirectory, 0o555);
+
+    const failed = store.transaction((data) =>
+      data.customers.push(customer('b')),
+    );
+
+    try {
+      await expect(failed).rejects.toThrow(/EACCES|EPERM/);
+    } finally {
+      await chmod(storeDirectory, 0o755);
+    }
+    expect((await readJson(filePath)).customers.map(({ id }) => id)).toEqual([
+      'a',
+    ]);
+    expect(await readdir(storeDirectory)).toEqual(['fake-gateway.json']);
   });
 
   it('keeps processing after a failed transaction', async () => {

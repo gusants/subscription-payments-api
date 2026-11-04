@@ -127,6 +127,22 @@ describe('PrismaCustomersRepository (integration)', () => {
       expect(assigned).toBe('gcus_first');
     });
 
+    it('keeps exactly one winning id and answers it to every concurrent caller', async () => {
+      const customer = await repository.create(newCustomer('Ana'));
+      const candidates = Array.from({ length: 10 }, (_, i) => `gcus_${i}`);
+
+      const answers = await Promise.all(
+        candidates.map((id) =>
+          repository.assignGatewayCustomerId(customer.id, id),
+        ),
+      );
+
+      const stored = (await repository.findById(customer.id))
+        ?.gatewayCustomerId;
+      expect(candidates).toContain(stored);
+      expect(new Set(answers)).toEqual(new Set([stored]));
+    });
+
     it('rejects an unknown customer with NotFoundError', async () => {
       await expect(
         repository.assignGatewayCustomerId('cus_missing', 'gcus_1'),
