@@ -10,6 +10,7 @@ import {
 import { ApiBody, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ZodResponse, ZodValidationPipe } from 'nestjs-zod';
 import { ErrorResponseDto } from '../../shared/errors/error-response.js';
+import { Idempotent } from '../../shared/idempotency/index.js';
 import {
   CreateSubscriptionDto,
   type CreateSubscriptionBody,
@@ -28,19 +29,34 @@ export class SubscriptionsController {
   constructor(private readonly subscriptions: SubscriptionsService) {}
 
   @Post()
+  @Idempotent()
   @ApiBody({ type: CreateSubscriptionDto })
   @ZodResponse({
     status: HttpStatus.CREATED,
     type: CreatedSubscriptionResponseDto,
   })
-  @ApiResponse({ status: HttpStatus.BAD_REQUEST, type: ErrorResponseDto })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid body or invalid Idempotency-Key',
+    type: ErrorResponseDto,
+  })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, type: ErrorResponseDto })
   @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description:
+      'A request with the same Idempotency-Key is still being processed',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
     status: HttpStatus.UNPROCESSABLE_ENTITY,
+    description:
+      'The request cannot be processed, or the Idempotency-Key was already used with a different body',
     type: ErrorResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.SERVICE_UNAVAILABLE,
+    description:
+      'The gateway is unavailable, or an Idempotency-Key was sent and the idempotency store is unavailable',
     type: ErrorResponseDto,
   })
   async create(

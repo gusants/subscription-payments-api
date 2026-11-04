@@ -43,6 +43,8 @@ export const envSchema = z.object({
     .default(0),
   FAKE_GATEWAY_WEBHOOK_DISPATCH_ENABLED: z.stringbool().default(true),
   CHARGE_ATTEMPT_LEASE_SECONDS: z.coerce.number().int().positive().default(30),
+  IDEMPOTENCY_TTL_SECONDS: z.coerce.number().int().positive().default(86400),
+  IDEMPOTENCY_LOCK_TTL_SECONDS: z.coerce.number().int().positive().default(60),
 });
 
 export type Env = z.infer<typeof envSchema>;

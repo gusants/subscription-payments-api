@@ -99,6 +99,18 @@ Every gateway charge status change (card paid or failed on creation, pix or bole
 | `charge.expired` | `expired` with the same gateway charge | `ignored_duplicate_state` |
 | any | any other state (for example `expired` after `paid`, `paid` after `expired`) | `rejected_out_of_order`, logged at WARN, no effect |
 
+## Idempotency
+
+`POST /subscriptions` and `POST /charges/{id}/retry` accept an optional `Idempotency-Key` header (1 to 255 printable ASCII characters, otherwise `400`). Without it the endpoints behave as always. Routes opt in with `@Idempotent()` (`src/shared/idempotency/`); the interceptor talks to an `IdempotencyStore` port (Redis implementation, in-memory fake for tests).
+
+- Scope: the Redis key is `idempotency:{method}:{path with params resolved}:{key}`, so the same key on `/charges/ch_a/retry` and `/charges/ch_b/retry` never collides. The request fingerprint is the SHA-256 of the method, path and the body in canonical form (object keys sorted), so key order in the JSON does not matter.
+- Same key and fingerprint, first request completed: the stored status and serialized body are replayed with `Idempotent-Replayed: true`; the handler does not run.
+- Same key, different fingerprint: `422`. Same key while the first request is still running: `409`.
+- Atomicity: the lock is taken with a Lua script (`SET key value NX EX` plus `GET` when it loses), so concurrent requests have exactly one winner. The lock carries a token; completing or releasing is compare-and-set on it, so a request whose lock expired cannot overwrite a newer holder.
+- Stored: `2xx` responses and the deterministic rejections `404`, `409` and `422` (a retry of a definite rejection does not re-execute; a `409` for a charge attempt still in flight is replayed too, so use a new key to try again later). Not stored, the lock is released so the same key can be retried: validation `400` (nothing ran; a corrected body can reuse the key), `5xx` and any unexpected exception.
+- TTLs: `IDEMPOTENCY_TTL_SECONDS` (default 86400) for completed records; `IDEMPOTENCY_LOCK_TTL_SECONDS` (default 60) for the in-flight lock, so a crashed request does not block the key forever.
+- Redis unavailable while a key was sent: `503`; the handler does not run. If Redis fails after the handler ran, the real response is still returned and the failure is logged (the record then expires with the lock TTL).
+
 ## Charge attempts and retries
 
 Every gateway attempt carries the idempotency key `<chargeId>:<attemptNumber>`, persisted before the gateway is called, so re-sending an attempt never charges twice.

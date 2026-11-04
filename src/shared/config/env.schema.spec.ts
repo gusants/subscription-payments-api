@@ -23,6 +23,8 @@ describe('validateEnv', () => {
       FAKE_GATEWAY_BOLETO_EXPIRATION_SECONDS: 259200,
       FAKE_GATEWAY_EXPIRATION_SWEEP_INTERVAL_MS: 5000,
       CHARGE_ATTEMPT_LEASE_SECONDS: 30,
+      IDEMPOTENCY_TTL_SECONDS: 86400,
+      IDEMPOTENCY_LOCK_TTL_SECONDS: 60,
     });
   });
 
@@ -154,5 +156,21 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...validEnv, NODE_ENV: 'staging' })).toThrow(
       /NODE_ENV/,
     );
+  });
+
+  it('accepts custom idempotency TTLs and rejects non-positive ones', () => {
+    expect(
+      validateEnv({
+        ...validEnv,
+        IDEMPOTENCY_TTL_SECONDS: '3600',
+        IDEMPOTENCY_LOCK_TTL_SECONDS: '10',
+      }),
+    ).toMatchObject({
+      IDEMPOTENCY_TTL_SECONDS: 3600,
+      IDEMPOTENCY_LOCK_TTL_SECONDS: 10,
+    });
+    expect(() =>
+      validateEnv({ ...validEnv, IDEMPOTENCY_TTL_SECONDS: '0' }),
+    ).toThrow(/IDEMPOTENCY_TTL_SECONDS/);
   });
 });

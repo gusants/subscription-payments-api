@@ -9,6 +9,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module.js';
 import { ClockModule } from './shared/clock/clock.module.js';
 import { AppConfigModule } from './shared/config/app-config.module.js';
 import { DatabaseModule } from './shared/database/database.module.js';
+import { IdempotencyModule } from './shared/idempotency/idempotency.module.js';
 import { HttpModule } from './shared/http/http.module.js';
 import { LoggingModule } from './shared/logging/logging.module.js';
 import { RedisModule } from './shared/redis/redis.module.js';
@@ -20,6 +21,7 @@ import { RedisModule } from './shared/redis/redis.module.js';
     LoggingModule,
     DatabaseModule,
     RedisModule,
+    IdempotencyModule,
     GatewayModule.register(),
     HttpModule,
     HealthModule,
