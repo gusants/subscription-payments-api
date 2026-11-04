@@ -1,8 +1,10 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import { NotFoundError } from '../../shared/errors/index.js';
+import { GatewayCustomerNotFoundError } from '../gateway-customer-not-found.error.js';
+import { GatewayUnavailableError } from '../gateway-unavailable.error.js';
 import type {
   CreateGatewayCharge,
   GatewayCustomer,
@@ -17,19 +19,23 @@ describe('FakeGatewayAdapter', () => {
   let filePath: string;
   let gateway: FakeGatewayAdapter;
   let customer: GatewayCustomer;
+  let keySequence: number;
 
   const charge = (
     cardToken: string,
     externalRef = 'chg_1',
+    idempotencyKey = `key_${(keySequence += 1)}`,
   ): CreateGatewayCharge => ({
     gatewayCustomerId: customer.id,
     amountCents: 4990,
     method: 'card',
     cardToken,
     externalRef,
+    idempotencyKey,
   });
 
   beforeEach(async () => {
+    keySequence = 0;
     directory = await mkdtemp(join(tmpdir(), 'fake-gateway-'));
     filePath = join(directory, 'data', 'fake-gateway.json');
     gateway = new FakeGatewayAdapter(
@@ -110,13 +116,69 @@ describe('FakeGatewayAdapter', () => {
       expect(second.id).not.toBe(first.id);
     });
 
-    it('rejects an unknown gateway customer', async () => {
+    it('rejects an unknown gateway customer with a customer-not-found error', async () => {
       await expect(
         gateway.createCharge({
           ...charge('tok_success'),
           gatewayCustomerId: 'gcus_missing',
         }),
-      ).rejects.toThrow(NotFoundError);
+      ).rejects.toThrow(GatewayCustomerNotFoundError);
+    });
+
+    it('returns the same gateway charge when the idempotency key is repeated', async () => {
+      const first = await gateway.createCharge(
+        charge('tok_success', 'chg_1', 'chg_1:1'),
+      );
+      const second = await gateway.createCharge(
+        charge('tok_success', 'chg_1', 'chg_1:1'),
+      );
+
+      expect(second).toEqual(first);
+      const stored = JSON.parse(await readFile(filePath, 'utf8')) as {
+        charges: unknown[];
+      };
+      expect(stored.charges).toHaveLength(1);
+    });
+
+    it('keeps the outcome of tok_fail_then_success when the same key is re-sent', async () => {
+      const key = 'chg_1:1';
+      const statuses = [];
+      for (let resend = 0; resend < 3; resend++) {
+        statuses.push(
+          (
+            await gateway.createCharge(
+              charge('tok_fail_then_success', 'chg_1', key),
+            )
+          ).status,
+        );
+      }
+      const nextAttempt = await gateway.createCharge(
+        charge('tok_fail_then_success', 'chg_1', 'chg_1:2'),
+      );
+
+      expect(statuses).toEqual(['failed', 'failed', 'failed']);
+      expect(nextAttempt.status).toBe('paid');
+    });
+
+    it('answers a repeated key even after the gateway customer is gone', async () => {
+      const first = await gateway.createCharge(
+        charge('tok_success', 'chg_1', 'chg_1:1'),
+      );
+
+      await expect(
+        gateway.createCharge({
+          ...charge('tok_success', 'chg_1', 'chg_1:1'),
+          gatewayCustomerId: 'gcus_missing',
+        }),
+      ).resolves.toEqual(first);
+    });
+
+    it('reports a store failure as gateway unavailable', async () => {
+      await writeFile(filePath, '{ not json');
+
+      await expect(
+        gateway.createCharge(charge('tok_success')),
+      ).rejects.toBeInstanceOf(GatewayUnavailableError);
     });
 
     it('does not store anything for a rejected charge', async () => {
@@ -144,6 +206,30 @@ describe('FakeGatewayAdapter', () => {
         charges: unknown[];
       };
       expect(stored.charges).toHaveLength(50);
+    });
+  });
+
+  describe('findChargeByIdempotencyKey', () => {
+    it('returns the charge created with that key', async () => {
+      const created = await gateway.createCharge(
+        charge('tok_success', 'chg_1', 'chg_1:1'),
+      );
+
+      expect(await gateway.findChargeByIdempotencyKey('chg_1:1')).toEqual(
+        created,
+      );
+    });
+
+    it('returns null when no charge used that key', async () => {
+      expect(await gateway.findChargeByIdempotencyKey('chg_9:1')).toBeNull();
+    });
+
+    it('reports a store failure as gateway unavailable', async () => {
+      await writeFile(filePath, '{ not json');
+
+      await expect(
+        gateway.findChargeByIdempotencyKey('chg_1:1'),
+      ).rejects.toBeInstanceOf(GatewayUnavailableError);
     });
   });
 

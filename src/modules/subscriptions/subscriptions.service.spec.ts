@@ -144,6 +144,7 @@ describe('SubscriptionsService', () => {
           method: 'card',
           cardToken: 'tok_success',
           externalRef: latestCharge?.id,
+          idempotencyKey: `${latestCharge?.id}:1`,
         },
       ]);
     });

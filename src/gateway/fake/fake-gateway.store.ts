@@ -22,6 +22,7 @@ export interface StoredGatewayCharge {
   amountCents: number;
   method: GatewayChargeMethod;
   cardToken: string;
+  idempotencyKey: string;
   status: GatewayChargeStatus;
   failureReason?: GatewayFailureReason;
   createdAt: string;

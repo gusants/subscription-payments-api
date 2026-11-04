@@ -207,6 +207,7 @@ describe('ChargesService', () => {
           method: 'card',
           cardToken: 'tok_success',
           externalRef: 'ch_1',
+          idempotencyKey: 'ch_1:2',
         },
       ]);
     });

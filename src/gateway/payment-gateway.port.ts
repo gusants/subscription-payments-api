@@ -22,6 +22,7 @@ export interface CreateGatewayCharge {
   method: GatewayChargeMethod;
   cardToken: string;
   externalRef: string;
+  idempotencyKey: string;
 }
 
 export interface GatewayCharge {
@@ -40,5 +41,8 @@ export abstract class PaymentGateway {
     input: CreateGatewayCustomer,
   ): Promise<GatewayCustomer>;
   abstract createCharge(input: CreateGatewayCharge): Promise<GatewayCharge>;
+  abstract findChargeByIdempotencyKey(
+    idempotencyKey: string,
+  ): Promise<GatewayCharge | null>;
   abstract getCharge(gatewayChargeId: string): Promise<GatewayCharge>;
 }

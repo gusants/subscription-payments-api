@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Clock } from '../../shared/clock/index.js';
 import { NotFoundError } from '../../shared/errors/index.js';
+import { GatewayCustomerNotFoundError } from '../gateway-customer-not-found.error.js';
+import { GatewayUnavailableError } from '../gateway-unavailable.error.js';
 import { generateId, ID_PREFIXES } from '../../shared/ids/index.js';
 import {
   PaymentGateway,
@@ -73,47 +75,87 @@ export class FakeGatewayAdapter extends PaymentGateway {
       email: input.email,
       createdAt: this.clock.now().toISOString(),
     };
-    return this.store.transaction((data) => {
-      data.customers.push(customer);
-      return { id: customer.id, externalRef: customer.externalRef };
-    });
+    return this.guarded(() =>
+      this.store.transaction((data) => {
+        data.customers.push(customer);
+        return { id: customer.id, externalRef: customer.externalRef };
+      }),
+    );
   }
 
   createCharge(input: CreateGatewayCharge): Promise<GatewayCharge> {
     const id = generateId(ID_PREFIXES.gatewayCharge);
     const createdAt = this.clock.now().toISOString();
-    return this.store.transaction((data) => {
-      if (!data.customers.some(({ id }) => id === input.gatewayCustomerId)) {
-        throw new NotFoundError(
-          `Gateway customer ${input.gatewayCustomerId} not found`,
+    return this.guarded(() =>
+      this.store.transaction((data) => {
+        const existing = data.charges.find(
+          ({ idempotencyKey }) => idempotencyKey === input.idempotencyKey,
         );
-      }
-      const previousAttempts = data.charges.filter(
-        ({ externalRef }) => externalRef === input.externalRef,
-      ).length;
-      const outcome = decideOutcome(input.cardToken, previousAttempts + 1);
-      const charge: StoredGatewayCharge = {
-        id,
-        customerId: input.gatewayCustomerId,
-        externalRef: input.externalRef,
-        amountCents: input.amountCents,
-        method: input.method,
-        cardToken: input.cardToken,
-        createdAt,
-        ...outcome,
-      };
-      data.charges.push(charge);
-      return toGatewayCharge(charge);
-    });
+        if (existing) return toGatewayCharge(existing);
+        if (!data.customers.some(({ id }) => id === input.gatewayCustomerId)) {
+          throw new GatewayCustomerNotFoundError(input.gatewayCustomerId);
+        }
+        const previousAttempts = data.charges.filter(
+          ({ externalRef }) => externalRef === input.externalRef,
+        ).length;
+        const outcome = decideOutcome(input.cardToken, previousAttempts + 1);
+        const charge: StoredGatewayCharge = {
+          id,
+          customerId: input.gatewayCustomerId,
+          externalRef: input.externalRef,
+          amountCents: input.amountCents,
+          method: input.method,
+          cardToken: input.cardToken,
+          idempotencyKey: input.idempotencyKey,
+          createdAt,
+          ...outcome,
+        };
+        data.charges.push(charge);
+        return toGatewayCharge(charge);
+      }),
+    );
+  }
+
+  findChargeByIdempotencyKey(
+    idempotencyKey: string,
+  ): Promise<GatewayCharge | null> {
+    return this.guarded(() =>
+      this.store.read((data) => {
+        const charge = data.charges.find(
+          (stored) => stored.idempotencyKey === idempotencyKey,
+        );
+        return charge ? toGatewayCharge(charge) : null;
+      }),
+    );
   }
 
   getCharge(gatewayChargeId: string): Promise<GatewayCharge> {
-    return this.store.read((data) => {
-      const charge = data.charges.find(({ id }) => id === gatewayChargeId);
-      if (!charge) {
-        throw new NotFoundError(`Gateway charge ${gatewayChargeId} not found`);
+    return this.guarded(() =>
+      this.store.read((data) => {
+        const charge = data.charges.find(({ id }) => id === gatewayChargeId);
+        if (!charge) {
+          throw new NotFoundError(
+            `Gateway charge ${gatewayChargeId} not found`,
+          );
+        }
+        return toGatewayCharge(charge);
+      }),
+    );
+  }
+
+  private async guarded<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (
+        error instanceof GatewayCustomerNotFoundError ||
+        error instanceof NotFoundError
+      ) {
+        throw error;
       }
-      return toGatewayCharge(charge);
-    });
+      throw new GatewayUnavailableError('Fake gateway store failed', {
+        cause: error,
+      });
+    }
   }
 }

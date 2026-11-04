@@ -68,6 +68,7 @@ export class ChargeProcessor {
         method: 'card',
         cardToken: subscription.cardToken,
         externalRef: charge.id,
+        idempotencyKey: `${charge.id}:${charge.attemptCount + 1}`,
       });
     } catch (error) {
       if (error instanceof GatewayUnavailableError) {
