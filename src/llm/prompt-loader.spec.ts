@@ -51,4 +51,10 @@ describe('loadCustomerSummaryPrompt', () => {
 
     expect(text).toMatch(/not different months/);
   });
+
+  it('restricts the numbers the model may write', async () => {
+    const { text } = await loadCustomerSummaryPrompt();
+
+    expect(text).toMatch(/only when it is in the input or follows directly/);
+  });
 });

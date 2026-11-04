@@ -170,12 +170,31 @@ describe('Customer summary guarantees (e2e)', () => {
   });
 
   describe('metrics always come from code', () => {
-    it('ignores numbers and extra fields the LLM tries to inject', async () => {
+    it('replaces a narration with invented numbers by the fallback', async () => {
       const { customerId } = await seedCustomerWithPaidCharge(prisma);
       providerReplies(
         JSON.stringify({
           ...VALID_OUTPUT,
           summary: 'Customer paid 999999 cents with 42 failures.',
+        }),
+      );
+
+      const response = await getSummary(customerId).expect(200);
+
+      expect(response.body.source).toBe('fallback');
+      expect(response.body.summary).not.toContain('999999');
+      expect(response.body.metrics).toMatchObject({
+        totalPaidCents: 1990,
+        failedAttempts: 0,
+      });
+    });
+
+    it('ignores extra fields the LLM tries to inject and keeps a narration with supported numbers', async () => {
+      const { customerId } = await seedCustomerWithPaidCharge(prisma);
+      providerReplies(
+        JSON.stringify({
+          ...VALID_OUTPUT,
+          summary: 'Customer paid 19.90 (1990 cents) in 1 period.',
           metrics: {
             totalPaidCents: 999999,
             failedAttempts: 42,

@@ -14,6 +14,7 @@ import type {
 } from './customer-summary.js';
 import {
   buildFallbackSummary,
+  findUnsupportedNumbers,
   latestPaymentMethod,
   parseSummaryOutput,
   SUMMARY_OUTPUT_JSON_SCHEMA,
@@ -36,6 +37,9 @@ export class SummaryNarrator {
     const output = parseSummaryOutput(attempt.response.text);
     if (!output) {
       return this.fallback(context, 'invalid_output', attempt.response);
+    }
+    if (findUnsupportedNumbers(output, context).length > 0) {
+      return this.fallback(context, 'unsupported_number', attempt.response);
     }
     return {
       record: this.record('llm', output),

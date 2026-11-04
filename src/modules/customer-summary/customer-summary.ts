@@ -10,7 +10,8 @@ export interface SummaryRecord {
   generatedAt: Date;
 }
 
-export type NarrationFailure = LlmFailureReason | 'invalid_output';
+export type NarrationFailure =
+  LlmFailureReason | 'invalid_output' | 'unsupported_number';
 
 export interface LlmUsage {
   model: string;

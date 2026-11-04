@@ -44,3 +44,4 @@ export {
   summaryCacheKey,
   type PaymentActivity,
 } from './summary-cache-key.js';
+export { findUnsupportedNumbers } from './supported-numbers.js';

@@ -97,6 +97,43 @@ describe('SummaryNarrator', () => {
     });
   });
 
+  it.each([
+    'Customer paid 999999 cents with 42 failures.',
+    'Customer owes 1.234,56 in total.',
+  ])('falls back when the narration invents numbers (%s)', async (summary) => {
+    const reply = JSON.stringify({ ...JSON.parse(FAKE_LLM_JSON), summary });
+
+    const narration = await narratorFor(replyWith(reply)).narrate(context);
+
+    expect(narration.record.source).toBe('fallback');
+    expect(narration.failure).toBe('unsupported_number');
+    expect(narration.usage).toMatchObject({ model: 'scripted' });
+  });
+
+  it('falls back when the suggested action invents a number', async () => {
+    const reply = JSON.stringify({
+      ...JSON.parse(FAKE_LLM_JSON),
+      suggestedAction: 'Call the customer within 48 hours.',
+    });
+
+    const narration = await narratorFor(replyWith(reply)).narrate(context);
+
+    expect(narration.failure).toBe('unsupported_number');
+  });
+
+  it('keeps a narration whose numbers come from the context', async () => {
+    const reply = JSON.stringify({
+      ...JSON.parse(FAKE_LLM_JSON),
+      summary:
+        'Customer for 8 months paid 399.20, 85% of periods paid, 3 failed attempts.',
+    });
+
+    const narration = await narratorFor(replyWith(reply)).narrate(context);
+
+    expect(narration.record.source).toBe('llm');
+    expect(narration.failure).toBeNull();
+  });
+
   it('never uses numbers coming from the LLM', async () => {
     const withNumbers = JSON.stringify({
       ...JSON.parse(FAKE_LLM_JSON),
