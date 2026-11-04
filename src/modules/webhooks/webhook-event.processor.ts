@@ -5,9 +5,28 @@ import { currentCorrelationId } from '../../shared/correlation/index.js';
 import { generateId, ID_PREFIXES } from '../../shared/ids/index.js';
 import { runWithinChargeCorrelation } from '../charges/charge-correlation.js';
 import { ChargeDunning } from '../charges/charge-dunning.js';
+import { logSettlementEvents } from '../charges/charge-events.js';
+import { logPaymentEvent, PAYMENT_EVENTS } from '../charges/payment-events.js';
 import { decideWebhookEffect } from './domain/decide-webhook-effect.js';
 import type { WebhookIngestion } from './webhook-event.js';
 import { WebhookEventsRepository } from './webhook-events.repository.js';
+
+function logReceived(
+  { id, type, data }: GatewayWebhookPayload,
+  requestCorrelationId: string | undefined,
+): void {
+  logPaymentEvent(
+    {
+      event: PAYMENT_EVENTS.webhookReceived,
+      gatewayEventId: id,
+      eventType: type,
+      chargeId: data.charge.externalRef,
+      gatewayChargeId: data.charge.id,
+      ...(requestCorrelationId && { requestCorrelationId }),
+    },
+    `Webhook event ${id} (${type}) received for charge ${data.charge.externalRef}`,
+  );
+}
 
 @Injectable()
 export class WebhookEventProcessor {
@@ -25,22 +44,8 @@ export class WebhookEventProcessor {
       payload.data.charge.externalRef,
     );
     return runWithinChargeCorrelation({ correlationId }, () => {
-      this.logReceived(payload, requestCorrelationId);
+      logReceived(payload, requestCorrelationId);
       return this.ingest(payload);
-    });
-  }
-
-  private logReceived(
-    { id, type, data }: GatewayWebhookPayload,
-    requestCorrelationId: string | undefined,
-  ): void {
-    this.logger.log({
-      msg: `Webhook event ${id} (${type}) received for charge ${data.charge.externalRef}`,
-      gatewayEventId: id,
-      eventType: type,
-      chargeId: data.charge.externalRef,
-      gatewayChargeId: data.charge.id,
-      requestCorrelationId,
     });
   }
 
@@ -76,8 +81,8 @@ export class WebhookEventProcessor {
         }),
     );
     this.report(payload, ingestion);
-    if (ingestion.kind === 'processed' && ingestion.recorded) {
-      await this.dunning.afterSettlement(ingestion.recorded);
+    if (ingestion.kind === 'processed' && ingestion.settled) {
+      await this.dunning.afterSettlement(ingestion.settled.recorded);
     }
     return ingestion;
   }
@@ -88,11 +93,29 @@ export class WebhookEventProcessor {
   ): void {
     const subject = `event ${id} (${type}) for charge ${data.charge.externalRef}`;
     if (ingestion.kind === 'duplicate') {
-      this.logger.debug(`Duplicate webhook ${subject} ignored`);
+      logPaymentEvent(
+        {
+          event: PAYMENT_EVENTS.webhookDuplicateIgnored,
+          gatewayEventId: id,
+          eventType: type,
+          chargeId: data.charge.externalRef,
+        },
+        `Duplicate webhook ${subject} ignored`,
+      );
       return;
     }
+    if (ingestion.settled) {
+      logSettlementEvents({ ...ingestion.settled, source: 'webhook' });
+    }
     if (ingestion.refundRisk) {
-      this.logger.error(
+      logPaymentEvent(
+        {
+          event: PAYMENT_EVENTS.chargeRefundRequired,
+          chargeId: data.charge.externalRef,
+          subscriptionId: ingestion.refundRisk.subscriptionId,
+          gatewayChargeId: data.charge.id,
+          reason: `webhook_${ingestion.outcome}`,
+        },
         `Webhook ${subject} (gateway charge ${data.charge.id}, subscription ${ingestion.refundRisk.subscriptionId}): ${ingestion.outcome}; money was captured that needs a refund`,
       );
     } else if (ingestion.outcome === 'rejected_mismatch') {

@@ -313,10 +313,11 @@ describe('Gateway and charging flows (e2e)', () => {
       ).toBe('canceled');
       expect(await prisma.paymentAttempt.count()).toBe(2);
       expect(errorLog).toHaveBeenCalledWith(
-        expect.stringContaining(`${chargeId}`),
-      );
-      expect(errorLog).toHaveBeenCalledWith(
-        expect.stringContaining(subscriptionId),
+        expect.objectContaining({
+          event: 'charge.refund_required',
+          chargeId,
+          subscriptionId,
+        }),
       );
     });
   });

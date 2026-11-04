@@ -5,6 +5,7 @@ import type {
   RecordedOutcome,
 } from '../charges/charge.js';
 import type { Subscription } from '../subscriptions/subscription.js';
+import type { SubscriptionStatus } from '../subscriptions/subscription-status.js';
 
 export const WEBHOOK_EVENT_OUTCOMES = [
   'applied',
@@ -55,18 +56,33 @@ export type WebhookIngestion =
       kind: 'processed';
       outcome: WebhookEventOutcome;
       refundRisk?: RefundRisk;
-      recorded?: RecordedOutcome;
+      settled?: SettledByWebhook;
     };
+
+export interface SettledByWebhook {
+  settlement: ChargeSettlementRecord;
+  recorded: RecordedOutcome;
+  previousSubscriptionStatus: SubscriptionStatus;
+}
 
 export function toProcessedIngestion(
   decision: WebhookDecision,
+  target: WebhookTarget | null,
   recorded?: RecordedOutcome,
 ): WebhookIngestion {
   const refundRisk = 'refundRisk' in decision ? decision.refundRisk : undefined;
+  const settled =
+    decision.outcome === 'applied' && recorded && target
+      ? {
+          settlement: decision.settlement,
+          recorded,
+          previousSubscriptionStatus: target.subscription.status,
+        }
+      : undefined;
   return {
     kind: 'processed',
     outcome: decision.outcome,
     ...(refundRisk && { refundRisk }),
-    ...(recorded && { recorded }),
+    ...(settled && { settled }),
   };
 }

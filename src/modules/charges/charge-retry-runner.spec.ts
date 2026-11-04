@@ -11,6 +11,7 @@ import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-mem
 import { runWithCorrelationId } from '../../shared/correlation/index.js';
 import { correlationIdsSeenBy } from '../../shared/correlation/testing/correlation-ids-seen-by.js';
 import { ChargeRetryRunner } from './charge-retry-runner.js';
+import { recordPaymentEvents } from './testing/record-payment-events.js';
 import { buildChargeProcessor } from './testing/build-charge-processor.js';
 import { InMemoryBillingRepository } from './testing/in-memory-billing.repository.js';
 import { InMemoryChargesRepository } from './testing/in-memory-charges.repository.js';
@@ -341,6 +342,19 @@ describe('ChargeRetryRunner', () => {
       expect(
         billing.charges().map(({ correlationId }) => correlationId),
       ).toEqual(['cor_test_journey', 'cor_test_journey']);
+    });
+  });
+
+  it('logs the reissue of an expired pix as a created charge', async () => {
+    await seedFailedCharge('pix');
+    const recorded = recordPaymentEvents();
+
+    await runner.run({ chargeId: 'ch_1', attempt: 1 });
+
+    expect(recorded[0]).toMatchObject({
+      event: 'charge.created',
+      origin: 'reissue',
+      retryCount: 1,
     });
   });
 });

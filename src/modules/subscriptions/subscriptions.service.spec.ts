@@ -17,6 +17,10 @@ import { InMemoryCustomersRepository } from '../customers/testing/in-memory-cust
 import type { PlanInterval } from '../plans/plan.js';
 import { InMemoryPlansRepository } from '../plans/testing/in-memory-plans.repository.js';
 import { runWithCorrelationId } from '../../shared/correlation/index.js';
+import {
+  eventNames,
+  recordPaymentEvents,
+} from '../charges/testing/record-payment-events.js';
 import { InvalidTransitionError } from './domain/index.js';
 import {
   SubscriptionsService,
@@ -575,6 +579,90 @@ describe('SubscriptionsService', () => {
       await service.create(cardInput);
 
       expect(billing.charges()[0]?.correlationId).toMatch(/^cor_/);
+    });
+  });
+
+  describe('payment events', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('tells the story of a declined first charge after it is recorded', async () => {
+      await seed();
+      gateway.respondWith({
+        status: 'failed',
+        failureReason: 'insufficient_funds',
+      });
+      const recorded = recordPaymentEvents();
+
+      await service.create(cardInput);
+
+      expect(eventNames(recorded)).toEqual([
+        'charge.created',
+        'charge.attempt.failed',
+        'subscription.status_changed',
+        'charge.retry.scheduled',
+      ]);
+      const [created, failed, moved, scheduled] = recorded;
+      expect(created).toMatchObject({
+        origin: 'first_period',
+        amountCents: 1990,
+        method: 'card',
+      });
+      expect(failed).toMatchObject({
+        source: 'charge_flow',
+        failureReason: 'insufficient_funds',
+        attemptCount: 1,
+      });
+      expect(moved).toMatchObject({
+        from: 'incomplete',
+        to: 'past_due',
+        cause: 'charge.failed',
+      });
+      expect(scheduled).toMatchObject({ attempt: 1 });
+    });
+
+    it('tells the story of a paid first charge', async () => {
+      await seed();
+      const recorded = recordPaymentEvents();
+
+      await service.create(cardInput);
+
+      expect(eventNames(recorded)).toEqual([
+        'charge.created',
+        'charge.paid',
+        'subscription.status_changed',
+      ]);
+      expect(recorded[2]).toMatchObject({ from: 'incomplete', to: 'active' });
+    });
+
+    it('logs nothing about the first charge when it could not be stored', async () => {
+      await seed();
+      vi.spyOn(billing, 'createSubscriptionWithFirstCharge').mockRejectedValue(
+        new Error('db down'),
+      );
+      const recorded = recordPaymentEvents();
+
+      await expect(service.create(cardInput)).rejects.toThrow('db down');
+
+      expect(recorded).toEqual([]);
+    });
+
+    it('logs the status change of a canceled subscription', async () => {
+      await seed();
+      const { subscription } = await service.create(cardInput);
+      const recorded = recordPaymentEvents();
+
+      await service.cancel(subscription.id);
+
+      expect(recorded).toEqual([
+        expect.objectContaining({
+          event: 'subscription.status_changed',
+          from: 'active',
+          to: 'canceled',
+          cause: 'cancel_requested',
+        }),
+      ]);
     });
   });
 });

@@ -357,7 +357,10 @@ describe('ChargeProcessor', () => {
       expect(processed.subscription.status).toBe('canceled');
       expect(billing.attempts()).toHaveLength(1);
       expect(errorLog).toHaveBeenCalledWith(
-        expect.stringMatching(/ch_1.*gch_.*sub_1/),
+        expect.objectContaining({
+          event: 'charge.refund_required',
+          msg: expect.stringMatching(/ch_1.*gch_.*sub_1/),
+        }),
       );
     });
 
@@ -405,9 +408,12 @@ describe('ChargeProcessor', () => {
           );
 
           expect(errorLog).toHaveBeenCalledWith(
-            expect.stringMatching(
-              new RegExp(`ch_1.*sub_1.*${settledStatus}.*${gatewayChargeId}`),
-            ),
+            expect.objectContaining({
+              event: 'charge.refund_required',
+              msg: expect.stringMatching(
+                new RegExp(`ch_1.*sub_1.*${settledStatus}.*${gatewayChargeId}`),
+              ),
+            }),
           );
         },
       );
@@ -1131,7 +1137,10 @@ describe('ChargeProcessor', () => {
       });
       expect(processed.subscription.status).toBe('canceled');
       expect(errorLog).toHaveBeenCalledWith(
-        expect.stringMatching(/ch_1.*paid.*sub_1.*refund required/),
+        expect.objectContaining({
+          event: 'charge.refund_required',
+          msg: expect.stringMatching(/ch_1.*paid.*sub_1.*refund required/),
+        }),
       );
       expect(gateway.chargesRequested).toHaveLength(1);
     });

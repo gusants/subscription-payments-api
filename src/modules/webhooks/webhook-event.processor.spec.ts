@@ -13,6 +13,10 @@ import type { SubscriptionStatus } from '../subscriptions/subscription-status.js
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
 import { InMemoryWebhookEventsRepository } from './testing/in-memory-webhook-events.repository.js';
 import { WebhookEventProcessor } from './webhook-event.processor.js';
+import {
+  eventNames,
+  recordPaymentEvents,
+} from '../charges/testing/record-payment-events.js';
 import { runWithCorrelationId } from '../../shared/correlation/index.js';
 import { correlationIdsSeenBy } from '../../shared/correlation/testing/correlation-ids-seen-by.js';
 
@@ -380,7 +384,10 @@ describe('WebhookEventProcessor', () => {
     expect(billing.attempts()).toEqual([]);
     expect(recordedOutcomes()).toEqual(['applied', 'requires_refund']);
     expect(error).toHaveBeenCalledWith(
-      expect.stringMatching(/evt_paid.*ch_1.*gch_1.*sub_1/),
+      expect.objectContaining({
+        event: 'charge.refund_required',
+        msg: expect.stringMatching(/evt_paid.*ch_1.*gch_1.*sub_1/),
+      }),
     );
   });
 
@@ -402,7 +409,10 @@ describe('WebhookEventProcessor', () => {
     });
     expect(billing.attempts()).toHaveLength(1);
     expect(error).toHaveBeenCalledWith(
-      expect.stringMatching(/evt_second.*gch_second.*sub_1/),
+      expect.objectContaining({
+        event: 'charge.refund_required',
+        msg: expect.stringMatching(/evt_second.*gch_second.*sub_1/),
+      }),
     );
   });
 
@@ -418,7 +428,12 @@ describe('WebhookEventProcessor', () => {
     });
     expect(chargeNow().status).toBe('paid');
     expect((await subscriptionNow()).status).toBe('canceled');
-    expect(error).toHaveBeenCalledWith(expect.stringContaining('sub_1'));
+    expect(error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'charge.refund_required',
+        msg: expect.stringContaining('sub_1'),
+      }),
+    );
   });
 
   it.each([
@@ -508,6 +523,59 @@ describe('WebhookEventProcessor', () => {
       );
 
       expect(seen).toEqual(['cor_webhook_request']);
+    });
+  });
+
+  describe('payment events', () => {
+    it('logs the receipt, the payment and the activation it caused', async () => {
+      await seed();
+      const recorded = recordPaymentEvents();
+
+      await processor.process(event('charge.paid'));
+
+      expect(eventNames(recorded)).toEqual([
+        'webhook.received',
+        'charge.paid',
+        'subscription.status_changed',
+      ]);
+      expect(recorded[0]).toMatchObject({
+        gatewayEventId: 'evt_1',
+        eventType: 'charge.paid',
+        chargeId: 'ch_1',
+        gatewayChargeId: 'gch_1',
+      });
+      expect(recorded[1]).toMatchObject({
+        source: 'webhook',
+        chargeId: 'ch_1',
+      });
+      expect(recorded[2]).toMatchObject({ from: 'incomplete', to: 'active' });
+    });
+
+    it('logs a duplicated delivery as ignored and nothing else', async () => {
+      await seed();
+      await processor.process(event('charge.paid'));
+      const recorded = recordPaymentEvents();
+
+      await processor.process(event('charge.paid'));
+
+      expect(eventNames(recorded)).toEqual([
+        'webhook.received',
+        'webhook.duplicate_ignored',
+      ]);
+      expect(recorded[1]).toMatchObject({
+        gatewayEventId: 'evt_1',
+        chargeId: 'ch_1',
+      });
+    });
+
+    it('logs no settlement for an event the charge already reflects', async () => {
+      await seed();
+      await settleCharge('paid');
+      const recorded = recordPaymentEvents();
+
+      await processor.process(event('charge.paid'));
+
+      expect(eventNames(recorded)).toEqual(['webhook.received']);
     });
   });
 });

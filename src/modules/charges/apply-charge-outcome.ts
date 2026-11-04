@@ -43,6 +43,7 @@ async function currentStateOfIdenticalSettlement(
   }
   return {
     subscriptionChangeApplied: true,
+    chargeSettledNow: false,
     subscription: await tx.subscription.findUniqueOrThrow({
       where: { id: subscriptionId },
     }),
@@ -90,6 +91,7 @@ export async function applyChargeOutcome(
     : null;
   return {
     subscriptionChangeApplied: changed === null || changed.count > 0,
+    chargeSettledNow: true,
     subscription: await tx.subscription.findUniqueOrThrow({
       where: { id: subscription.id },
     }),

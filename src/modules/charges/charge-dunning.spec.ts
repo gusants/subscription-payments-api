@@ -1,5 +1,9 @@
 import { Logger } from '@nestjs/common';
 import { runWithCorrelationId } from '../../shared/correlation/index.js';
+import {
+  eventNames,
+  recordPaymentEvents,
+} from './testing/record-payment-events.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import { RecordingBillingQueue } from '../billing-queue/testing/recording-billing-queue.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
@@ -171,5 +175,59 @@ describe('ChargeDunning', () => {
     );
 
     expect(queue.scheduled()[0]?.correlationId).toBe('cor_request_0001');
+  });
+
+  describe('payment events', () => {
+    it('logs the exhaustion and the cancellation it causes', async () => {
+      const charge = await seedFailedCharge(3);
+      const subscription = (await subscriptions.findById('sub_1'))!;
+      const recorded = recordPaymentEvents();
+
+      await dunning.afterSettlement({ charge, subscription });
+
+      expect(recorded).toEqual([
+        expect.objectContaining({
+          event: 'charge.dunning_exhausted',
+          chargeId: 'ch_1',
+          retryCount: 3,
+        }),
+        expect.objectContaining({
+          event: 'subscription.status_changed',
+          from: 'past_due',
+          to: 'canceled',
+          cause: 'charge.dunning_exhausted',
+        }),
+      ]);
+    });
+
+    it('logs a scheduled retry with when it will run', async () => {
+      const charge = await seedFailedCharge(0);
+      const subscription = (await subscriptions.findById('sub_1'))!;
+      const recorded = recordPaymentEvents();
+
+      await dunning.afterSettlement({ charge, subscription });
+
+      expect(recorded).toEqual([
+        expect.objectContaining({
+          event: 'charge.retry.scheduled',
+          chargeId: 'ch_1',
+          subscriptionId: 'sub_1',
+          attempt: 1,
+          delayMs: dayMs,
+          runAt: new Date(failedAt.getTime() + dayMs).toISOString(),
+        }),
+      ]);
+    });
+
+    it('logs no scheduled retry when the queue refuses it', async () => {
+      const charge = await seedFailedCharge(0);
+      const subscription = (await subscriptions.findById('sub_1'))!;
+      queue.failure = new Error('redis down');
+      const recorded = recordPaymentEvents();
+
+      await dunning.afterSettlement({ charge, subscription });
+
+      expect(eventNames(recorded)).toEqual([]);
+    });
   });
 });

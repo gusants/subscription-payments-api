@@ -34,7 +34,8 @@ export class InMemoryWebhookEventsRepository extends WebhookEventsRepository {
     decide: WebhookDecider,
   ): Promise<WebhookIngestion> {
     if (this.stored.has(event.gatewayEventId)) return { kind: 'duplicate' };
-    const decision = decide(await this.findTarget(event));
+    const target = await this.findTarget(event);
+    const decision = decide(target);
     const recorded =
       decision.outcome === 'applied'
         ? await this.billing.recordChargeOutcome(decision.settlement)
@@ -45,7 +46,7 @@ export class InMemoryWebhookEventsRepository extends WebhookEventsRepository {
       outcome: decision.outcome,
       processedAt: event.at,
     });
-    return toProcessedIngestion(decision, recorded);
+    return toProcessedIngestion(decision, target, recorded);
   }
 
   findChargeCorrelationId(chargeId: string): Promise<string | null> {

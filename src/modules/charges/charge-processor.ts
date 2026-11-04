@@ -18,6 +18,7 @@ import { generateId, ID_PREFIXES } from '../../shared/ids/index.js';
 import type { Customer } from '../customers/customer.js';
 import { CustomersRepository } from '../customers/customers.repository.js';
 import type { Subscription } from '../subscriptions/subscription.js';
+import type { SubscriptionStatus } from '../subscriptions/subscription-status.js';
 import { BillingRepository } from './billing.repository.js';
 import { CHARGE_ATTEMPT_LEASE_MS } from './charge-attempt-lease.js';
 import { ChargeDunning } from './charge-dunning.js';
@@ -30,6 +31,8 @@ import type {
   RenewalCandidate,
 } from './charge.js';
 import { ChargesRepository } from './charges.repository.js';
+import { logChargeCreated, logSettlementEvents } from './charge-events.js';
+import { logPaymentEvent, PAYMENT_EVENTS } from './payment-events.js';
 import {
   assertBillable,
   assertHasPaymentCredentials,
@@ -153,7 +156,10 @@ export class ChargeProcessor {
         this.clock.now(),
       ),
     );
-    if (created) return this.process({ ...target, charge: created });
+    if (created) {
+      logChargeCreated(created, 'reissue');
+      return this.process({ ...target, charge: created });
+    }
     const live = await this.charges.findLiveByPeriod(
       expired.subscriptionId,
       expired.periodStart,
@@ -168,9 +174,9 @@ export class ChargeProcessor {
     const created = await this.billing.createPeriodCharge(
       newRenewalCharge(candidate, newChargeIdentity(), this.clock.now()),
     );
-    return created
-      ? this.process({ charge: created, subscription, customer })
-      : null;
+    if (!created) return null;
+    logChargeCreated(created, 'renewal');
+    return this.process({ charge: created, subscription, customer });
   }
 
   async resume(charge: Charge): Promise<ProcessedCharge> {
@@ -242,6 +248,7 @@ export class ChargeProcessor {
         now: this.clock.now(),
       }),
       null,
+      subscription.status,
     );
   }
 
@@ -411,6 +418,7 @@ export class ChargeProcessor {
         now: this.clock.now(),
       }),
       null,
+      subscription.status,
     );
   }
 
@@ -460,14 +468,22 @@ export class ChargeProcessor {
         },
       },
       outcome.failureReason,
+      subscription.status,
     );
   }
 
   private async persist(
     settlement: ChargeSettlementRecord,
     failureReason: GatewayFailureReason | null,
+    previousSubscriptionStatus: SubscriptionStatus,
   ): Promise<ProcessedCharge> {
     const recorded = await this.recordSettlement(settlement);
+    logSettlementEvents({
+      settlement,
+      recorded,
+      previousSubscriptionStatus,
+      source: 'charge_flow',
+    });
     this.reportSettlement(settlement, recorded);
     const exhausted = await this.dunning.afterSettlement(recorded);
     const current = exhausted
@@ -492,7 +508,14 @@ export class ChargeProcessor {
         error instanceof ChargeSettlementConflictError &&
         isCapturedAgainstSettledCharge(settlement, error)
       ) {
-        this.logger.error(
+        logPaymentEvent(
+          {
+            event: PAYMENT_EVENTS.chargeRefundRequired,
+            chargeId: settlement.charge.id,
+            subscriptionId: settlement.subscription.id,
+            gatewayChargeId: settlement.charge.gatewayChargeId,
+            reason: `captured_on_${error.currentStatus}_charge`,
+          },
           `Gateway charge ${settlement.charge.gatewayChargeId} captured money for charge ${settlement.charge.id} (subscription ${settlement.subscription.id}) but the charge is already ${error.currentStatus} with gateway charge ${error.currentGatewayChargeId}; refund required`,
         );
       }
@@ -505,7 +528,14 @@ export class ChargeProcessor {
     recorded: RecordedOutcome,
   ): void {
     if (charge.to === 'paid' && recorded.subscription.status === 'canceled') {
-      this.logger.error(
+      logPaymentEvent(
+        {
+          event: PAYMENT_EVENTS.chargeRefundRequired,
+          chargeId: charge.id,
+          subscriptionId: subscription.id,
+          gatewayChargeId: charge.gatewayChargeId,
+          reason: 'paid_on_canceled_subscription',
+        },
         `Charge ${charge.id} paid (gateway charge ${charge.gatewayChargeId}) on canceled subscription ${subscription.id}; refund required`,
       );
     } else if (!recorded.subscriptionChangeApplied) {

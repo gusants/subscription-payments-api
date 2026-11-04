@@ -152,6 +152,7 @@ export class InMemoryBillingRepository extends BillingRepository {
       subscription: current,
       charge: { ...settled },
       subscriptionChangeApplied: !subscription.change || changed !== null,
+      chargeSettledNow: true,
     };
   }
 
@@ -214,6 +215,7 @@ export class InMemoryBillingRepository extends BillingRepository {
       subscription: current,
       charge: { ...found },
       subscriptionChangeApplied: true,
+      chargeSettledNow: false,
     };
   }
 

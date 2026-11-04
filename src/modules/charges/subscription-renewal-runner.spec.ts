@@ -8,6 +8,7 @@ import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-mem
 import type { RenewalCandidate } from './charge.js';
 import { runWithCorrelationId } from '../../shared/correlation/index.js';
 import { correlationIdsSeenBy } from '../../shared/correlation/testing/correlation-ids-seen-by.js';
+import { recordPaymentEvents } from './testing/record-payment-events.js';
 import { SubscriptionRenewalRunner } from './subscription-renewal-runner.js';
 import { buildChargeProcessor } from './testing/build-charge-processor.js';
 import { InMemoryBillingRepository } from './testing/in-memory-billing.repository.js';
@@ -261,5 +262,18 @@ describe('SubscriptionRenewalRunner', () => {
       expect.stringMatching(/^cor_/),
     ]);
     expect(renewalIds).not.toContain('cor_run_context');
+  });
+
+  it('logs the renewal charge as created before it is paid', async () => {
+    await seedSubscription('sub_1');
+    const recorded = recordPaymentEvents();
+
+    await runner.run();
+
+    expect(recorded.map(({ event }) => event)).toEqual([
+      'charge.created',
+      'charge.paid',
+    ]);
+    expect(recorded[0]).toMatchObject({ origin: 'renewal', retryCount: 0 });
   });
 });

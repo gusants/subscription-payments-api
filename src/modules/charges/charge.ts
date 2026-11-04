@@ -102,6 +102,7 @@ export interface RecordedOutcome {
   subscription: Subscription;
   charge: Charge;
   subscriptionChangeApplied: boolean;
+  chargeSettledNow: boolean;
 }
 
 export interface SubscriptionWithCharge {

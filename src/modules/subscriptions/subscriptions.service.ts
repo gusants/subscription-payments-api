@@ -15,7 +15,9 @@ import { generateId, ID_PREFIXES } from '../../shared/ids/index.js';
 import { BillingRepository } from '../charges/billing.repository.js';
 import type { Charge, ChargeSummary } from '../charges/charge.js';
 import { assertBillable, nextGatewayAttempt } from '../charges/domain/index.js';
+import { logChargeCreated } from '../charges/charge-events.js';
 import { ChargeProcessor } from '../charges/charge-processor.js';
+import { logPaymentEvent, PAYMENT_EVENTS } from '../charges/payment-events.js';
 import type { Customer } from '../customers/customer.js';
 import { CustomersRepository } from '../customers/customers.repository.js';
 import type { Plan } from '../plans/plan.js';
@@ -106,6 +108,16 @@ export class SubscriptionsService {
     if (!canceled) {
       throw new ConflictError(`Subscription ${id} was modified concurrently`);
     }
+    logPaymentEvent(
+      {
+        event: PAYMENT_EVENTS.subscriptionStatusChanged,
+        subscriptionId: id,
+        from: status,
+        to: canceled.status,
+        cause: 'cancel_requested',
+      },
+      `Subscription ${id} moved from ${status} to ${canceled.status} on request`,
+    );
     return canceled;
   }
 
@@ -150,6 +162,7 @@ export class SubscriptionsService {
           this.clock.now(),
         ),
       });
+    logChargeCreated(charge, 'first_period');
     assertBillable(subscription);
     const processed = await this.chargeProcessor.process({
       charge,
