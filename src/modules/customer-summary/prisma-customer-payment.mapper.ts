@@ -15,6 +15,7 @@ export interface PaymentAttemptRow {
 }
 
 export interface ChargeRow {
+  periodStart: Date;
   status: ChargeStatus;
   method: PaymentMethod;
   amountCents: number;
@@ -25,6 +26,7 @@ export interface ChargeRow {
 }
 
 export interface SubscriptionRow {
+  id: string;
   createdAt: Date;
   updatedAt: Date;
   plan: { interval: PlanInterval; amountCents: number };
@@ -40,8 +42,11 @@ export interface CustomerPaymentRows {
 export function toCustomerPaymentRecord(
   customer: CustomerPaymentRows,
 ): CustomerPaymentRecord {
-  const charges = customer.subscriptions.flatMap(
-    (subscription) => subscription.charges,
+  const charges = customer.subscriptions.flatMap((subscription) =>
+    subscription.charges.map((charge) => ({
+      ...charge,
+      subscriptionId: subscription.id,
+    })),
   );
   const attempts = charges.flatMap((charge) => charge.attempts);
   return {
@@ -81,8 +86,12 @@ function currentPlan(
   );
 }
 
-function toContextCharge(charge: ChargeRow): ContextCharge {
+function toContextCharge(
+  charge: ChargeRow & { subscriptionId: string },
+): ContextCharge {
   return {
+    subscriptionId: charge.subscriptionId,
+    periodStart: charge.periodStart,
     status: charge.status,
     method: charge.method,
     amountCents: charge.amountCents,

@@ -59,7 +59,7 @@ describe('Customer summary (e2e)', () => {
     expect(response.body).toMatchObject({
       customerId,
       source: 'llm',
-      promptVersion: 'v1',
+      promptVersion: 'v2',
       metrics: {
         totalPaidCents: 1990,
         failedAttempts: 0,

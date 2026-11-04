@@ -1,3 +1,4 @@
+import type { PaymentMethod } from '../../subscriptions/subscription.js';
 import type { PaymentMetrics } from './payment-metrics.js';
 import type {
   PaymentBehavior,
@@ -64,19 +65,34 @@ export function assessRisk(
   return RISK_BY_BEHAVIOR[behavior];
 }
 
-export function buildFallbackSummary(metrics: PaymentMetrics): SummaryOutput {
+const FREQUENT_DELAYS_ACTION_FOR_PIX_PAYERS =
+  'Contact the customer to find out why Pix payments are late and remind them before each due date.';
+
+export function buildFallbackSummary(
+  metrics: PaymentMetrics,
+  currentMethod: PaymentMethod | null,
+): SummaryOutput {
   const paymentBehavior = classifyPaymentBehavior(metrics);
   return {
     summary: describeMetrics(metrics),
     paymentBehavior,
     riskLevel: assessRisk(paymentBehavior, metrics),
-    suggestedAction: ACTION_BY_BEHAVIOR[paymentBehavior],
+    suggestedAction: suggestAction(paymentBehavior, currentMethod),
   };
+}
+
+function suggestAction(
+  behavior: PaymentBehavior,
+  currentMethod: PaymentMethod | null,
+): string {
+  return behavior === 'frequent_delays' && currentMethod === 'pix'
+    ? FREQUENT_DELAYS_ACTION_FOR_PIX_PAYERS
+    : ACTION_BY_BEHAVIOR[behavior];
 }
 
 function describeMetrics(metrics: PaymentMetrics): string {
   const tenure = `Customer for ${plural(metrics.monthsAsCustomer, 'month')}, with ${formatAmount(metrics.totalPaidCents)} paid in total.`;
-  const failures = `${plural(metrics.failedAttempts, 'declined payment attempt')} on record.`;
+  const failures = `${plural(metrics.failedAttempts, 'failed payment attempt')} on record.`;
   if (metrics.paymentSuccessRate === null) {
     return `${tenure} There is no settled charge yet, so the payment history is too short to assess. ${failures}`;
   }

@@ -1,6 +1,7 @@
 import {
   buildAnonymizedContext,
   customerAlias,
+  latestPaymentMethod,
   type ContextCharge,
   type ContextSource,
 } from './anonymized-context.js';
@@ -15,6 +16,8 @@ const metrics = {
 
 function charge(overrides: Partial<ContextCharge> = {}): ContextCharge {
   return {
+    subscriptionId: 'sub_01hzx3k9q2m8v7w6y5t4r3e2d1',
+    periodStart: new Date('2026-03-10T00:00:00.000Z'),
     status: 'paid',
     method: 'card',
     amountCents: 1990,
@@ -64,33 +67,95 @@ describe('buildAnonymizedContext', () => {
       metrics,
       paymentTimeline: [
         {
-          dueDate: '2026-03-10',
-          paidDate: '2026-03-12',
-          status: 'paid',
-          method: 'card',
-          amountCents: 1990,
-          failureReason: null,
+          periodStart: '2026-03-10',
+          charges: [
+            {
+              dueDate: '2026-03-10',
+              paidDate: '2026-03-12',
+              status: 'paid',
+              method: 'card',
+              amountCents: 1990,
+              failureReason: null,
+            },
+          ],
         },
       ],
     });
   });
 
-  it('orders the timeline by due date, oldest first', () => {
+  it('orders the timeline by period start, oldest first', () => {
     const context = buildAnonymizedContext(
       source({
         charges: [
-          charge({ dueDate: new Date('2026-05-10T00:00:00.000Z') }),
-          charge({ dueDate: new Date('2026-03-10T00:00:00.000Z') }),
-          charge({ dueDate: new Date('2026-04-10T00:00:00.000Z') }),
+          charge({ periodStart: new Date('2026-05-10T00:00:00.000Z') }),
+          charge({ periodStart: new Date('2026-03-10T00:00:00.000Z') }),
+          charge({ periodStart: new Date('2026-04-10T00:00:00.000Z') }),
         ],
       }),
     );
 
-    expect(context.paymentTimeline.map((entry) => entry.dueDate)).toEqual([
-      '2026-03-10',
-      '2026-04-10',
-      '2026-05-10',
+    expect(context.paymentTimeline.map((period) => period.periodStart)).toEqual(
+      ['2026-03-10', '2026-04-10', '2026-05-10'],
+    );
+  });
+
+  it('groups a reissued pix period into one entry with every charge in order', () => {
+    const periodStart = new Date('2026-03-10T00:00:00.000Z');
+    const context = buildAnonymizedContext(
+      source({
+        charges: [
+          charge({
+            periodStart,
+            status: 'expired',
+            method: 'pix',
+            paidAt: null,
+          }),
+          charge({ periodStart, status: 'paid', method: 'pix' }),
+          charge({ periodStart: new Date('2026-04-10T00:00:00.000Z') }),
+        ],
+      }),
+    );
+
+    expect(context.paymentTimeline).toHaveLength(2);
+    expect(context.paymentTimeline[0]!.charges.map((c) => c.status)).toEqual([
+      'expired',
+      'paid',
     ]);
+  });
+
+  it('keeps the same period start of different subscriptions apart', () => {
+    const context = buildAnonymizedContext(
+      source({
+        charges: [
+          charge({ subscriptionId: 'sub_a' }),
+          charge({ subscriptionId: 'sub_b' }),
+        ],
+      }),
+    );
+
+    expect(context.paymentTimeline).toHaveLength(2);
+  });
+
+  it('reports the method of the most recent charge', () => {
+    const context = buildAnonymizedContext(
+      source({
+        charges: [
+          charge({ method: 'card' }),
+          charge({
+            method: 'pix',
+            periodStart: new Date('2026-04-10T00:00:00.000Z'),
+          }),
+        ],
+      }),
+    );
+
+    expect(latestPaymentMethod(context)).toBe('pix');
+  });
+
+  it('has no latest method without charges', () => {
+    expect(
+      latestPaymentMethod(buildAnonymizedContext(source({ charges: [] }))),
+    ).toBeNull();
   });
 
   it('does not reorder the caller charges', () => {
@@ -117,7 +182,7 @@ describe('buildAnonymizedContext', () => {
       }),
     );
 
-    expect(context.paymentTimeline[0]).toMatchObject({
+    expect(context.paymentTimeline[0]!.charges[0]).toMatchObject({
       status: 'failed',
       paidDate: null,
       failureReason: 'insufficient_funds',
@@ -191,6 +256,12 @@ describe('buildAnonymizedContext', () => {
         'interval',
       ]);
       expect(Object.keys(context.paymentTimeline[0]!).sort()).toEqual([
+        'charges',
+        'periodStart',
+      ]);
+      expect(
+        Object.keys(context.paymentTimeline[0]!.charges[0]!).sort(),
+      ).toEqual([
         'amountCents',
         'dueDate',
         'failureReason',

@@ -111,11 +111,12 @@ describe('buildFallbackSummary', () => {
         averageDaysLate: null,
         paymentSuccessRate: null,
       }),
+      'card',
     );
 
     expect(output).toEqual({
       summary:
-        'Customer for 0 months, with 0.00 paid in total. There is no settled charge yet, so the payment history is too short to assess. 0 declined payment attempts on record.',
+        'Customer for 0 months, with 0.00 paid in total. There is no settled charge yet, so the payment history is too short to assess. 0 failed payment attempts on record.',
       paymentBehavior: 'insufficient_history',
       riskLevel: 'low',
       suggestedAction:
@@ -132,10 +133,11 @@ describe('buildFallbackSummary', () => {
         averageDaysLate: 2.4,
         paymentSuccessRate: 0.85,
       }),
+      'card',
     );
 
     expect(output.summary).toBe(
-      'Customer for 1 month, with 399.20 paid in total. 85% of settled charges were paid, on average 2.4 days after the due date. 1 declined payment attempt on record.',
+      'Customer for 1 month, with 399.20 paid in total. 85% of settled charges were paid, on average 2.4 days after the due date. 1 failed payment attempt on record.',
     );
     expect(output).toMatchObject({
       paymentBehavior: 'occasional_delays',
@@ -146,10 +148,29 @@ describe('buildFallbackSummary', () => {
   it('omits the delay when no paid charge has one', () => {
     const output = buildFallbackSummary(
       metrics({ averageDaysLate: null, paymentSuccessRate: 0 }),
+      'card',
     );
 
     expect(output.summary).toContain('0% of settled charges were paid.');
     expect(output.paymentBehavior).toBe('unreliable');
+  });
+
+  const frequentDelays = metrics({
+    paymentSuccessRate: 0.7,
+    averageDaysLate: 1,
+  });
+
+  it('offers Pix to a card customer with frequent delays', () => {
+    expect(
+      buildFallbackSummary(frequentDelays, 'card').suggestedAction,
+    ).toContain('Pix');
+  });
+
+  it('does not offer Pix to a customer who already pays with it', () => {
+    const { suggestedAction } = buildFallbackSummary(frequentDelays, 'pix');
+
+    expect(suggestedAction).toContain('Pix payments are late');
+    expect(suggestedAction).not.toContain('offer');
   });
 
   it.each([
@@ -159,7 +180,8 @@ describe('buildFallbackSummary', () => {
     metrics({ averageDaysLate: 90, totalPaidCents: 2_000_000_000 }),
   ])('always satisfies the output schema (%#)', (input) => {
     expect(
-      summaryOutputSchema.safeParse(buildFallbackSummary(input)).success,
+      summaryOutputSchema.safeParse(buildFallbackSummary(input, 'card'))
+        .success,
     ).toBe(true);
   });
 });

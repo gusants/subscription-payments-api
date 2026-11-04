@@ -11,8 +11,13 @@ import {
 
 const day = (isoDay: string) => new Date(`${isoDay}T00:00:00.000Z`);
 
+let periodCounter = 0;
+
 function charge(overrides: Partial<HistoryCharge> = {}): HistoryCharge {
+  periodCounter += 1;
   return {
+    subscriptionId: 'sub_1',
+    periodStart: new Date(Date.UTC(2026, 0, periodCounter)),
     status: 'paid',
     amountCents: 1990,
     dueDate: day('2026-01-10'),
@@ -71,16 +76,41 @@ describe('totalPaidCents', () => {
 
 describe('failedAttempts', () => {
   it('is zero without attempts', () => {
-    expect(failedAttempts([])).toBe(0);
+    expect(failedAttempts({ charges: [], attempts: [] })).toBe(0);
   });
 
   it('counts declined attempts and ignores succeeded ones', () => {
     expect(
-      failedAttempts([
-        { result: 'declined' },
-        { result: 'succeeded' },
-        { result: 'declined' },
-      ]),
+      failedAttempts({
+        charges: [],
+        attempts: [
+          { result: 'declined' },
+          { result: 'succeeded' },
+          { result: 'declined' },
+        ],
+      }),
+    ).toBe(2);
+  });
+
+  it('counts every expired pix or boleto charge once, without a matching attempt', () => {
+    expect(
+      failedAttempts({
+        charges: [
+          charge({ status: 'expired' }),
+          charge({ status: 'expired' }),
+          charge({ status: 'paid' }),
+        ],
+        attempts: [],
+      }),
+    ).toBe(2);
+  });
+
+  it('adds declined attempts to expired charges', () => {
+    expect(
+      failedAttempts({
+        charges: [charge({ status: 'failed' }), charge({ status: 'expired' })],
+        attempts: [{ result: 'declined' }],
+      }),
     ).toBe(2);
   });
 });
@@ -128,6 +158,59 @@ describe('averageDaysLate', () => {
 });
 
 describe('paymentSuccessRate', () => {
+  const sameMonth = { periodStart: day('2026-06-10') };
+
+  it('counts a reissued pix period once, as paid when a later row is paid', () => {
+    expect(
+      paymentSuccessRate([
+        charge({ ...sameMonth, status: 'expired', paidAt: null }),
+        charge({ ...sameMonth, status: 'paid' }),
+      ]),
+    ).toBe(1);
+  });
+
+  it('keeps a pix customer who always pays on the second QR at 100%', () => {
+    const months = ['2026-04-10', '2026-05-10', '2026-06-10'];
+
+    expect(
+      paymentSuccessRate(
+        months.flatMap((month) => [
+          charge({ periodStart: day(month), status: 'expired', paidAt: null }),
+          charge({ periodStart: day(month), status: 'paid' }),
+        ]),
+      ),
+    ).toBe(1);
+  });
+
+  it('counts a period with only expired rows as one unpaid period', () => {
+    expect(
+      paymentSuccessRate([
+        charge({ ...sameMonth, status: 'expired', paidAt: null }),
+        charge({ ...sameMonth, status: 'expired', paidAt: null }),
+        charge({ periodStart: day('2026-07-10') }),
+      ]),
+    ).toBe(0.5);
+  });
+
+  it('leaves a period out while a reissued charge is still pending', () => {
+    expect(
+      paymentSuccessRate([
+        charge({ ...sameMonth, status: 'expired', paidAt: null }),
+        charge({ ...sameMonth, status: 'pending', paidAt: null }),
+        charge({ periodStart: day('2026-07-10') }),
+      ]),
+    ).toBe(1);
+  });
+
+  it('keeps periods of different subscriptions apart', () => {
+    expect(
+      paymentSuccessRate([
+        charge({ ...sameMonth, subscriptionId: 'sub_1' }),
+        charge({ ...sameMonth, subscriptionId: 'sub_2', status: 'failed' }),
+      ]),
+    ).toBe(0.5);
+  });
+
   it('is null without charges', () => {
     expect(paymentSuccessRate([])).toBeNull();
   });
@@ -136,7 +219,7 @@ describe('paymentSuccessRate', () => {
     expect(paymentSuccessRate([charge({ status: 'pending' })])).toBeNull();
   });
 
-  it('is paid charges over finalized charges, ignoring pending ones', () => {
+  it('is paid periods over finalized periods, ignoring pending ones', () => {
     expect(
       paymentSuccessRate([
         charge({ status: 'paid' }),

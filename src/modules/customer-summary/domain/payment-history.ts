@@ -4,6 +4,8 @@ import type {
 } from '../../charges/charge-status.js';
 
 export interface HistoryCharge {
+  subscriptionId: string;
+  periodStart: Date;
   status: ChargeStatus;
   amountCents: number;
   dueDate: Date;

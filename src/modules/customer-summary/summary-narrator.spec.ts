@@ -178,6 +178,6 @@ describe('SummaryNarrator', () => {
     expect(record.output.summary).toContain('8 months');
     expect(record.output.summary).toContain('399.20');
     expect(record.output.summary).toContain('85%');
-    expect(record.output.summary).toContain('3 declined payment attempts');
+    expect(record.output.summary).toContain('3 failed payment attempts');
   });
 });

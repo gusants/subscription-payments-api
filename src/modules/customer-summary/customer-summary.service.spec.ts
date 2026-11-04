@@ -21,6 +21,8 @@ function paymentsOf(
     plan: { interval: 'monthly', amountCents: 1990 },
     charges: [
       {
+        subscriptionId: 'sub_1',
+        periodStart: new Date('2026-05-10T00:00:00.000Z'),
         status: 'paid',
         method: 'card',
         amountCents: 1990,

@@ -3,9 +3,12 @@ import type { GatewayFailureReason } from '../../../gateway/index.js';
 import type { ChargeStatus } from '../../charges/charge-status.js';
 import type { PlanInterval } from '../../plans/plan.js';
 import type { PaymentMethod } from '../../subscriptions/subscription.js';
+import { groupByPeriod } from './payment-periods.js';
 import type { PaymentMetrics } from './payment-metrics.js';
 
 export interface ContextCharge {
+  subscriptionId: string;
+  periodStart: Date;
   status: ChargeStatus;
   method: PaymentMethod;
   amountCents: number;
@@ -35,11 +38,16 @@ export interface TimelineEntry {
   failureReason: GatewayFailureReason | null;
 }
 
+export interface TimelinePeriod {
+  periodStart: string;
+  charges: TimelineEntry[];
+}
+
 export interface AnonymizedContext {
   customerAlias: string;
   plan: ContextPlan | null;
   metrics: PaymentMetrics;
-  paymentTimeline: TimelineEntry[];
+  paymentTimeline: TimelinePeriod[];
 }
 
 const ALIAS_PREFIX = 'customer_';
@@ -61,9 +69,25 @@ export function buildAnonymizedContext(
       amountCents: source.plan.amountCents,
     },
     metrics: { ...source.metrics },
-    paymentTimeline: [...source.charges]
-      .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
-      .map(toTimelineEntry),
+    paymentTimeline: groupByPeriod(
+      [...source.charges].sort(
+        (a, b) => a.periodStart.getTime() - b.periodStart.getTime(),
+      ),
+    ).map(toTimelinePeriod),
+  };
+}
+
+export function latestPaymentMethod(
+  context: AnonymizedContext,
+): PaymentMethod | null {
+  const lastPeriod = context.paymentTimeline.at(-1);
+  return lastPeriod?.charges.at(-1)?.method ?? null;
+}
+
+function toTimelinePeriod(period: ContextCharge[]): TimelinePeriod {
+  return {
+    periodStart: isoDate(period[0]!.periodStart),
+    charges: period.map(toTimelineEntry),
   };
 }
 

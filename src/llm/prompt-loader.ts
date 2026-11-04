@@ -5,7 +5,7 @@ export interface Prompt {
   text: string;
 }
 
-const CUSTOMER_SUMMARY_VERSION = 'v1';
+const CUSTOMER_SUMMARY_VERSION = 'v2';
 
 export const CUSTOMER_SUMMARY_PROMPT_FILE = `customer-summary.${CUSTOMER_SUMMARY_VERSION}.md`;
 

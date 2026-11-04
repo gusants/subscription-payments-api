@@ -14,6 +14,7 @@ import type {
 } from './customer-summary.js';
 import {
   buildFallbackSummary,
+  latestPaymentMethod,
   parseSummaryOutput,
   SUMMARY_OUTPUT_JSON_SCHEMA,
   type AnonymizedContext,
@@ -66,7 +67,10 @@ export class SummaryNarrator {
     response?: LlmJsonResponse,
   ): Narration {
     return {
-      record: this.record('fallback', buildFallbackSummary(context.metrics)),
+      record: this.record(
+        'fallback',
+        buildFallbackSummary(context.metrics, latestPaymentMethod(context)),
+      ),
       usage: response ? usageOf(response) : null,
       failure,
     };

@@ -3,6 +3,7 @@ export type {
   HistoryCharge,
   PaymentHistory,
 } from './payment-history.js';
+export { groupByPeriod, type PeriodRow } from './payment-periods.js';
 export {
   averageDaysLate,
   computePaymentMetrics,
@@ -15,11 +16,13 @@ export {
 export {
   buildAnonymizedContext,
   customerAlias,
+  latestPaymentMethod,
   type AnonymizedContext,
   type ContextCharge,
   type ContextPlan,
   type ContextSource,
   type TimelineEntry,
+  type TimelinePeriod,
 } from './anonymized-context.js';
 export {
   assessRisk,

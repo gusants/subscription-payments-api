@@ -13,8 +13,11 @@ const paymentHistorySelect = {
       createdAt: true,
       updatedAt: true,
       plan: { select: { interval: true, amountCents: true } },
+      id: true,
       charges: {
+        orderBy: { createdAt: 'asc' },
         select: {
+          periodStart: true,
           status: true,
           method: true,
           amountCents: true,

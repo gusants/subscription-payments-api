@@ -10,6 +10,7 @@ const at = (day: number, hour = 0) =>
 
 function charge(overrides: Partial<ChargeRow> = {}): ChargeRow {
   return {
+    periodStart: at(10),
     status: 'paid',
     method: 'card',
     amountCents: 1990,
@@ -25,6 +26,7 @@ function subscription(
   overrides: Partial<SubscriptionRow> = {},
 ): SubscriptionRow {
   return {
+    id: 'sub_1',
     createdAt: at(1),
     updatedAt: at(1),
     plan: { interval: 'monthly', amountCents: 1990 },
@@ -90,6 +92,8 @@ describe('toCustomerPaymentRecord', () => {
     ).charges;
 
     expect(mapped).toEqual({
+      subscriptionId: 'sub_1',
+      periodStart: at(10),
       status: 'paid',
       method: 'card',
       amountCents: 1990,

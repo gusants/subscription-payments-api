@@ -1,4 +1,4 @@
-import type { ChargeStatus } from '../../charges/charge-status.js';
+import { groupByPeriod } from './payment-periods.js';
 import type { HistoryCharge, PaymentHistory } from './payment-history.js';
 
 export interface PaymentMetrics {
@@ -10,12 +10,6 @@ export interface PaymentMetrics {
 }
 
 const MILLISECONDS_PER_DAY = 86_400_000;
-const FINALIZED_STATUSES: readonly ChargeStatus[] = [
-  'paid',
-  'failed',
-  'expired',
-  'uncollectible',
-];
 
 export function monthsAsCustomer(customerSince: Date, now: Date): number {
   const calendarMonths =
@@ -39,8 +33,16 @@ export function totalPaidCents(charges: readonly HistoryCharge[]): number {
     .reduce((total, charge) => total + charge.amountCents, 0);
 }
 
-export function failedAttempts(attempts: PaymentHistory['attempts']): number {
-  return attempts.filter((attempt) => attempt.result === 'declined').length;
+export function failedAttempts(
+  history: Pick<PaymentHistory, 'charges' | 'attempts'>,
+): number {
+  const declined = history.attempts.filter(
+    (attempt) => attempt.result === 'declined',
+  );
+  const expired = history.charges.filter(
+    (charge) => charge.status === 'expired',
+  );
+  return declined.length + expired.length;
 }
 
 export function averageDaysLate(
@@ -57,13 +59,15 @@ export function averageDaysLate(
 export function paymentSuccessRate(
   charges: readonly HistoryCharge[],
 ): number | null {
-  const finalized = charges.filter((charge) =>
-    FINALIZED_STATUSES.includes(charge.status),
+  const finalized = groupByPeriod(charges).filter((period) =>
+    period.every((charge) => charge.status !== 'pending'),
   );
   if (finalized.length === 0) {
     return null;
   }
-  const paid = finalized.filter((charge) => charge.status === 'paid');
+  const paid = finalized.filter((period) =>
+    period.some((charge) => charge.status === 'paid'),
+  );
   return roundTo(paid.length / finalized.length, 2);
 }
 
@@ -74,7 +78,7 @@ export function computePaymentMetrics(
   return {
     monthsAsCustomer: monthsAsCustomer(history.customerSince, now),
     totalPaidCents: totalPaidCents(history.charges),
-    failedAttempts: failedAttempts(history.attempts),
+    failedAttempts: failedAttempts(history),
     averageDaysLate: averageDaysLate(history.charges),
     paymentSuccessRate: paymentSuccessRate(history.charges),
   };

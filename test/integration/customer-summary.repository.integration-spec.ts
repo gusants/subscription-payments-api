@@ -51,7 +51,8 @@ describe('PrismaCustomerSummaryRepository (integration)', () => {
   });
 
   it('returns the charges, attempts and plan of the customer', async () => {
-    const { customerId, chargeId } = await seedCustomerWithPaidCharge(prisma);
+    const { customerId, chargeId, subscriptionId } =
+      await seedCustomerWithPaidCharge(prisma);
     await insertDeclinedAttempt(prisma, chargeId);
 
     const record = await repository.findPaymentRecord(customerId);
@@ -61,6 +62,8 @@ describe('PrismaCustomerSummaryRepository (integration)', () => {
       plan: { interval: 'monthly', amountCents: 1990 },
       charges: [
         {
+          subscriptionId,
+          periodStart: new Date('2026-05-10T00:00:00.000Z'),
           status: 'paid',
           method: 'card',
           amountCents: 1990,
@@ -72,6 +75,27 @@ describe('PrismaCustomerSummaryRepository (integration)', () => {
       attempts: [{ result: 'declined' }],
       activity: { chargeCount: 1, attemptCount: 1 },
     });
+  });
+
+  it('returns the charges of a reissued period oldest first', async () => {
+    const { customerId, subscriptionId } =
+      await seedCustomerWithPaidCharge(prisma);
+    await prisma.charge.updateMany({
+      where: { subscriptionId },
+      data: { status: 'expired', paidAt: null },
+    });
+    await insertPaidCharge(prisma, subscriptionId);
+
+    const record = await repository.findPaymentRecord(customerId);
+
+    expect(record?.charges.map(({ status }) => status)).toEqual([
+      'expired',
+      'paid',
+    ]);
+    expect(
+      new Set(record?.charges.map(({ periodStart }) => periodStart.getTime()))
+        .size,
+    ).toBe(1);
   });
 
   it('does not expose personal data', async () => {

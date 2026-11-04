@@ -6,12 +6,12 @@ import {
 describe('loadCustomerSummaryPrompt', () => {
   it('exposes the prompt version', async () => {
     await expect(loadCustomerSummaryPrompt()).resolves.toMatchObject({
-      version: 'v1',
+      version: 'v2',
     });
   });
 
   it('keeps the version in the file name', () => {
-    expect(CUSTOMER_SUMMARY_PROMPT_FILE).toBe('customer-summary.v1.md');
+    expect(CUSTOMER_SUMMARY_PROMPT_FILE).toBe('customer-summary.v2.md');
   });
 
   it('loads the prompt text', async () => {
@@ -44,5 +44,11 @@ describe('loadCustomerSummaryPrompt', () => {
 
     expect(text).toMatch(/Never recalculate/);
     expect(text).toMatch(/only suggest an action to a human/);
+  });
+
+  it('explains that charges inside a period are attempts at the same period', async () => {
+    const { text } = await loadCustomerSummaryPrompt();
+
+    expect(text).toMatch(/not different months/);
   });
 });
