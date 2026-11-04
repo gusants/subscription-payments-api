@@ -64,7 +64,7 @@ describe('Redis connections against an unreachable server', () => {
 
     expect(warn).toHaveBeenCalledOnce();
     expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('connection problem'),
+      expect.stringMatching(/connection problem: .*\S/),
     );
   });
 });
