@@ -67,7 +67,7 @@ export interface ChargeSettlement {
   id: string;
   fromAnyOf: readonly ChargeStatus[];
   to: ChargeStatus;
-  gatewayChargeId: string;
+  gatewayChargeId: string | null;
   paidAt: Date | null;
   firstFailedAt?: Date;
 }

@@ -58,7 +58,7 @@ export async function applyChargeOutcome(
     where: { id: charge.id, status: { in: [...charge.fromAnyOf] } },
     data: {
       status: charge.to,
-      gatewayChargeId: charge.gatewayChargeId,
+      gatewayChargeId: charge.gatewayChargeId ?? undefined,
       paidAt: charge.paidAt,
       ...(attempt && { attemptCount: { increment: 1 } }),
     },

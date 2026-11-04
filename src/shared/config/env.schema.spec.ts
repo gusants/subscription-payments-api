@@ -24,6 +24,8 @@ describe('validateEnv', () => {
       FAKE_GATEWAY_EXPIRATION_SWEEP_INTERVAL_MS: 5000,
       RETRY_INTERVAL_UNIT: 'days',
       RENEWAL_BATCH_SIZE: 100,
+      RECONCILIATION_STALE_AFTER_MINUTES: 5,
+      RECONCILIATION_BATCH_SIZE: 100,
       WORKERS_ENABLED: true,
       CHARGE_ATTEMPT_LEASE_SECONDS: 30,
       IDEMPOTENCY_TTL_SECONDS: 86400,
@@ -97,6 +99,21 @@ describe('validateEnv', () => {
       ).toThrow(/RENEWAL_JOB_INTERVAL_SECONDS/);
     },
   );
+
+  it.each([
+    'RECONCILIATION_JOB_INTERVAL_SECONDS',
+    'RECONCILIATION_STALE_AFTER_MINUTES',
+  ])('rejects a non-positive %s', (name) => {
+    expect(() => validateEnv({ ...validEnv, [name]: '0' })).toThrow(
+      new RegExp(name),
+    );
+  });
+
+  it('rejects a reconciliation batch above the maximum', () => {
+    expect(() =>
+      validateEnv({ ...validEnv, RECONCILIATION_BATCH_SIZE: '1001' }),
+    ).toThrow(/RECONCILIATION_BATCH_SIZE/);
+  });
 
   it('rejects a renewal batch above the maximum', () => {
     expect(() =>

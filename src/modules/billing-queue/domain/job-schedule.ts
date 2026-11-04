@@ -7,6 +7,11 @@ const RENEWAL_DEFAULT_SECONDS: Record<RetryIntervalUnit, number> = {
   minutes: 30,
 };
 
+const RECONCILIATION_DEFAULT_SECONDS: Record<RetryIntervalUnit, number> = {
+  days: 300,
+  minutes: 30,
+};
+
 function intervalMs(
   configuredSeconds: number | undefined,
   defaultSeconds: number,
@@ -19,4 +24,11 @@ export function renewalIntervalMs(
   configuredSeconds?: number,
 ): number {
   return intervalMs(configuredSeconds, RENEWAL_DEFAULT_SECONDS[unit]);
+}
+
+export function reconciliationIntervalMs(
+  unit: RetryIntervalUnit,
+  configuredSeconds?: number,
+): number {
+  return intervalMs(configuredSeconds, RECONCILIATION_DEFAULT_SECONDS[unit]);
 }

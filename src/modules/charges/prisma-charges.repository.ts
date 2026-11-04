@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '../../generated/prisma/client.js';
+import { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../shared/database/prisma.service.js';
 import type { PageWindow } from '../customers/customer.js';
 import type {
@@ -8,6 +8,7 @@ import type {
   ChargeWithAttempts,
   ChargeWithSubscription,
 } from './charge.js';
+import type { DunningFollowUpCutoff } from './domain/dunning-recovery.js';
 import { ChargesRepository } from './charges.repository.js';
 import { toCharge } from './prisma-charge.mapper.js';
 
@@ -48,6 +49,67 @@ export class PrismaChargesRepository extends ChargesRepository {
       where: { subscriptionId, periodStart, status: { not: 'expired' } },
     });
     return found && toCharge(found);
+  }
+
+  async findStalePendingCardCharges(
+    attemptStartedBefore: Date,
+    limit: number,
+  ): Promise<Charge[]> {
+    const found = await this.prisma.charge.findMany({
+      where: {
+        status: 'pending',
+        method: 'card',
+        OR: [
+          { attemptStartedAt: { lt: attemptStartedBefore } },
+          { attemptStartedAt: null, createdAt: { lt: attemptStartedBefore } },
+        ],
+      },
+      orderBy: [
+        { attemptStartedAt: { sort: 'asc', nulls: 'first' } },
+        { id: 'asc' },
+      ],
+      take: limit,
+    });
+    return found.map(toCharge);
+  }
+
+  async findOverdueDunningFollowUps(
+    cutoffs: readonly DunningFollowUpCutoff[],
+    limit: number,
+  ): Promise<ChargeWithSubscription[]> {
+    const cutoffRows = Prisma.join(
+      cutoffs.map(
+        ({ retryCount, failedBefore }) =>
+          Prisma.sql`(${retryCount}::int, ${failedBefore}::timestamptz)`,
+      ),
+    );
+    const overdue = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT c.id
+      FROM charges c
+      JOIN subscriptions s ON s.id = c.subscription_id
+      JOIN (VALUES ${cutoffRows}) AS cutoff(retry_count, failed_before)
+        ON cutoff.retry_count = c.retry_count
+       AND c.first_failed_at < cutoff.failed_before
+      WHERE c.status IN ('failed', 'expired')
+        AND s.status <> 'canceled'
+        AND NOT EXISTS (
+          SELECT 1 FROM charges live
+          WHERE live.subscription_id = c.subscription_id
+            AND live.period_start = c.period_start
+            AND live.status <> 'expired'
+            AND live.id <> c.id
+        )
+      ORDER BY c.first_failed_at ASC, c.id ASC
+      LIMIT ${limit}`;
+    const found = await this.prisma.charge.findMany({
+      where: { id: { in: overdue.map(({ id }) => id) } },
+      include: { subscription: true },
+      orderBy: [{ firstFailedAt: 'asc' }, { id: 'asc' }],
+    });
+    return found.map(({ subscription, ...charge }) => ({
+      charge: toCharge(charge),
+      subscription,
+    }));
   }
 
   async findWithAttempts(id: string): Promise<ChargeWithAttempts | null> {

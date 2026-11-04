@@ -1,5 +1,6 @@
 export {
   assertBillable,
+  assertHasPaymentCredentials,
   type BillableSubscription,
 } from './assert-billable.js';
 export { toChargeOutcome } from './charge-outcome.js';
@@ -27,3 +28,8 @@ export {
   nextBillingPeriod,
   periodAdvanceAfterPaid,
 } from './renewal.js';
+export {
+  overdueDunningCutoffs,
+  staleAttemptCutoff,
+  type DunningFollowUpCutoff,
+} from './dunning-recovery.js';

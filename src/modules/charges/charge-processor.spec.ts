@@ -1071,4 +1071,90 @@ describe('ChargeProcessor', () => {
       });
     });
   });
+
+  describe('reconcile on a canceled subscription', () => {
+    async function seedStrandedOnCanceledSubscription(
+      strandedBy: Error,
+      afterProcessing: boolean,
+    ) {
+      const { target } = await seed();
+      gateway.failChargeCreationWith(strandedBy, {
+        times: 1,
+        afterProcessing,
+      });
+      await processor.process(target);
+      await subscriptions.changeStatus('sub_1', {
+        fromAnyOf: ['incomplete'],
+        to: 'canceled',
+        canceledAt: periodStart,
+      });
+      clock.set(afterLease);
+      return storedCharge();
+    }
+
+    it('applies the payment the gateway holds and flags the refund risk', async () => {
+      const stranded = await seedStrandedOnCanceledSubscription(
+        new GatewayOutcomeUnknownError('timeout'),
+        true,
+      );
+
+      const processed = await processor.reconcile(stranded);
+
+      expect(processed.charge).toMatchObject({
+        status: 'paid',
+        attemptCount: 1,
+      });
+      expect(processed.subscription.status).toBe('canceled');
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringMatching(/ch_1.*paid.*sub_1.*refund required/),
+      );
+      expect(gateway.chargesRequested).toHaveLength(1);
+    });
+
+    it('records a decline the gateway holds without touching the canceled subscription', async () => {
+      gateway.respondWith({ status: 'failed', failureReason: 'expired_card' });
+      const stranded = await seedStrandedOnCanceledSubscription(
+        new GatewayOutcomeUnknownError('timeout'),
+        true,
+      );
+
+      const processed = await processor.reconcile(stranded);
+
+      expect(processed.charge.status).toBe('failed');
+      expect(processed.subscription.status).toBe('canceled');
+      expect(errorLog).not.toHaveBeenCalled();
+      expect(queue.scheduled()).toEqual([]);
+    });
+
+    it('expires the charge instead of charging when the gateway never received it', async () => {
+      const stranded = await seedStrandedOnCanceledSubscription(
+        new GatewayUnavailableError('down'),
+        false,
+      );
+
+      const processed = await processor.reconcile(stranded);
+
+      expect(processed.charge).toMatchObject({
+        status: 'expired',
+        gatewayChargeId: null,
+      });
+      expect(gateway.chargesRequested).toHaveLength(1);
+      expect(billing.attempts()).toEqual([]);
+    });
+
+    it('leaves the charge pending when the gateway cannot be asked', async () => {
+      const stranded = await seedStrandedOnCanceledSubscription(
+        new GatewayOutcomeUnknownError('timeout'),
+        true,
+      );
+      gateway.failLookupWith(new GatewayUnavailableError('down'));
+
+      const processed = await processor.reconcile(stranded);
+
+      expect(processed.charge.status).toBe('pending');
+      expect(processed.technicalFailure).toBeInstanceOf(
+        GatewayUnavailableError,
+      );
+    });
+  });
 });

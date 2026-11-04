@@ -1,3 +1,4 @@
+import type { DunningFollowUpCutoff } from '../domain/dunning-recovery.js';
 import type { PageWindow } from '../../customers/customer.js';
 import type { InMemorySubscriptionsRepository } from '../../subscriptions/testing/in-memory-subscriptions.repository.js';
 import type {
@@ -44,6 +45,58 @@ export class InMemoryChargesRepository extends ChargesRepository {
           charge.status !== 'expired',
       );
     return Promise.resolve(live ?? null);
+  }
+
+  findStalePendingCardCharges(
+    attemptStartedBefore: Date,
+    limit: number,
+  ): Promise<Charge[]> {
+    const stale = this.billing
+      .charges()
+      .filter(
+        (charge) =>
+          charge.status === 'pending' &&
+          charge.method === 'card' &&
+          (charge.attemptStartedAt ?? charge.createdAt) < attemptStartedBefore,
+      )
+      .slice(0, limit);
+    return Promise.resolve(stale);
+  }
+
+  async findOverdueDunningFollowUps(
+    cutoffs: readonly DunningFollowUpCutoff[],
+    limit: number,
+  ): Promise<ChargeWithSubscription[]> {
+    const all = this.billing.charges();
+    const overdue: ChargeWithSubscription[] = [];
+    for (const charge of all) {
+      const cutoff = cutoffs.find(
+        ({ retryCount }) => retryCount === charge.retryCount,
+      );
+      const supersededByLiveCharge =
+        charge.status === 'expired' &&
+        all.some(
+          (other) =>
+            other.subscriptionId === charge.subscriptionId &&
+            other.periodStart.getTime() === charge.periodStart.getTime() &&
+            other.status !== 'expired',
+        );
+      const subscription = await this.subscriptions.findById(
+        charge.subscriptionId,
+      );
+      if (
+        cutoff &&
+        charge.firstFailedAt &&
+        charge.firstFailedAt < cutoff.failedBefore &&
+        (charge.status === 'failed' || charge.status === 'expired') &&
+        !supersededByLiveCharge &&
+        subscription &&
+        subscription.status !== 'canceled'
+      ) {
+        overdue.push({ charge, subscription });
+      }
+    }
+    return overdue.slice(0, limit);
   }
 
   findWithAttempts(id: string): Promise<ChargeWithAttempts | null> {

@@ -1,4 +1,5 @@
 import type { PageWindow } from '../customers/customer.js';
+import type { DunningFollowUpCutoff } from './domain/dunning-recovery.js';
 import type {
   Charge,
   ChargePage,
@@ -14,6 +15,14 @@ export abstract class ChargesRepository {
     subscriptionId: string,
     periodStart: Date,
   ): Promise<Charge | null>;
+  abstract findStalePendingCardCharges(
+    attemptStartedBefore: Date,
+    limit: number,
+  ): Promise<Charge[]>;
+  abstract findOverdueDunningFollowUps(
+    cutoffs: readonly DunningFollowUpCutoff[],
+    limit: number,
+  ): Promise<ChargeWithSubscription[]>;
   abstract findWithAttempts(id: string): Promise<ChargeWithAttempts | null>;
   abstract listByCustomer(
     customerId: string,

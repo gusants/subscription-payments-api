@@ -7,7 +7,7 @@ import { subscriptionStatusAfterExpiry } from './subscription-status-after-expir
 export interface ChargeExpiry {
   charge: Pick<Charge, 'id'>;
   subscription: Pick<Subscription, 'id' | 'status'>;
-  gatewayChargeId: string;
+  gatewayChargeId: string | null;
   now: Date;
 }
 

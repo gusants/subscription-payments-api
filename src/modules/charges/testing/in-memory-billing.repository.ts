@@ -127,7 +127,7 @@ export class InMemoryBillingRepository extends BillingRepository {
     const settled: Charge = {
       ...found,
       status: charge.to,
-      gatewayChargeId: charge.gatewayChargeId,
+      gatewayChargeId: charge.gatewayChargeId ?? found.gatewayChargeId,
       paidAt: charge.paidAt,
       firstFailedAt: found.firstFailedAt ?? charge.firstFailedAt ?? null,
       attemptCount: found.attemptCount + (attempt ? 1 : 0),

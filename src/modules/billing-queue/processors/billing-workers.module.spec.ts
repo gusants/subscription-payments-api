@@ -1,12 +1,14 @@
 import { ChargeRetriesProcessor } from './charge-retries.processor.js';
 import { ChargeRetriesWorker } from './charge-retries.worker.js';
+import { ChargeReconciliationProcessor } from './charge-reconciliation.processor.js';
+import { ChargeReconciliationWorker } from './charge-reconciliation.worker.js';
 import { SubscriptionRenewalsProcessor } from './subscription-renewals.processor.js';
 import { SubscriptionRenewalsWorker } from './subscription-renewals.worker.js';
 import { BillingQueueConnection } from '../billing-queue-connection.js';
 import { BillingWorkersModule } from './billing-workers.module.js';
 
 describe('BillingWorkersModule', () => {
-  it('registers the retry and renewal workers by default', () => {
+  it('registers the retry, renewal and reconciliation workers by default', () => {
     const { providers } = BillingWorkersModule.register({});
 
     expect(providers).toEqual(
@@ -16,6 +18,8 @@ describe('BillingWorkersModule', () => {
         ChargeRetriesWorker,
         SubscriptionRenewalsProcessor,
         SubscriptionRenewalsWorker,
+        ChargeReconciliationProcessor,
+        ChargeReconciliationWorker,
       ]),
     );
   });

@@ -16,7 +16,6 @@ import {
 import { generateId, ID_PREFIXES } from '../../shared/ids/index.js';
 import type { Customer } from '../customers/customer.js';
 import { CustomersRepository } from '../customers/customers.repository.js';
-import { statusesAllowedToTransitionTo as subscriptionStatusesAllowedToTransitionTo } from '../subscriptions/domain/index.js';
 import type { Subscription } from '../subscriptions/subscription.js';
 import { BillingRepository } from './billing.repository.js';
 import { CHARGE_ATTEMPT_LEASE_MS } from './charge-attempt-lease.js';
@@ -31,6 +30,7 @@ import type {
 import { ChargesRepository } from './charges.repository.js';
 import {
   assertBillable,
+  assertHasPaymentCredentials,
   type BillableSubscription,
   expirySettlement,
   assertTransition as assertChargeTransition,
@@ -39,6 +39,7 @@ import {
   nextGatewayAttempt,
   periodAdvanceAfterPaid,
   statusesAllowedToTransitionTo as chargeStatusesAllowedToTransitionTo,
+  subscriptionChange,
   subscriptionStatusAfterCharge,
   toChargeOutcome,
   type ChargeOutcome,
@@ -175,7 +176,7 @@ export class ChargeProcessor {
     if (charge.status !== 'pending') {
       throw new ConflictError(`Charge ${charge.id} is ${charge.status}`);
     }
-    const target = await this.resolveTarget(charge);
+    const target = await this.resolveTarget(charge, { allowCanceled: true });
     const now = this.clock.now();
     const leased = await this.billing.takeAttemptLease(
       charge.id,
@@ -202,15 +203,43 @@ export class ChargeProcessor {
     } catch (error) {
       return this.unsettled(target, this.abandon(charge, error));
     }
-    return existing ? this.settle(target, existing) : this.process(target);
+    if (existing) return this.settle(target, existing);
+    return target.subscription.status === 'canceled'
+      ? this.expireUnsent(target)
+      : this.process(target);
   }
 
-  private async resolveTarget(charge: Charge): Promise<AttemptTarget> {
+  private expireUnsent({
+    charge,
+    subscription,
+  }: AttemptTarget): Promise<ProcessedCharge> {
+    this.logger.warn(
+      `Charge ${charge.id} on canceled subscription ${subscription.id} never reached the gateway; expired without charging`,
+    );
+    return this.persist(
+      expirySettlement({
+        charge,
+        subscription,
+        gatewayChargeId: null,
+        now: this.clock.now(),
+      }),
+      null,
+    );
+  }
+
+  private async resolveTarget(
+    charge: Charge,
+    { allowCanceled = false } = {},
+  ): Promise<AttemptTarget> {
     const found = await this.charges.findWithSubscription(charge.id);
     if (!found) {
       throw new NotFoundError(`Charge ${charge.id} not found`);
     }
-    assertBillable(found.subscription);
+    if (allowCanceled && found.subscription.status === 'canceled') {
+      assertHasPaymentCredentials(found.subscription);
+    } else {
+      assertBillable(found.subscription);
+    }
     return {
       charge,
       subscription: found.subscription,
@@ -404,11 +433,11 @@ export class ChargeProcessor {
         },
         subscription: {
           id: subscription.id,
-          change: subscriptionStatus && {
-            fromAnyOf:
-              subscriptionStatusesAllowedToTransitionTo(subscriptionStatus),
-            to: subscriptionStatus,
-          },
+          change: subscriptionChange(
+            subscription,
+            subscriptionStatus,
+            this.clock.now(),
+          ),
           ...(period && { period }),
         },
       },
