@@ -1,10 +1,17 @@
-import type { GenerateContentResponse } from '@google/genai';
+import { createServer, type Server } from 'node:http';
+import {
+  ApiError,
+  FinishReason,
+  GoogleGenAI,
+  type GenerateContentResponse,
+} from '@google/genai';
 import { FixedClock } from '../shared/clock/testing/fixed-clock.js';
 import {
   GeminiLlmProvider,
   type GeminiModelsClient,
 } from './gemini-llm.provider.js';
 import type { LlmJsonRequest } from './llm-provider.js';
+import { LlmProviderError } from './llm-provider.error.js';
 
 const request: LlmJsonRequest = {
   systemPrompt: 'be brief',
@@ -66,10 +73,10 @@ describe('GeminiLlmProvider', () => {
   });
 
   it('falls back to the configured model and null tokens when the reply omits them', async () => {
-    generateContent.mockResolvedValue(reply({}));
+    generateContent.mockResolvedValue(reply({ text: '{}' }));
 
     await expect(provider.generateJson(request)).resolves.toEqual({
-      text: '',
+      text: '{}',
       model: 'gemini-test',
       inputTokens: null,
       outputTokens: null,
@@ -113,9 +120,106 @@ describe('GeminiLlmProvider', () => {
     await vi.waitFor(() => expect(signal.aborted).toBe(true));
   });
 
-  it('propagates SDK failures', async () => {
-    generateContent.mockRejectedValue(new Error('429'));
+  it('accepts a candidate that finished normally', async () => {
+    generateContent.mockResolvedValue(
+      reply({
+        text: '{}',
+        candidates: [{ finishReason: FinishReason.STOP }],
+      }),
+    );
 
-    await expect(provider.generateJson(request)).rejects.toThrow('429');
+    await expect(provider.generateJson(request)).resolves.toMatchObject({
+      text: '{}',
+    });
+  });
+
+  it.each([FinishReason.MAX_TOKENS, FinishReason.SAFETY])(
+    'rejects a candidate that finished with %s',
+    async (finishReason) => {
+      generateContent.mockResolvedValue(
+        reply({ text: '{"summary":"cut', candidates: [{ finishReason }] }),
+      );
+
+      await expect(provider.generateJson(request)).rejects.toMatchObject({
+        reason: 'incomplete_response',
+      });
+    },
+  );
+
+  it.each([undefined, ''])('rejects an empty reply (%j)', async (text) => {
+    generateContent.mockResolvedValue(reply({ text }));
+
+    await expect(provider.generateJson(request)).rejects.toMatchObject({
+      reason: 'empty_response',
+    });
+  });
+
+  it.each([
+    [429, 'rate_limited'],
+    [500, 'unavailable'],
+    [503, 'unavailable'],
+    [400, 'rejected'],
+    [403, 'rejected'],
+  ])('maps an ApiError with status %i to %s', async (status, reason) => {
+    const cause = new ApiError({ message: 'nope', status });
+    generateContent.mockRejectedValue(cause);
+
+    const failure = await provider.generateJson(request).catch((e) => e);
+
+    expect(failure).toBeInstanceOf(LlmProviderError);
+    expect(failure).toMatchObject({ reason, cause });
+  });
+
+  it('maps an abort to a timeout', async () => {
+    generateContent.mockRejectedValue(
+      new DOMException('This operation was aborted', 'AbortError'),
+    );
+
+    await expect(provider.generateJson(request)).rejects.toMatchObject({
+      reason: 'timeout',
+    });
+  });
+
+  it('maps any other failure to unknown', async () => {
+    generateContent.mockRejectedValue(new Error('socket hang up'));
+
+    await expect(provider.generateJson(request)).rejects.toMatchObject({
+      reason: 'unknown',
+    });
+  });
+});
+
+describe('GeminiLlmProvider against a server that never answers', () => {
+  const hangingServer: Server = createServer(() => undefined);
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    await new Promise<void>((resolve) =>
+      hangingServer.listen(0, '127.0.0.1', resolve),
+    );
+    const { port } = hangingServer.address() as { port: number };
+    baseUrl = `http://127.0.0.1:${port}`;
+  });
+
+  afterAll(async () => {
+    hangingServer.closeAllConnections();
+    await new Promise((resolve) => hangingServer.close(resolve));
+  });
+
+  it('surfaces the SDK abort as a timeout error', async () => {
+    const sdk = new GoogleGenAI({
+      apiKey: 'unused',
+      httpOptions: { baseUrl },
+    });
+    const provider = new GeminiLlmProvider(
+      sdk.models,
+      { model: 'gemini-test', timeoutMs: 150 },
+      new FixedClock(new Date('2026-01-01T00:00:00.000Z')),
+    );
+
+    await expect(provider.generateJson(request)).rejects.toMatchObject({
+      reason: 'timeout',
+      cause: { name: 'AbortError' },
+    });
   });
 });

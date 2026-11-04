@@ -21,3 +21,18 @@ export {
   type ContextSource,
   type TimelineEntry,
 } from './anonymized-context.js';
+export {
+  assessRisk,
+  buildFallbackSummary,
+  classifyPaymentBehavior,
+} from './fallback-summary.js';
+export {
+  PAYMENT_BEHAVIORS,
+  RISK_LEVELS,
+  SUMMARY_OUTPUT_JSON_SCHEMA,
+  parseSummaryOutput,
+  summaryOutputSchema,
+  type PaymentBehavior,
+  type RiskLevel,
+  type SummaryOutput,
+} from './summary-output.js';
