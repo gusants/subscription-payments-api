@@ -51,7 +51,12 @@ export interface ProcessedCharge {
   charge: Charge;
   subscription: Subscription;
   failureReason: GatewayFailureReason | null;
+  technicalFailure: GatewayUnavailableError | null;
 }
+
+type AttemptResponse =
+  | { kind: 'charge'; gatewayCharge: GatewayCharge }
+  | { kind: 'unsettled'; technicalFailure: GatewayUnavailableError | null };
 
 interface GatewayAttempt extends AttemptTarget {
   idempotencyKey: string;
@@ -66,6 +71,11 @@ function isCapturedAgainstSettledCharge(
     (currentStatus === 'expired' || currentStatus === 'paid')
   );
 }
+
+const toChargeResponse = (gatewayCharge: GatewayCharge): AttemptResponse => ({
+  kind: 'charge',
+  gatewayCharge,
+});
 
 function attemptKeyOf({ id, gatewayAttemptKey }: Charge): string {
   if (!gatewayAttemptKey) {
@@ -89,10 +99,10 @@ export class ChargeProcessor {
   ) {}
 
   async process(target: AttemptTarget): Promise<ProcessedCharge> {
-    const gatewayCharge = await this.send(this.toGatewayAttempt(target));
-    return gatewayCharge
-      ? this.settle(target, gatewayCharge)
-      : this.unsettled(target);
+    const response = await this.send(this.toGatewayAttempt(target));
+    return response.kind === 'charge'
+      ? this.settle(target, response.gatewayCharge)
+      : this.unsettled(target, response.technicalFailure);
   }
 
   async retry(charge: Charge, retryNumber: number): Promise<ProcessedCharge> {
@@ -125,12 +135,21 @@ export class ChargeProcessor {
         this.clock.now(),
       ),
     );
-    if (!created) {
-      throw new ConflictError(
-        `Period of charge ${expired.id} already has a live charge`,
-      );
+    if (created) return this.process({ ...target, charge: created });
+    const live = await this.charges.findLiveByPeriod(
+      expired.subscriptionId,
+      expired.periodStart,
+    );
+    if (live?.status === 'pending' && live.retryCount === retryNumber) {
+      return this.reconcileLeased({ ...target, charge: live });
     }
-    return this.process({ ...target, charge: created });
+    throw new ConflictError(
+      `Period of charge ${expired.id} already has a live charge`,
+    );
+  }
+
+  async resume(charge: Charge): Promise<ProcessedCharge> {
+    return this.reconcileLeased(await this.resolveTarget(charge));
   }
 
   async reconcile(charge: Charge): Promise<ProcessedCharge> {
@@ -162,8 +181,7 @@ export class ChargeProcessor {
         attemptKeyOf(charge),
       );
     } catch (error) {
-      this.abandon(charge, error);
-      return this.unsettled(target);
+      return this.unsettled(target, this.abandon(charge, error));
     }
     return existing ? this.settle(target, existing) : this.process(target);
   }
@@ -194,29 +212,38 @@ export class ChargeProcessor {
     return { ...target, idempotencyKey: attemptKeyOf(target.charge) };
   }
 
-  private async send(attempt: GatewayAttempt): Promise<GatewayCharge | null> {
+  private async send(attempt: GatewayAttempt): Promise<AttemptResponse> {
     try {
       return await this.createGatewayCharge(
         attempt,
         attempt.customer.gatewayCustomerId,
-      );
+      ).then(toChargeResponse);
     } catch (error) {
       if (error instanceof GatewayCustomerNotFoundError) {
         return this.sendToRecreatedCustomer(attempt);
       }
-      return this.abandon(attempt.charge, error);
+      return this.unsettledResponse(attempt.charge, error);
     }
   }
 
   private async sendToRecreatedCustomer(
     attempt: GatewayAttempt,
-  ): Promise<GatewayCharge | null> {
+  ): Promise<AttemptResponse> {
     try {
       const gatewayCustomerId = await this.recreateGatewayCustomer(attempt);
-      return await this.createGatewayCharge(attempt, gatewayCustomerId);
+      return toChargeResponse(
+        await this.createGatewayCharge(attempt, gatewayCustomerId),
+      );
     } catch (error) {
-      return this.abandon(attempt.charge, error);
+      return this.unsettledResponse(attempt.charge, error);
     }
+  }
+
+  private unsettledResponse(charge: Charge, error: unknown): AttemptResponse {
+    return {
+      kind: 'unsettled',
+      technicalFailure: this.abandon(charge, error),
+    };
   }
 
   private async recreateGatewayCustomer({
@@ -251,11 +278,16 @@ export class ChargeProcessor {
     );
   }
 
-  private abandon(charge: Charge, error: unknown): null {
+  private abandon(
+    charge: Charge,
+    error: unknown,
+  ): GatewayUnavailableError | null {
     const outcome = `charge ${charge.id} left pending for reconciliation`;
     if (error instanceof GatewayUnavailableError) {
       this.logger.warn(`Gateway unavailable; ${outcome}`);
-    } else if (error instanceof GatewayOutcomeUnknownError) {
+      return error;
+    }
+    if (error instanceof GatewayOutcomeUnknownError) {
       this.logger.warn(`Gateway outcome unknown; ${outcome}`);
     } else {
       this.logger.error(
@@ -266,8 +298,11 @@ export class ChargeProcessor {
     return null;
   }
 
-  private unsettled({ charge, subscription }: AttemptTarget): ProcessedCharge {
-    return { charge, subscription, failureReason: null };
+  private unsettled(
+    { charge, subscription }: AttemptTarget,
+    technicalFailure: GatewayUnavailableError | null = null,
+  ): ProcessedCharge {
+    return { charge, subscription, failureReason: null, technicalFailure };
   }
 
   private async settle(
@@ -368,6 +403,7 @@ export class ChargeProcessor {
       charge: current.charge,
       subscription: current.subscription,
       failureReason,
+      technicalFailure: null,
     };
   }
 

@@ -1,5 +1,8 @@
 import { Logger } from '@nestjs/common';
-import { GatewayUnavailableError } from '../../gateway/index.js';
+import {
+  GatewayOutcomeUnknownError,
+  GatewayUnavailableError,
+} from '../../gateway/index.js';
 import { StubPaymentGateway } from '../../gateway/testing/stub-payment-gateway.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import { RecordingBillingQueue } from '../billing-queue/testing/recording-billing-queue.js';
@@ -202,12 +205,106 @@ describe('ChargeRetryRunner', () => {
     ]);
   });
 
-  it('leaves the charge pending when the gateway is unavailable', async () => {
-    await seedFailedCharge();
-    gateway.failChargeCreationWith(new GatewayUnavailableError('down'));
+  describe('technical failures', () => {
+    const unavailableOnce = () =>
+      gateway.failChargeCreationWith(new GatewayUnavailableError('down'), {
+        times: 1,
+      });
+    const runIgnoringFailure = () =>
+      runner.run({ chargeId: 'ch_1', attempt: 1 }).catch(() => undefined);
 
-    await runner.run({ chargeId: 'ch_1', attempt: 1 });
+    it('rethrows an unavailable gateway so the queue backs off, without counting a customer attempt or advancing the calendar', async () => {
+      await seedFailedCharge();
+      unavailableOnce();
 
-    expect(billing.charges()[0]?.status).toBe('pending');
+      await expect(
+        runner.run({ chargeId: 'ch_1', attempt: 1 }),
+      ).rejects.toBeInstanceOf(GatewayUnavailableError);
+
+      expect(billing.charges()[0]).toMatchObject({
+        status: 'pending',
+        retryCount: 1,
+        attemptCount: 0,
+      });
+      expect(billing.attempts()).toEqual([]);
+      expect(queue.scheduled()).toEqual([]);
+    });
+
+    it('resumes the same attempt on the next delivery with the same idempotency key', async () => {
+      await seedFailedCharge();
+      unavailableOnce();
+      await runIgnoringFailure();
+
+      await runner.run({ chargeId: 'ch_1', attempt: 1 });
+
+      expect(billing.charges()[0]).toMatchObject({
+        status: 'paid',
+        retryCount: 1,
+        attemptCount: 1,
+      });
+      expect(
+        gateway.chargesRequested.map(({ idempotencyKey }) => idempotencyKey),
+      ).toEqual(['ch_1:1', 'ch_1:1']);
+      expect((await subscriptions.findById('sub_1'))?.status).toBe('active');
+    });
+
+    it('moves on the calendar normally when a technical failure is followed by a decline', async () => {
+      await seedFailedCharge();
+      unavailableOnce();
+      gateway.respondWith({ status: 'failed', failureReason: 'expired_card' });
+      await runIgnoringFailure();
+
+      await runner.run({ chargeId: 'ch_1', attempt: 1 });
+
+      expect(billing.charges()[0]).toMatchObject({
+        status: 'failed',
+        retryCount: 1,
+      });
+      expect(queue.scheduled()).toEqual([
+        { chargeId: 'ch_1', attempt: 2, delayMs: 2 * dayMs },
+      ]);
+    });
+
+    it('does not blindly reprocess an unknown outcome: the job completes and the charge waits for reconciliation', async () => {
+      await seedFailedCharge();
+      gateway.failChargeCreationWith(
+        new GatewayOutcomeUnknownError('timeout'),
+        {
+          times: 1,
+          afterProcessing: true,
+        },
+      );
+
+      await expect(
+        runner.run({ chargeId: 'ch_1', attempt: 1 }),
+      ).resolves.toBeUndefined();
+
+      expect(billing.charges()[0]).toMatchObject({
+        status: 'pending',
+        retryCount: 1,
+      });
+      expect(gateway.chargesRequested).toHaveLength(1);
+      expect(queue.scheduled()).toEqual([]);
+    });
+
+    it('resumes a pix reissue that hit an unavailable gateway instead of issuing another charge', async () => {
+      await seedFailedCharge('pix');
+      unavailableOnce();
+
+      await expect(
+        runner.run({ chargeId: 'ch_1', attempt: 1 }),
+      ).rejects.toBeInstanceOf(GatewayUnavailableError);
+      await runner.run({ chargeId: 'ch_1', attempt: 1 });
+
+      expect(billing.charges().map(({ status }) => status)).toEqual([
+        'expired',
+        'pending',
+      ]);
+      expect(
+        new Set(
+          gateway.chargesRequested.map(({ idempotencyKey }) => idempotencyKey),
+        ).size,
+      ).toBe(1);
+    });
   });
 });

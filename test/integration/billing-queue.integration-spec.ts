@@ -5,6 +5,8 @@ import {
   BULLMQ_PRODUCER_REDIS_OPTIONS,
   BULLMQ_REDIS_OPTIONS,
   ENQUEUE_TIMEOUT_MS,
+  TECHNICAL_RETRY_ATTEMPTS,
+  TECHNICAL_RETRY_BACKOFF_MS,
 } from '../../src/modules/billing-queue/billing-queue.options.js';
 import { BullMqBillingQueue } from '../../src/modules/billing-queue/bullmq-billing-queue.js';
 import type { ChargeRetryJobData } from '../../src/modules/billing-queue/bullmq-billing-queue.js';
@@ -130,6 +132,55 @@ describe('BullMqBillingQueue (integration)', () => {
     const job = await queue.getJob(retryJobId('ch_01abc', 1));
     expect(await job?.getState()).toBe('waiting');
     expect(await queue.getJobCountByTypes('delayed', 'waiting')).toBe(1);
+  });
+
+  it('gives retry jobs technical attempts with exponential backoff', async () => {
+    await billingQueue.scheduleRetry({
+      chargeId: 'ch_01abc',
+      attempt: 1,
+      delayMs: FAR_FUTURE_MS,
+    });
+
+    const job = await queue.getJob(retryJobId('ch_01abc', 1));
+
+    expect(job?.opts).toMatchObject({
+      attempts: TECHNICAL_RETRY_ATTEMPTS,
+      backoff: { type: 'exponential', delay: TECHNICAL_RETRY_BACKOFF_MS },
+    });
+  });
+
+  it('re-runs a job that throws with backoff and keeps it as failed once the attempts are exhausted', async () => {
+    let runs = 0;
+    workers.push(
+      new Worker<ChargeRetryJobData>(
+        queueName,
+        async () => {
+          runs += 1;
+          throw new Error('gateway unavailable');
+        },
+        { connection, prefix: 'bull-test' },
+      ),
+    );
+
+    await queue.add(
+      'charge-retry',
+      { chargeId: 'ch_01abc', attempt: 1 },
+      {
+        jobId: 'retry:ch_01abc:1',
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 20 },
+      },
+    );
+
+    await vi.waitFor(
+      async () => {
+        const job = await queue.getJob('retry:ch_01abc:1');
+        expect(await job?.getState()).toBe('failed');
+      },
+      { timeout: 10_000 },
+    );
+    expect(runs).toBe(3);
+    expect(await queue.getFailedCount()).toBe(1);
   });
 
   describe('with Redis down', () => {

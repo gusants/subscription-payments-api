@@ -115,6 +115,32 @@ describe('FakeGatewayAdapter', () => {
       expect(statuses).toEqual(['failed', 'paid', 'paid']);
     });
 
+    it('times out tok_timeout_then_success on the first call of an external ref without storing a charge, then approves', async () => {
+      await expect(
+        gateway.createCharge(charge('tok_timeout_then_success')),
+      ).rejects.toBeInstanceOf(GatewayUnavailableError);
+      expect(await store.read((data) => data.charges.length)).toBe(0);
+
+      const second = await gateway.createCharge(
+        charge('tok_timeout_then_success'),
+      );
+      const third = await gateway.createCharge(
+        charge('tok_timeout_then_success'),
+      );
+
+      expect([second.status, third.status]).toEqual(['paid', 'paid']);
+    });
+
+    it('times out tok_timeout_then_success once per external ref', async () => {
+      await gateway
+        .createCharge(charge('tok_timeout_then_success', 'chg_1'))
+        .catch(() => undefined);
+
+      await expect(
+        gateway.createCharge(charge('tok_timeout_then_success', 'chg_2')),
+      ).rejects.toBeInstanceOf(GatewayUnavailableError);
+    });
+
     it('counts attempts independently per external ref', async () => {
       await gateway.createCharge(charge('tok_fail_then_success', 'chg_1'));
       await gateway.createCharge(charge('tok_fail_then_success', 'chg_1'));

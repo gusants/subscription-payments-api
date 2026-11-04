@@ -191,7 +191,7 @@ describe('Gateway and charging flows (e2e)', () => {
       expect(await prisma.paymentAttempt.count()).toBe(0);
     });
 
-    it('keeps the charge pending and the subscription past_due when the queued retry cannot reach the gateway', async () => {
+    it('fails the queued retry for the queue to back off while keeping the charge pending and the subscription past_due', async () => {
       gateway.respondWith({
         status: 'failed',
         failureReason: 'insufficient_funds',
@@ -201,7 +201,9 @@ describe('Gateway and charging flows (e2e)', () => {
       gateway.failChargeCreationWith(new GatewayUnavailableError('down'));
 
       await http().post(`/charges/${chargeId}/retry`).expect(202);
-      await runRetryJob(app, chargeId, 1);
+      await expect(runRetryJob(app, chargeId, 1)).rejects.toBeInstanceOf(
+        GatewayUnavailableError,
+      );
 
       expect(
         await prisma.charge.findUniqueOrThrow({ where: { id: chargeId } }),

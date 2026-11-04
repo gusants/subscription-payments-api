@@ -65,12 +65,13 @@ export function dunningStepAfterFailure(input: DunningStepInput): DunningStep {
   };
 }
 
-export type DunningRetryKind = 'resubmit' | 'reissue';
+export type DunningRetryKind = 'resubmit' | 'reissue' | 'resume';
 
 export function dunningRetryKind(
   { status, retryCount }: Pick<Charge, 'status' | 'retryCount'>,
   attempt: number,
 ): DunningRetryKind | null {
+  if (status === 'pending') return retryCount === attempt ? 'resume' : null;
   if (retryCount !== attempt - 1) return null;
   if (status === 'failed') return 'resubmit';
   if (status === 'expired') return 'reissue';

@@ -809,6 +809,70 @@ describe('ChargeProcessor', () => {
     });
   });
 
+  describe('technical failures', () => {
+    it('reports an unavailable gateway as a technical failure and leaves the charge pending', async () => {
+      const { target } = await seed();
+      const unavailable = new GatewayUnavailableError('down');
+      gateway.failChargeCreationWith(unavailable);
+
+      const processed = await processor.process(target);
+
+      expect(processed.technicalFailure).toBe(unavailable);
+      expect(processed.charge.status).toBe('pending');
+      expect(billing.attempts()).toEqual([]);
+    });
+
+    it('does not report an unknown outcome as a technical failure', async () => {
+      const { target } = await seed();
+      gateway.failChargeCreationWith(new GatewayOutcomeUnknownError('timeout'));
+
+      const processed = await processor.process(target);
+
+      expect(processed.technicalFailure).toBeNull();
+      expect(processed.charge.status).toBe('pending');
+    });
+
+    it('reports an unavailable lookup while resuming as a technical failure', async () => {
+      const { charge } = await seed();
+      gateway.failLookupWith(new GatewayUnavailableError('down'));
+
+      const processed = await processor.resume(charge);
+
+      expect(processed.technicalFailure).toBeInstanceOf(
+        GatewayUnavailableError,
+      );
+      expect(gateway.chargesRequested).toEqual([]);
+    });
+
+    it('settles from the gateway charge found by the attempt key when resuming', async () => {
+      const { target } = await seed();
+      gateway.failChargeCreationWith(
+        new GatewayOutcomeUnknownError('timeout'),
+        {
+          times: 1,
+          afterProcessing: true,
+        },
+      );
+      await processor.process(target);
+
+      const processed = await processor.resume(storedCharge());
+
+      expect(processed.charge.status).toBe('paid');
+      expect(gateway.chargesRequested).toHaveLength(1);
+    });
+
+    it('re-sends the same attempt key when the gateway never received it', async () => {
+      const { charge } = await seed();
+
+      const processed = await processor.resume(charge);
+
+      expect(processed.charge.status).toBe('paid');
+      expect(gateway.chargesRequested.map((r) => r.idempotencyKey)).toEqual([
+        'ch_1:1',
+      ]);
+    });
+  });
+
   describe('dunning', () => {
     const dayMs = 24 * 60 * 60 * 1000;
     const declined = () =>
@@ -973,11 +1037,21 @@ describe('ChargeProcessor', () => {
         });
       });
 
-      it('rejects reissuing when the period already has a live charge', async () => {
+      it('resumes the live charge of the same retry instead of issuing a second one', async () => {
+        const expired = await expireRenewal();
+        const first = await processor.reissue(expired, 1);
+
+        const again = await processor.reissue(expired, 1);
+
+        expect(again.charge.id).toBe(first.charge.id);
+        expect(billing.charges()).toHaveLength(2);
+      });
+
+      it('rejects reissuing when the period already has a live charge of another retry', async () => {
         const expired = await expireRenewal();
         await processor.reissue(expired, 1);
 
-        await expect(processor.reissue(expired, 1)).rejects.toBeInstanceOf(
+        await expect(processor.reissue(expired, 2)).rejects.toBeInstanceOf(
           ConflictError,
         );
         expect(billing.charges()).toHaveLength(2);

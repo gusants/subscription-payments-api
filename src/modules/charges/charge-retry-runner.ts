@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DomainError } from '../../shared/errors/index.js';
-import { ChargeProcessor } from './charge-processor.js';
+import type { Charge } from './charge.js';
+import { ChargeProcessor, type ProcessedCharge } from './charge-processor.js';
 import { ChargesRepository } from './charges.repository.js';
-import { dunningRetryKind } from './domain/index.js';
+import { dunningRetryKind, type DunningRetryKind } from './domain/index.js';
 
 export interface DunningRetryRequest {
   chargeId: string;
@@ -34,9 +35,8 @@ export class ChargeRetryRunner {
       return;
     }
     try {
-      await (kind === 'resubmit'
-        ? this.processor.retry(found.charge, attempt)
-        : this.processor.reissue(found.charge, attempt));
+      const processed = await this.start(kind, found.charge, attempt);
+      if (processed.technicalFailure) throw processed.technicalFailure;
     } catch (error) {
       if (error instanceof DomainError && !error.transient) {
         this.logger.warn(
@@ -45,6 +45,21 @@ export class ChargeRetryRunner {
         return;
       }
       throw error;
+    }
+  }
+
+  private start(
+    kind: DunningRetryKind,
+    charge: Charge,
+    attempt: number,
+  ): Promise<ProcessedCharge> {
+    switch (kind) {
+      case 'resubmit':
+        return this.processor.retry(charge, attempt);
+      case 'reissue':
+        return this.processor.reissue(charge, attempt);
+      case 'resume':
+        return this.processor.resume(charge);
     }
   }
 }

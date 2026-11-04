@@ -31,6 +31,21 @@ export class InMemoryChargesRepository extends ChargesRepository {
     return subscription ? { charge, subscription } : null;
   }
 
+  findLiveByPeriod(
+    subscriptionId: string,
+    periodStart: Date,
+  ): Promise<Charge | null> {
+    const live = this.billing
+      .charges()
+      .find(
+        (charge) =>
+          charge.subscriptionId === subscriptionId &&
+          charge.periodStart.getTime() === periodStart.getTime() &&
+          charge.status !== 'expired',
+      );
+    return Promise.resolve(live ?? null);
+  }
+
   findWithAttempts(id: string): Promise<ChargeWithAttempts | null> {
     const charge = this.billing.charges().find((found) => found.id === id);
     return Promise.resolve(charge ? this.withAttempts(charge) : null);

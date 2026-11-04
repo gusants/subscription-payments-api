@@ -142,10 +142,17 @@ describe('dunningRetryKind', () => {
     );
   });
 
+  it('resumes a pending charge whose retry already started', () => {
+    expect(dunningRetryKind({ status: 'pending', retryCount: 2 }, 2)).toBe(
+      'resume',
+    );
+  });
+
   it.each([
     ['failed', 2, 2],
     ['failed', 0, 2],
-    ['pending', 0, 1],
+    ['pending', 0, 2],
+    ['pending', 2, 1],
     ['paid', 0, 1],
     ['uncollectible', 0, 1],
   ] as const)(

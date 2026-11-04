@@ -93,6 +93,51 @@ describe('PrismaChargesRepository (integration)', () => {
     });
   }
 
+  describe('findLiveByPeriod', () => {
+    it('ignores expired charges and returns the live one of the period', async () => {
+      const customer = await createCustomer('ana@example.com');
+      const subscription = await createSubscription(customer.id);
+      await prisma.charge.create({
+        data: {
+          id: generateId(ID_PREFIXES.charge),
+          subscriptionId: subscription.id,
+          amountCents: 1990,
+          method: 'pix',
+          status: 'expired',
+          dueDate: day(0),
+          periodStart: day(0),
+          periodEnd: day(30),
+        },
+      });
+      const live = await createCharge(subscription.id, day(2));
+
+      const found = await repository.findLiveByPeriod(subscription.id, day(0));
+
+      expect(found?.id).toBe(live.id);
+    });
+
+    it('returns null when the period has only expired charges', async () => {
+      const customer = await createCustomer('ana@example.com');
+      const subscription = await createSubscription(customer.id);
+      await prisma.charge.create({
+        data: {
+          id: generateId(ID_PREFIXES.charge),
+          subscriptionId: subscription.id,
+          amountCents: 1990,
+          method: 'pix',
+          status: 'expired',
+          dueDate: day(0),
+          periodStart: day(0),
+          periodEnd: day(30),
+        },
+      });
+
+      expect(
+        await repository.findLiveByPeriod(subscription.id, day(0)),
+      ).toBeNull();
+    });
+  });
+
   describe('findWithSubscription', () => {
     it('returns the charge with its subscription', async () => {
       const customer = await createCustomer('ana@example.com');

@@ -3,6 +3,7 @@ import type { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../shared/database/prisma.service.js';
 import type { PageWindow } from '../customers/customer.js';
 import type {
+  Charge,
   ChargePage,
   ChargeWithAttempts,
   ChargeWithSubscription,
@@ -37,6 +38,16 @@ export class PrismaChargesRepository extends ChargesRepository {
     if (!found) return null;
     const { subscription, ...charge } = found;
     return { charge: toCharge(charge), subscription };
+  }
+
+  async findLiveByPeriod(
+    subscriptionId: string,
+    periodStart: Date,
+  ): Promise<Charge | null> {
+    const found = await this.prisma.charge.findFirst({
+      where: { subscriptionId, periodStart, status: { not: 'expired' } },
+    });
+    return found && toCharge(found);
   }
 
   async findWithAttempts(id: string): Promise<ChargeWithAttempts | null> {

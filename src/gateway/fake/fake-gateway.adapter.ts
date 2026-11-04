@@ -40,6 +40,7 @@ const declined = (failureReason: GatewayFailureReason): ChargeOutcome => ({
 });
 
 const FIRST_ATTEMPT = 1;
+const TIMEOUT_THEN_SUCCESS_TOKEN = 'tok_timeout_then_success';
 
 function decideOutcome(cardToken: string, attempt: number): ChargeOutcome {
   switch (cardToken) {
@@ -51,6 +52,8 @@ function decideOutcome(cardToken: string, attempt: number): ChargeOutcome {
       return declined('expired_card');
     case 'tok_fail_then_success':
       return attempt === FIRST_ATTEMPT ? declined('insufficient_funds') : PAID;
+    case TIMEOUT_THEN_SUCCESS_TOKEN:
+      return PAID;
     default:
       return declined('invalid_token');
   }
@@ -58,6 +61,8 @@ function decideOutcome(cardToken: string, attempt: number): ChargeOutcome {
 
 @Injectable()
 export class FakeGatewayAdapter extends PaymentGateway {
+  private readonly timedOutExternalRefs = new Set<string>();
+
   constructor(
     private readonly store: FakeGatewayStore,
     private readonly clock: Clock,
@@ -85,6 +90,11 @@ export class FakeGatewayAdapter extends PaymentGateway {
   }
 
   createCharge(input: CreateGatewayCharge): Promise<GatewayCharge> {
+    if (this.shouldTimeOut(input)) {
+      return Promise.reject(
+        new GatewayUnavailableError('Fake gateway timed out'),
+      );
+    }
     const id = generateId(ID_PREFIXES.gatewayCharge);
     const createdAt = this.clock.now().toISOString();
     return this.guarded(async () => {
@@ -185,6 +195,18 @@ export class FakeGatewayAdapter extends PaymentGateway {
           paymentInstructions: boletoInstructions(id),
         };
     }
+  }
+
+  private shouldTimeOut(input: CreateGatewayCharge): boolean {
+    if (
+      input.method !== 'card' ||
+      input.cardToken !== TIMEOUT_THEN_SUCCESS_TOKEN
+    ) {
+      return false;
+    }
+    if (this.timedOutExternalRefs.has(input.externalRef)) return false;
+    this.timedOutExternalRefs.add(input.externalRef);
+    return true;
   }
 
   private expiresAt(durationMs: number): string {
