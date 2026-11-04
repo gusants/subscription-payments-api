@@ -3,7 +3,7 @@ import type { ChargeStatus } from './charge-status.js';
 import type {
   AttachedGatewayCharge,
   Charge,
-  ChargeOutcomeRecord,
+  ChargeSettlementRecord,
   GatewayAttempt,
   NewCharge,
   RecordedOutcome,
@@ -34,6 +34,6 @@ export abstract class BillingRepository {
   ): Promise<Charge | null>;
 
   abstract recordChargeOutcome(
-    record: ChargeOutcomeRecord,
+    record: ChargeSettlementRecord,
   ): Promise<RecordedOutcome>;
 }

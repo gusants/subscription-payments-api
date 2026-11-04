@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../shared/database/prisma.service.js';
-import { applyChargeOutcome } from '../charges/prisma-billing.repository.js';
-import { toCharge } from '../charges/prisma-charge.mapper.js';
+import { applyChargeOutcome, toCharge } from '../charges/index.js';
 import type {
   IncomingWebhookEvent,
   WebhookDecider,
