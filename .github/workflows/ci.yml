@@ -42,6 +42,15 @@ jobs:
       - name: Unit tests with coverage
         run: pnpm test:cov
 
+      - name: Upload coverage summary
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-summary
+          path: coverage/coverage-summary.json
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Integration tests (Testcontainers)
         run: pnpm test:integration
 
@@ -55,3 +64,57 @@ jobs:
         run: |
           pnpm openapi:export
           git diff --exit-code openapi.json
+
+  # Reuses the coverage already produced by `quality` (test:cov) via artifact,
+  # so there is no second test run. Only job with write access.
+  coverage-badge:
+    name: Publish coverage badge
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: coverage-badge
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: coverage-summary
+          path: coverage
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Generate badge JSON
+        run: node .github/scripts/coverage-badge.mjs coverage/coverage-summary.json "$RUNNER_TEMP/coverage-badge.json"
+
+      - name: Publish to badges branch
+        env:
+          BADGE_FILE: ${{ runner.temp }}/coverage-badge.json
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          workdir="$(mktemp -d)"
+          cd "$workdir"
+          git init --quiet
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch --quiet --depth=1 "$remote" badges; then
+            git checkout --quiet -B badges FETCH_HEAD
+          else
+            git checkout --quiet --orphan badges
+          fi
+          cp "$BADGE_FILE" coverage-badge.json
+          git add coverage-badge.json
+          if git diff --cached --quiet; then
+            echo "Badge unchanged; nothing to publish."
+            exit 0
+          fi
+          git commit --quiet -m "chore: update coverage badge"
+          git push "$remote" HEAD:badges

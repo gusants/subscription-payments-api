@@ -10,6 +10,7 @@ export default defineConfig({
     include: ['**/*.spec.ts'],
     coverage: {
       provider: 'v8',
+      reporter: ['text', 'html', 'clover', 'json', 'json-summary'],
       include: ['src/**/*.ts'],
       exclude: [
         'src/generated/**',
