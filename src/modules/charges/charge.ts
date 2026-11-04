@@ -13,6 +13,8 @@ export interface Charge {
   method: PaymentMethod;
   status: ChargeStatus;
   gatewayChargeId: string | null;
+  gatewayAttemptKey: string | null;
+  attemptStartedAt: Date | null;
   attemptCount: number;
   nextRetryAt: Date | null;
   dueDate: Date;

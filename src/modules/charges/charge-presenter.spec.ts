@@ -43,6 +43,8 @@ describe('toChargeHistoryItemResponse', () => {
       method: 'card',
       status: 'failed',
       gatewayChargeId: 'gch_1',
+      gatewayAttemptKey: 'ch_1:1',
+      attemptStartedAt: at,
       attemptCount: 1,
       nextRetryAt: null,
       dueDate: at,

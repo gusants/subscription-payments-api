@@ -99,26 +99,35 @@ model Subscription {
   @@map("subscriptions")
 }
 
+enum ChargeFailureReason {
+  insufficient_funds
+  expired_card
+  invalid_token
+
+  @@map("charge_failure_reason")
+}
+
 model Charge {
-  id              String           @id
-  subscriptionId  String           @map("subscription_id")
-  amountCents     Int              @map("amount_cents")
-  method          PaymentMethod
-  status          ChargeStatus     @default(pending)
-  gatewayChargeId String?          @unique @map("gateway_charge_id")
-  attemptCount    Int              @default(0) @map("attempt_count")
-  nextRetryAt     DateTime?        @map("next_retry_at") @db.Timestamptz(3)
-  dueDate         DateTime         @map("due_date") @db.Timestamptz(3)
-  periodStart     DateTime         @map("period_start") @db.Timestamptz(3)
-  periodEnd       DateTime         @map("period_end") @db.Timestamptz(3)
-  paidAt          DateTime?        @map("paid_at") @db.Timestamptz(3)
-  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
-  subscription    Subscription     @relation(fields: [subscriptionId], references: [id])
-  attempts        PaymentAttempt[]
+  id                String           @id
+  subscriptionId    String           @map("subscription_id")
+  amountCents       Int              @map("amount_cents")
+  method            PaymentMethod
+  status            ChargeStatus     @default(pending)
+  gatewayChargeId   String?          @unique @map("gateway_charge_id")
+  gatewayAttemptKey String?          @unique @map("gateway_attempt_key")
+  attemptStartedAt  DateTime?        @map("attempt_started_at") @db.Timestamptz(3)
+  attemptCount      Int              @default(0) @map("attempt_count")
+  nextRetryAt       DateTime?        @map("next_retry_at") @db.Timestamptz(3)
+  dueDate           DateTime         @map("due_date") @db.Timestamptz(3)
+  periodStart       DateTime         @map("period_start") @db.Timestamptz(3)
+  periodEnd         DateTime         @map("period_end") @db.Timestamptz(3)
+  paidAt            DateTime?        @map("paid_at") @db.Timestamptz(3)
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  subscription      Subscription     @relation(fields: [subscriptionId], references: [id])
+  attempts          PaymentAttempt[]
 
   @@unique([subscriptionId, periodStart])
-  @@index([subscriptionId])
   @@index([status, nextRetryAt])
   @@map("charges")
 }
@@ -126,9 +135,9 @@ model Charge {
 model PaymentAttempt {
   id              String               @id
   chargeId        String               @map("charge_id")
-  gatewayChargeId String               @map("gateway_charge_id")
+  gatewayChargeId String               @unique @map("gateway_charge_id")
   result          PaymentAttemptResult
-  failureReason   String?              @map("failure_reason")
+  failureReason   ChargeFailureReason? @map("failure_reason")
   createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
   charge          Charge               @relation(fields: [chargeId], references: [id])
 

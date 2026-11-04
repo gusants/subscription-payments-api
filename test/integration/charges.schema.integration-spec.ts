@@ -149,13 +149,66 @@ describe('charges schema (integration)', () => {
 
     expect(indexes.map(({ indexname }) => indexname)).toEqual(
       expect.arrayContaining([
-        'charges_subscription_id_idx',
         'charges_status_next_retry_at_idx',
         'charges_subscription_id_period_start_key',
         'charges_gateway_charge_id_key',
+        'charges_gateway_attempt_key_key',
         'payment_attempts_charge_id_idx',
+        'payment_attempts_gateway_charge_id_key',
       ]),
     );
+    expect(indexes.map(({ indexname }) => indexname)).not.toContain(
+      'charges_subscription_id_idx',
+    );
+  });
+
+  it('rejects a duplicated gateway attempt key but allows many nulls', async () => {
+    await prisma.charge.create({
+      data: chargeData({ gatewayAttemptKey: 'ch_1:1' }),
+    });
+
+    await expect(
+      prisma.charge.create({
+        data: chargeData({
+          gatewayAttemptKey: 'ch_1:1',
+          periodStart: new Date('2026-02-28T00:00:00.000Z'),
+        }),
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+    await expect(
+      prisma.charge.create({
+        data: chargeData({
+          periodStart: new Date('2026-03-31T00:00:00.000Z'),
+        }),
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it('rejects two payment attempts for the same gateway charge', async () => {
+    const charge = await prisma.charge.create({ data: chargeData() });
+    const attempt = () =>
+      prisma.paymentAttempt.create({
+        data: {
+          id: generateId(ID_PREFIXES.paymentAttempt),
+          chargeId: charge.id,
+          gatewayChargeId: 'gch_1',
+          result: 'declined',
+          failureReason: 'insufficient_funds',
+        },
+      });
+    await attempt();
+
+    await expect(attempt()).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('rejects a failure reason outside the enum at the database', async () => {
+    const charge = await prisma.charge.create({ data: chargeData() });
+
+    await expect(
+      prisma.$executeRaw`
+        INSERT INTO payment_attempts (id, charge_id, gateway_charge_id, result, failure_reason)
+        VALUES ('pa_x', ${charge.id}, 'gch_x', 'declined', 'cosmic_rays')`,
+    ).rejects.toThrow();
   });
 
   it('stores every timestamp column with time zone', async () => {

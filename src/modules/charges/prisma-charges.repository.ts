@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '../../generated/prisma/client.js';
-import type { GatewayFailureReason } from '../../gateway/index.js';
 import { PrismaService } from '../../shared/database/prisma.service.js';
 import type { PageWindow } from '../customers/customer.js';
 import type {
@@ -19,13 +18,7 @@ type StoredCharge = Prisma.ChargeGetPayload<{ include: typeof withAttempts }>;
 const toChargeWithAttempts = ({
   attempts,
   ...charge
-}: StoredCharge): ChargeWithAttempts => ({
-  ...charge,
-  attempts: attempts.map((attempt) => ({
-    ...attempt,
-    failureReason: attempt.failureReason as GatewayFailureReason | null,
-  })),
-});
+}: StoredCharge): ChargeWithAttempts => ({ ...charge, attempts });
 
 @Injectable()
 export class PrismaChargesRepository extends ChargesRepository {

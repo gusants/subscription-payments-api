@@ -29,6 +29,8 @@ export class InMemoryBillingRepository extends BillingRepository {
       ...charge,
       status: 'pending',
       gatewayChargeId: null,
+      gatewayAttemptKey: null,
+      attemptStartedAt: null,
       attemptCount: 0,
       nextRetryAt: null,
       paidAt: null,
