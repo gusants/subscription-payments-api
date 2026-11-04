@@ -5,6 +5,7 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
+import { runWithinCorrelation } from '../../shared/correlation/index.js';
 import {
   FAKE_EXPIRATION_SWEEP,
   type FakeExpirationSweep,
@@ -23,7 +24,10 @@ export class FakeExpirationSweeper implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     if (this.sweep.intervalMs <= 0) return;
-    this.timer = setInterval(() => void this.run(), this.sweep.intervalMs);
+    this.timer = setInterval(
+      () => void runWithinCorrelation(() => this.run()),
+      this.sweep.intervalMs,
+    );
     this.timer.unref();
   }
 

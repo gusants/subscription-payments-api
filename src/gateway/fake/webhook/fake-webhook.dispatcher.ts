@@ -1,5 +1,9 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Clock } from '../../../shared/clock/index.js';
+import {
+  currentOrNewCorrelationId,
+  runWithCorrelationId,
+} from '../../../shared/correlation/index.js';
 import { toGatewayChargeJson } from '../../gateway-charge-json.js';
 import type { GatewayWebhookPayload } from '../../gateway-webhook-event.js';
 import { SIGNATURE_HEADER, sign } from '../../webhook-signature.js';
@@ -49,9 +53,7 @@ export class FakeWebhookDispatcher implements OnModuleInit {
         ),
       );
       for (const { id, attempts } of undelivered) {
-        this.scheduler.after(this.options.delayMs, () =>
-          this.attempt(id, attempts + 1),
-        );
+        this.deliverLater(this.options.delayMs, id, attempts + 1);
       }
     } catch (error) {
       this.logger.error(
@@ -64,7 +66,7 @@ export class FakeWebhookDispatcher implements OnModuleInit {
   schedule(events: readonly StoredGatewayEvent[]): void {
     if (!this.options.enabled) return;
     for (const { id } of events) {
-      this.scheduler.after(this.options.delayMs, () => this.attempt(id, 1));
+      this.deliverLater(this.options.delayMs, id, 1);
     }
   }
 
@@ -148,8 +150,17 @@ export class FakeWebhookDispatcher implements OnModuleInit {
       );
       return;
     }
-    this.scheduler.after(backoffAfter(attempt), () =>
-      this.attempt(eventId, attempt + 1),
+    this.deliverLater(backoffAfter(attempt), eventId, attempt + 1);
+  }
+
+  private deliverLater(
+    delayMs: number,
+    eventId: string,
+    attempt: number,
+  ): void {
+    const correlationId = currentOrNewCorrelationId();
+    this.scheduler.after(delayMs, () =>
+      runWithCorrelationId(correlationId, () => this.attempt(eventId, attempt)),
     );
   }
 }

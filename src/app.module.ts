@@ -14,6 +14,7 @@ import { DatabaseModule } from './shared/database/database.module.js';
 import { IdempotencyModule } from './shared/idempotency/idempotency.module.js';
 import { HttpModule } from './shared/http/http.module.js';
 import { LoggingModule } from './shared/logging/logging.module.js';
+import { CorrelationModule } from './shared/correlation/correlation.module.js';
 import { RedisModule } from './shared/redis/redis.module.js';
 
 @Module({
@@ -21,6 +22,7 @@ import { RedisModule } from './shared/redis/redis.module.js';
     AppConfigModule,
     ClockModule,
     LoggingModule,
+    CorrelationModule,
     DatabaseModule,
     RedisModule,
     IdempotencyModule,

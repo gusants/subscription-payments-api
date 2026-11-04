@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { currentCorrelationId } from '../../shared/correlation/index.js';
 import { FakeExpirationSweeper } from './fake-expiration-sweeper.js';
 import type { FakeGatewaySimulator } from './fake-gateway.simulator.js';
 
@@ -55,6 +56,25 @@ describe('FakeExpirationSweeper', () => {
     await vi.advanceTimersByTimeAsync(2000);
 
     expect(expireDue).toHaveBeenCalledTimes(2);
+    sweeper.onModuleDestroy();
+  });
+
+  it('runs every sweep within its own correlation id', async () => {
+    const seen: (string | undefined)[] = [];
+    expireDue.mockImplementation(() => {
+      seen.push(currentCorrelationId());
+      return Promise.resolve([]);
+    });
+    const sweeper = new FakeExpirationSweeper(simulator, { intervalMs: 1000 });
+
+    sweeper.onModuleInit();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(seen).toEqual([
+      expect.stringMatching(/^cor_/),
+      expect.stringMatching(/^cor_/),
+    ]);
+    expect(seen[0]).not.toBe(seen[1]);
     sweeper.onModuleDestroy();
   });
 });

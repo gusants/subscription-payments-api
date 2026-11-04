@@ -1,5 +1,6 @@
 import type { IncomingMessage } from 'node:http';
-import { buildPinoHttpOptions } from './pino-http-options.js';
+import { runWithCorrelationId } from '../correlation/index.js';
+import { buildPinoHttpOptions, correlationMixin } from './pino-http-options.js';
 
 function ignoresRequestTo(url: string) {
   const options = buildPinoHttpOptions({
@@ -47,5 +48,12 @@ describe('buildPinoHttpOptions', () => {
       'req.headers.authorization',
       'req.headers.cookie',
     ]);
+  });
+
+  it('stamps the correlation id of the current context on every line', () => {
+    expect(correlationMixin()).toEqual({});
+    expect(runWithCorrelationId('journey-0001', correlationMixin)).toEqual({
+      correlationId: 'journey-0001',
+    });
   });
 });

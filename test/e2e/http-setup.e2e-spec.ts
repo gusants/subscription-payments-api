@@ -86,4 +86,18 @@ describe('HTTP setup (e2e)', () => {
       message: 'Validation failed',
     });
   });
+
+  it('echoes a valid x-correlation-id and generates one otherwise', async () => {
+    const echoed = await request(app.getHttpServer())
+      .get('/plans')
+      .set('x-correlation-id', 'client-journey-0001')
+      .expect(200);
+    const replaced = await request(app.getHttpServer())
+      .get('/plans')
+      .set('x-correlation-id', 'no')
+      .expect(200);
+
+    expect(echoed.headers['x-correlation-id']).toBe('client-journey-0001');
+    expect(replaced.headers['x-correlation-id']).toMatch(/^cor_[0-9a-z]{26}$/);
+  });
 });

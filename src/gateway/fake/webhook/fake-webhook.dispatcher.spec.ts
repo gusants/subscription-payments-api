@@ -3,11 +3,16 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FixedClock } from '../../../shared/clock/testing/fixed-clock.js';
+import {
+  currentCorrelationId,
+  runWithCorrelationId,
+} from '../../../shared/correlation/index.js';
 import { gatewayWebhookPayloadSchema } from '../../gateway-webhook-event.js';
 import {
   buildFakeWebhookDispatcher,
   TEST_WEBHOOK_SECRET,
 } from '../../testing/build-fake-webhook-dispatcher.js';
+import type { RecordingWebhookTransport } from '../../testing/recording-webhook-transport.js';
 import { SequenceRandomSource } from '../../testing/sequence-random-source.js';
 import { SIGNATURE_HEADER, verify } from '../../webhook-signature.js';
 import {
@@ -346,6 +351,42 @@ describe('FakeWebhookDispatcher', () => {
       await scheduler.runNext();
 
       expect(transport.requests).toHaveLength(1);
+    });
+  });
+
+  describe('correlation', () => {
+    const correlationIdsOfPosts = (transport: RecordingWebhookTransport) => {
+      const seen: (string | undefined)[] = [];
+      const post = transport.post.bind(transport);
+      vi.spyOn(transport, 'post').mockImplementation((request) => {
+        seen.push(currentCorrelationId());
+        return post(request);
+      });
+      return seen;
+    };
+
+    it('delivers and resends within the correlation id of the scheduling context', async () => {
+      const event = await seed();
+      const { dispatcher, scheduler, transport } = build();
+      const seen = correlationIdsOfPosts(transport);
+      transport.respondWith(500, 200);
+
+      runWithCorrelationId('journey-0001', () => dispatcher.schedule([event]));
+      await scheduler.runNext();
+      await scheduler.runNext();
+
+      expect(seen).toEqual(['journey-0001', 'journey-0001']);
+    });
+
+    it('delivers within a generated correlation id when scheduled outside any context', async () => {
+      await seed();
+      const { dispatcher, scheduler, transport } = build();
+      const seen = correlationIdsOfPosts(transport);
+
+      await dispatcher.onModuleInit();
+      await scheduler.runNext();
+
+      expect(seen).toEqual([expect.stringMatching(/^cor_/)]);
     });
   });
 });
