@@ -71,6 +71,16 @@ export const envSchema = z.object({
   LLM_PROVIDER: z.enum(['fake', 'gemini']).default('fake'),
   LLM_MODEL: z.string().min(1).default('gemini-3.5-flash-lite'),
   LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
+  CUSTOMER_SUMMARY_CACHE_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(86400),
+  CUSTOMER_SUMMARY_FALLBACK_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30),
   GEMINI_API_KEY: z.string().min(1).optional(),
   OTEL_ENABLED: z.stringbool().default(false),
   OTEL_SERVICE_NAME: z.string().min(1).default('subscription-payments-api'),
