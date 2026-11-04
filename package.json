@@ -30,6 +30,7 @@
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "typecheck": "tsc --noEmit",
     "openapi:export": "nest build && node dist/tools/export-openapi.js && prettier --write openapi.json",
+    "db:seed": "nest build && node --env-file-if-exists=.env dist/tools/seed.js",
     "llm:smoke": "nest build && node --env-file-if-exists=.env dist/tools/llm-smoke.js",
     "db:up": "docker compose up -d --wait postgres redis",
     "db:down": "docker compose down",
