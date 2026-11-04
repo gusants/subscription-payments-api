@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { toCharge, type ChargeRow } from './prisma-charge.mapper.js';
 
 const row = (overrides: Partial<ChargeRow> = {}): ChargeRow => ({
@@ -35,9 +36,32 @@ describe('toCharge', () => {
     ).toEqual(stored);
   });
 
-  it('rejects stored instructions of an unknown shape', () => {
-    expect(() =>
-      toCharge(row({ paymentInstructions: { type: 'carrier-pigeon' } })),
-    ).toThrow();
+  describe('stored instructions of an unknown shape', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('exposes no instructions instead of failing the whole charge', () => {
+      vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+      const charge = toCharge(
+        row({ paymentInstructions: { type: 'carrier-pigeon' } }),
+      );
+
+      expect(charge).toMatchObject({ id: 'ch_1', paymentInstructions: null });
+    });
+
+    it('logs an error naming the charge', () => {
+      const error = vi
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      toCharge(row({ paymentInstructions: { type: 'carrier-pigeon' } }));
+
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining('ch_1'),
+        expect.any(String),
+      );
+    });
   });
 });
