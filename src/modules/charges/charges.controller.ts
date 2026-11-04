@@ -51,7 +51,7 @@ export class ChargesController {
   @ApiResponse({
     status: HttpStatus.ACCEPTED,
     description:
-      'A failed charge: the next dunning retry was queued to run now (same deterministic job as the scheduled retry, so it never runs twice) and the body shows the charge as it is at this moment, still failed. The worker settles it asynchronously; poll the customer charge history',
+      'A failed charge, or an expired pix/boleto charge that is the newest of its period (a new charge is issued for the period): the next dunning retry was queued to run now (same deterministic job as the scheduled retry, so it never runs twice) and the body shows the charge as it is at this moment, still failed or expired. The worker settles it asynchronously; poll the customer charge history',
     type: ChargeRetryResponseDto,
   })
   @ApiResponse({
@@ -63,7 +63,7 @@ export class ChargesController {
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description:
-      'The charge cannot be retried: it is paid, expired or uncollectible, its subscription is canceled, it has used its dunning retries, it was modified concurrently, or it is pending with an attempt still in flight within the lease (CHARGE_ATTEMPT_LEASE_SECONDS); or a request with the same Idempotency-Key is still being processed',
+      'The charge cannot be retried: it is paid or uncollectible, it is expired but superseded by a newer charge of the same period, its subscription is canceled, it has used its dunning retries, it was modified concurrently, or it is pending with an attempt still in flight within the lease (CHARGE_ATTEMPT_LEASE_SECONDS); or a request with the same Idempotency-Key is still being processed',
     type: ErrorResponseDto,
   })
   @ApiResponse({

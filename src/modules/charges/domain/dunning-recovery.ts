@@ -2,7 +2,7 @@ import {
   MAX_DUNNING_RETRIES,
   nextRetryAt,
   type RetryIntervalUnit,
-} from '../../billing-queue/domain/retry-schedule.js';
+} from './retry-schedule.js';
 
 export interface DunningFollowUpCutoff {
   retryCount: number;

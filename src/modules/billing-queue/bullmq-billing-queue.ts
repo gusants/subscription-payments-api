@@ -8,7 +8,7 @@ import {
   CHARGE_RETRY_JOB_OPTIONS,
   ENQUEUE_TIMEOUT_MS,
 } from './billing-queue.options.js';
-import { retryJobId } from './domain/retry-schedule.js';
+import { retryJobId } from './domain/retry-job-id.js';
 
 export const CHARGE_RETRY_JOB_NAME = 'charge-retry';
 

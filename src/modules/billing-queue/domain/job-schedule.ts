@@ -1,4 +1,4 @@
-import type { RetryIntervalUnit } from './retry-schedule.js';
+import type { RetryIntervalUnit } from '../../charges/domain/retry-schedule.js';
 
 const MILLISECONDS_PER_SECOND = 1000;
 

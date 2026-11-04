@@ -2,7 +2,7 @@ import {
   nextRetryAt,
   retryDelayMs,
   type RetryIntervalUnit,
-} from '../../billing-queue/domain/retry-schedule.js';
+} from './retry-schedule.js';
 import type { Subscription } from '../../subscriptions/subscription.js';
 import type { Charge, DunningExhaustion } from '../charge.js';
 import type { ChargeStatus } from '../charge-status.js';

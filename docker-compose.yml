@@ -18,6 +18,7 @@ services:
       DEV_ROUTES_ENABLED: "true"
       WORKERS_ENABLED: "true"
       RETRY_INTERVAL_UNIT: minutes
+      ALLOW_ACCELERATED_RETRIES: "true"
       GATEWAY_WEBHOOK_SECRET: ${GATEWAY_WEBHOOK_SECRET:-dev-only-gateway-webhook-secret-change-me}
     volumes:
       - fake-gateway-data:/app/data

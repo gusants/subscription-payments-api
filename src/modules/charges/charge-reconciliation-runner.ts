@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Clock } from '../../shared/clock/index.js';
-import type { RetryIntervalUnit } from '../billing-queue/domain/retry-schedule.js';
+import type { RetryIntervalUnit } from './domain/retry-schedule.js';
 import type { Charge, ChargeWithSubscription } from './charge.js';
 import { ChargeDunning } from './charge-dunning.js';
 import {

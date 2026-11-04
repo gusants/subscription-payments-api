@@ -2,7 +2,7 @@ import { getQueueToken } from '@nestjs/bullmq';
 import type { INestApplication } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
 import { CHARGE_RETRIES_QUEUE } from '../../src/modules/billing-queue/billing-queue.constants.js';
-import { retryJobId } from '../../src/modules/billing-queue/domain/retry-schedule.js';
+import { retryJobId } from '../../src/modules/billing-queue/domain/retry-job-id.js';
 import { ChargeRetryRunner } from '../../src/modules/charges/charge-retry-runner.js';
 
 export function findRetryJob(

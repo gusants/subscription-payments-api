@@ -29,7 +29,3 @@ export function nextRetryAt(
 export function retryDelayMs(now: Date, retryAt: Date): number {
   return Math.max(0, retryAt.getTime() - now.getTime());
 }
-
-export function retryJobId(chargeId: string, attempt: number): string {
-  return `retry:${chargeId}:${attempt}`;
-}

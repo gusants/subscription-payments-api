@@ -264,6 +264,54 @@ describe('ChargesService', () => {
       );
     });
 
+    async function expire(chargeId: string, subscriptionId: string) {
+      await billing.recordChargeOutcome({
+        charge: {
+          id: chargeId,
+          fromAnyOf: ['failed'],
+          to: 'expired',
+          gatewayChargeId: null,
+          paidAt: null,
+        },
+        attempt: null,
+        subscription: { id: subscriptionId, change: null },
+      });
+    }
+
+    it('queues the reissue of an expired charge like the dunning would', async () => {
+      await seedCustomer();
+      const { chargeId, subscriptionId } = await seedCharge();
+      await expire(chargeId, subscriptionId);
+
+      const result = await service.retry(chargeId);
+
+      expect(result.queued).toBe(true);
+      expect(queue.scheduled()).toEqual([{ chargeId, attempt: 1, delayMs: 0 }]);
+    });
+
+    it('rejects retrying an expired charge a newer charge of its period superseded', async () => {
+      await seedCustomer();
+      const { chargeId, subscriptionId } = await seedCharge();
+      await expire(chargeId, subscriptionId);
+      await billing.createPeriodCharge({
+        id: 'ch_newer',
+        subscriptionId,
+        amountCents: 1990,
+        method: 'card',
+        dueDate: periodStart,
+        periodStart,
+        periodEnd,
+        gatewayAttemptKey: 'ch_newer:1',
+        attemptStartedAt: periodStart,
+        retryCount: 1,
+      });
+
+      await expect(service.retry(chargeId)).rejects.toBeInstanceOf(
+        ConflictError,
+      );
+      expect(queue.scheduled()).toEqual([]);
+    });
+
     it('rejects retrying a paid charge without queueing', async () => {
       await seedCustomer();
       await seedCharge({

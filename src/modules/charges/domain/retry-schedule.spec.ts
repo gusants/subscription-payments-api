@@ -2,7 +2,6 @@ import {
   MAX_DUNNING_RETRIES,
   nextRetryAt,
   retryDelayMs,
-  retryJobId,
 } from './retry-schedule.js';
 
 const FAILED_AT = new Date('2026-01-30T10:15:00.000Z');
@@ -98,17 +97,5 @@ describe('retryDelayMs', () => {
 
   it('is zero when the retry is already overdue', () => {
     expect(retryDelayMs(now, new Date('2026-01-31T00:00:00.000Z'))).toBe(0);
-  });
-});
-
-describe('retryJobId', () => {
-  it('is deterministic for a charge and attempt', () => {
-    expect(retryJobId('ch_abc', 2)).toBe('retry:ch_abc:2');
-    expect(retryJobId('ch_abc', 2)).toBe(retryJobId('ch_abc', 2));
-  });
-
-  it('differs per attempt and per charge', () => {
-    expect(retryJobId('ch_abc', 1)).not.toBe(retryJobId('ch_abc', 2));
-    expect(retryJobId('ch_abc', 1)).not.toBe(retryJobId('ch_def', 1));
   });
 });

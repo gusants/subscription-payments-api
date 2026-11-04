@@ -127,6 +127,50 @@ describe('validateEnv', () => {
     ).toThrow(/RETRY_INTERVAL_UNIT/);
   });
 
+  describe('accelerated retries in production', () => {
+    const production = { ...validEnv, NODE_ENV: 'production' };
+
+    it('refuses minutes as the retry unit', () => {
+      expect(() =>
+        validateEnv({ ...production, RETRY_INTERVAL_UNIT: 'minutes' }),
+      ).toThrow(/RETRY_INTERVAL_UNIT=minutes.*ALLOW_ACCELERATED_RETRIES/);
+    });
+
+    it('accepts minutes when explicitly allowed', () => {
+      expect(
+        validateEnv({
+          ...production,
+          RETRY_INTERVAL_UNIT: 'minutes',
+          ALLOW_ACCELERATED_RETRIES: 'true',
+        }).RETRY_INTERVAL_UNIT,
+      ).toBe('minutes');
+    });
+
+    it('still refuses minutes when the override is false', () => {
+      expect(() =>
+        validateEnv({
+          ...production,
+          RETRY_INTERVAL_UNIT: 'minutes',
+          ALLOW_ACCELERATED_RETRIES: 'false',
+        }),
+      ).toThrow(/RETRY_INTERVAL_UNIT=minutes/);
+    });
+
+    it('accepts days', () => {
+      expect(validateEnv(production).RETRY_INTERVAL_UNIT).toBe('days');
+    });
+
+    it.each(['development', 'test'])('accepts minutes in %s', (nodeEnv) => {
+      expect(
+        validateEnv({
+          ...validEnv,
+          NODE_ENV: nodeEnv,
+          RETRY_INTERVAL_UNIT: 'minutes',
+        }).RETRY_INTERVAL_UNIT,
+      ).toBe('minutes');
+    });
+  });
+
   it('leaves BULL_BOARD_ENABLED undefined when unset', () => {
     expect(validateEnv(validEnv).BULL_BOARD_ENABLED).toBeUndefined();
   });

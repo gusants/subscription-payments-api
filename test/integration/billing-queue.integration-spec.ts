@@ -10,7 +10,7 @@ import {
 } from '../../src/modules/billing-queue/billing-queue.options.js';
 import { BullMqBillingQueue } from '../../src/modules/billing-queue/bullmq-billing-queue.js';
 import type { ChargeRetryJobData } from '../../src/modules/billing-queue/bullmq-billing-queue.js';
-import { retryJobId } from '../../src/modules/billing-queue/domain/retry-schedule.js';
+import { retryJobId } from '../../src/modules/billing-queue/domain/retry-job-id.js';
 import { createRedisConnection } from '../../src/shared/redis/create-redis-connection.js';
 
 const FAR_FUTURE_MS = 60 * 60 * 1000;

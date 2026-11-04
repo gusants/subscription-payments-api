@@ -11,7 +11,7 @@ import {
   type PaginationQuery,
 } from '../../shared/pagination/index.js';
 import { CustomersRepository } from '../customers/customers.repository.js';
-import { MAX_DUNNING_RETRIES } from '../billing-queue/domain/retry-schedule.js';
+import { MAX_DUNNING_RETRIES } from './domain/retry-schedule.js';
 import type { Subscription } from '../subscriptions/subscription.js';
 import type { ChargeWithAttempts, ChargeWithSubscription } from './charge.js';
 import { ChargeDunning } from './charge-dunning.js';
@@ -77,7 +77,11 @@ export class ChargesService {
     charge,
     subscription,
   }: ChargeWithSubscription): Promise<void> {
-    assertTransition(charge.status, 'pending');
+    if (charge.status === 'expired') {
+      await this.assertNewestOfPeriod(charge);
+    } else {
+      assertTransition(charge.status, 'pending');
+    }
     assertBillable(subscription);
     if (charge.retryCount >= MAX_DUNNING_RETRIES) {
       throw new ConflictError(
@@ -92,6 +96,22 @@ export class ChargesService {
         error instanceof Error ? error.stack : String(error),
       );
       throw new ServiceUnavailableError('Retry queue is unavailable');
+    }
+  }
+
+  private async assertNewestOfPeriod({
+    id,
+    subscriptionId,
+    periodStart,
+  }: ChargeWithSubscription['charge']): Promise<void> {
+    const newest = await this.charges.findNewestByPeriod(
+      subscriptionId,
+      periodStart,
+    );
+    if (newest && newest.id !== id) {
+      throw new ConflictError(
+        `Charge ${id} was superseded by charge ${newest.id} for the same period`,
+      );
     }
   }
 

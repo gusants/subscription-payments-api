@@ -43,6 +43,7 @@ export const envSchema = z.object({
     .default(0),
   FAKE_GATEWAY_WEBHOOK_DISPATCH_ENABLED: z.stringbool().default(true),
   RETRY_INTERVAL_UNIT: z.enum(['days', 'minutes']).default('days'),
+  ALLOW_ACCELERATED_RETRIES: z.stringbool().optional(),
   RENEWAL_JOB_INTERVAL_SECONDS: z.coerce.number().int().positive().optional(),
   RENEWAL_BATCH_SIZE: z.coerce.number().int().positive().max(1000).default(100),
   RECONCILIATION_JOB_INTERVAL_SECONDS: z.coerce
@@ -71,11 +72,28 @@ export const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+function isUnacknowledgedAcceleratedRetries({
+  NODE_ENV,
+  RETRY_INTERVAL_UNIT,
+  ALLOW_ACCELERATED_RETRIES,
+}: Env): boolean {
+  return (
+    NODE_ENV === 'production' &&
+    RETRY_INTERVAL_UNIT === 'minutes' &&
+    !ALLOW_ACCELERATED_RETRIES
+  );
+}
+
 export function validateEnv(rawEnv: Record<string, unknown>): Env {
   const result = envSchema.safeParse(rawEnv);
   if (!result.success) {
     throw new Error(
       `Invalid environment variables:\n${z.prettifyError(result.error)}`,
+    );
+  }
+  if (isUnacknowledgedAcceleratedRetries(result.data)) {
+    throw new Error(
+      'Invalid environment variables:\nRETRY_INTERVAL_UNIT=minutes compresses the dunning calendar (D+1, D+3, D+7) to minutes and is refused when NODE_ENV=production; set ALLOW_ACCELERATED_RETRIES=true to run it anyway (demo only)',
     );
   }
   return result.data;
