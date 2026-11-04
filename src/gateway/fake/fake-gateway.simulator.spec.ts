@@ -83,6 +83,21 @@ describe('FakeGatewaySimulator', () => {
       await expect(simulator.pay('ch_1')).rejects.toThrow(ConflictError);
     });
 
+    it.each(['pix', 'boleto'] as const)(
+      'refuses to pay a %s charge past its expiry before the sweep ran, expiring it and emitting the expired event',
+      async (method) => {
+        const created = await createCharge(method, 'ch_1');
+        clock.set(new Date(created.expiresAt!.getTime() + 1));
+
+        await expect(simulator.pay('ch_1')).rejects.toThrow(ConflictError);
+
+        expect((await gateway.getCharge(created.id)).status).toBe('expired');
+        const events = await store.read((data) => data.events);
+        expect(events.map(({ type }) => type)).toEqual(['charge.expired']);
+        expect(scheduler.delays).toHaveLength(1);
+      },
+    );
+
     it('answers conflict when the charge already expired', async () => {
       await createCharge('pix', 'ch_1');
       await simulator.expire('ch_1');

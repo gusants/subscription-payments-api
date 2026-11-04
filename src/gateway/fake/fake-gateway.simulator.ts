@@ -32,6 +32,10 @@ function findInvoiceCharge(
   return charge;
 }
 
+const hasLapsed = (charge: StoredGatewayCharge, at: Date): boolean =>
+  charge.expiresAt !== undefined &&
+  new Date(charge.expiresAt).getTime() <= at.getTime();
+
 @Injectable()
 export class FakeGatewaySimulator {
   constructor(
@@ -52,10 +56,7 @@ export class FakeGatewaySimulator {
     const at = this.clock.now();
     const { charges, events } = await this.store.transaction((data) => {
       const due = data.charges.filter(
-        (charge) =>
-          charge.status === 'pending' &&
-          charge.expiresAt !== undefined &&
-          new Date(charge.expiresAt).getTime() <= at.getTime(),
+        (charge) => charge.status === 'pending' && hasLapsed(charge, at),
       );
       for (const charge of due) charge.status = 'expired';
       return {
@@ -72,21 +73,28 @@ export class FakeGatewaySimulator {
     status: AsynchronousStatus,
   ): Promise<GatewayCharge> {
     const at = this.clock.now();
-    const { charge, events } = await this.store.transaction((data) => {
+    const { charge, events, lapsed } = await this.store.transaction((data) => {
       const found = findInvoiceCharge(data, externalRef);
       if (found.status !== 'pending') {
         throw new ConflictError(
           `Charge ${externalRef} is ${found.status}, not pending`,
         );
       }
-      found.status = status;
-      if (status === 'paid') found.paidAt = at.toISOString();
+      const lapsed = status === 'paid' && hasLapsed(found, at);
+      found.status = lapsed ? 'expired' : status;
+      if (found.status === 'paid') found.paidAt = at.toISOString();
       return {
         charge: toGatewayCharge(found),
         events: appendChargeEvents(data, [found], at),
+        lapsed,
       };
     });
     this.webhooks.schedule(events);
+    if (lapsed) {
+      throw new ConflictError(
+        `Charge ${externalRef} is past its expiry; it expired instead of being paid`,
+      );
+    }
     return charge;
   }
 }
