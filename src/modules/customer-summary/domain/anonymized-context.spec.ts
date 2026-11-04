@@ -1,0 +1,211 @@
+import {
+  buildAnonymizedContext,
+  customerAlias,
+  type ContextCharge,
+  type ContextSource,
+} from './anonymized-context.js';
+
+const metrics = {
+  monthsAsCustomer: 8,
+  totalPaidCents: 39920,
+  failedAttempts: 3,
+  averageDaysLate: 2.4,
+  paymentSuccessRate: 0.85,
+};
+
+function charge(overrides: Partial<ContextCharge> = {}): ContextCharge {
+  return {
+    status: 'paid',
+    method: 'card',
+    amountCents: 1990,
+    dueDate: new Date('2026-03-10T12:00:00.000Z'),
+    paidAt: new Date('2026-03-12T09:30:00.000Z'),
+    failureReason: null,
+    ...overrides,
+  };
+}
+
+function source(overrides: Partial<ContextSource> = {}): ContextSource {
+  return {
+    customerId: 'cus_01hzx3k9q2m8v7w6y5t4r3e2d1',
+    plan: { interval: 'monthly', amountCents: 1990 },
+    charges: [charge()],
+    metrics,
+    ...overrides,
+  };
+}
+
+describe('customerAlias', () => {
+  it('is stable for the same customer', () => {
+    expect(customerAlias('cus_a')).toBe(customerAlias('cus_a'));
+  });
+
+  it('differs between customers', () => {
+    expect(customerAlias('cus_a')).not.toBe(customerAlias('cus_b'));
+  });
+
+  it('has the customer_ prefix followed by 8 hex digits', () => {
+    expect(customerAlias('cus_a')).toMatch(/^customer_[0-9a-f]{8}$/);
+  });
+
+  it('does not contain the real id', () => {
+    const id = 'cus_01hzx3k9q2m8v7w6y5t4r3e2d1';
+
+    expect(customerAlias(id)).not.toContain(id.slice(4));
+    expect(customerAlias(id)).not.toContain('cus_');
+  });
+});
+
+describe('buildAnonymizedContext', () => {
+  it('carries the alias, the plan, the ready metrics and the timeline', () => {
+    expect(buildAnonymizedContext(source())).toEqual({
+      customerAlias: customerAlias('cus_01hzx3k9q2m8v7w6y5t4r3e2d1'),
+      plan: { interval: 'monthly', amountCents: 1990 },
+      metrics,
+      paymentTimeline: [
+        {
+          dueDate: '2026-03-10',
+          paidDate: '2026-03-12',
+          status: 'paid',
+          method: 'card',
+          amountCents: 1990,
+          failureReason: null,
+        },
+      ],
+    });
+  });
+
+  it('orders the timeline by due date, oldest first', () => {
+    const context = buildAnonymizedContext(
+      source({
+        charges: [
+          charge({ dueDate: new Date('2026-05-10T00:00:00.000Z') }),
+          charge({ dueDate: new Date('2026-03-10T00:00:00.000Z') }),
+          charge({ dueDate: new Date('2026-04-10T00:00:00.000Z') }),
+        ],
+      }),
+    );
+
+    expect(context.paymentTimeline.map((entry) => entry.dueDate)).toEqual([
+      '2026-03-10',
+      '2026-04-10',
+      '2026-05-10',
+    ]);
+  });
+
+  it('does not reorder the caller charges', () => {
+    const charges = [
+      charge({ dueDate: new Date('2026-05-10T00:00:00.000Z') }),
+      charge({ dueDate: new Date('2026-03-10T00:00:00.000Z') }),
+    ];
+
+    buildAnonymizedContext(source({ charges }));
+
+    expect(charges[0]!.dueDate.toISOString()).toBe('2026-05-10T00:00:00.000Z');
+  });
+
+  it('records the failure reason of an unpaid charge', () => {
+    const context = buildAnonymizedContext(
+      source({
+        charges: [
+          charge({
+            status: 'failed',
+            paidAt: null,
+            failureReason: 'insufficient_funds',
+          }),
+        ],
+      }),
+    );
+
+    expect(context.paymentTimeline[0]).toMatchObject({
+      status: 'failed',
+      paidDate: null,
+      failureReason: 'insufficient_funds',
+    });
+  });
+
+  it('handles a customer without charges or plan', () => {
+    const context = buildAnonymizedContext(source({ charges: [], plan: null }));
+
+    expect(context.paymentTimeline).toEqual([]);
+    expect(context.plan).toBeNull();
+  });
+
+  describe('personal data never reaches the context', () => {
+    const forbiddenValues = [
+      'Maria da Silva',
+      'maria@example.com',
+      '123.456.789-09',
+      'cus_01hzx3k9q2m8v7w6y5t4r3e2d1',
+      'sub_01hzx3k9q2m8v7w6y5t4r3e2d1',
+      'ch_01hzx3k9q2m8v7w6y5t4r3e2d1',
+      'gch_9f8e7d6c',
+      'gcus_9f8e7d6c',
+      'tok_success',
+      'Plano Premium Gold do João',
+    ];
+
+    function contaminatedSource(): ContextSource {
+      const contaminatedCharge = {
+        ...charge(),
+        id: 'ch_01hzx3k9q2m8v7w6y5t4r3e2d1',
+        subscriptionId: 'sub_01hzx3k9q2m8v7w6y5t4r3e2d1',
+        gatewayChargeId: 'gch_9f8e7d6c',
+        cardToken: 'tok_success',
+      };
+      const contaminated = {
+        ...source(),
+        plan: {
+          interval: 'monthly',
+          amountCents: 1990,
+          name: 'Plano Premium Gold do João',
+        },
+        charges: [contaminatedCharge],
+        name: 'Maria da Silva',
+        email: 'maria@example.com',
+        document: '123.456.789-09',
+        gatewayCustomerId: 'gcus_9f8e7d6c',
+      };
+      return contaminated as ContextSource;
+    }
+
+    it.each(forbiddenValues)('does not contain %s', (forbidden) => {
+      const serialized = JSON.stringify(
+        buildAnonymizedContext(contaminatedSource()),
+      );
+
+      expect(serialized).not.toContain(forbidden);
+    });
+
+    it('only exposes whitelisted keys', () => {
+      const context = buildAnonymizedContext(contaminatedSource());
+
+      expect(Object.keys(context).sort()).toEqual([
+        'customerAlias',
+        'metrics',
+        'paymentTimeline',
+        'plan',
+      ]);
+      expect(Object.keys(context.plan!).sort()).toEqual([
+        'amountCents',
+        'interval',
+      ]);
+      expect(Object.keys(context.paymentTimeline[0]!).sort()).toEqual([
+        'amountCents',
+        'dueDate',
+        'failureReason',
+        'method',
+        'paidDate',
+        'status',
+      ]);
+    });
+
+    it('contains no real id prefix anywhere in the payload', () => {
+      const serialized = JSON.stringify(
+        buildAnonymizedContext(contaminatedSource()),
+      );
+
+      expect(serialized).not.toMatch(/\b(cus|sub|ch|gch|gcus|plan|tok)_/);
+    });
+  });
+});
