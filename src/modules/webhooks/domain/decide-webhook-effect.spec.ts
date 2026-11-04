@@ -98,9 +98,9 @@ describe('decideWebhookEffect', () => {
   const MATRIX: [GatewayEventType, ChargeStatus, OutcomeName][] = [
     ['charge.paid', 'pending', 'applied'],
     ['charge.paid', 'paid', 'requires_refund'],
-    ['charge.paid', 'failed', 'rejected_out_of_order'],
+    ['charge.paid', 'failed', 'requires_refund'],
     ['charge.paid', 'expired', 'requires_refund'],
-    ['charge.paid', 'uncollectible', 'rejected_out_of_order'],
+    ['charge.paid', 'uncollectible', 'requires_refund'],
     ['charge.failed', 'pending', 'applied'],
     ['charge.failed', 'paid', 'rejected_out_of_order'],
     ['charge.failed', 'failed', 'rejected_out_of_order'],
@@ -286,11 +286,15 @@ describe('decideWebhookEffect', () => {
       });
     });
 
-    it('does not require a refund for a failed charge, where the state machine rejects it', () => {
-      expect(decide('charge.paid', target('failed')).outcome).toBe(
-        'rejected_out_of_order',
-      );
-    });
+    it.each(['failed', 'uncollectible'] as const)(
+      'requires a refund when the charge is %s',
+      (status) => {
+        expect(decide('charge.paid', target(status))).toEqual({
+          outcome: 'requires_refund',
+          refundRisk: { subscriptionId: 'sub_1' },
+        });
+      },
+    );
 
     it.each(['charge.failed', 'charge.expired'] as const)(
       'does not require a refund for %s on an expired charge',

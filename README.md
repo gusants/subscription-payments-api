@@ -95,7 +95,7 @@ Every gateway charge status change (card paid or failed on creation, pix or bole
 | `charge.paid` | `pending` | `applied`: charge `paid` (paid_at = the gateway charge `paidAt`, falling back to the event time), succeeded attempt, subscription `incomplete`/`past_due` to `active` |
 | `charge.paid` | `pending` on a `canceled` subscription | `applied`: charge `paid` (the money moved) and the subscription stays `canceled`; logged at ERROR with charge, subscription and gateway ids because a refund is due |
 | `charge.paid` | `paid` with the same gateway charge, or `pending` with that gateway charge already recorded as an attempt | `ignored_duplicate_state` |
-| `charge.paid` | `expired`, or `paid` with a different gateway charge (double capture) | `requires_refund`, logged at ERROR with charge, subscription and gateway ids, no effect (refunds are not implemented) |
+| `charge.paid` | `expired`, `failed`, `uncollectible`, or `paid` with a different gateway charge (double capture) | `requires_refund`, logged at ERROR with charge, subscription and gateway ids, no effect (refunds are not implemented) |
 | `charge.failed` | `pending` | `applied`: charge `failed`, declined attempt with the reason, subscription to `past_due` |
 | `charge.failed` | `failed` with the same gateway charge, or `pending` with that gateway charge already recorded as an attempt | `ignored_duplicate_state` |
 | `charge.expired` | `pending` | `applied`: charge `expired`; subscription `incomplete` (first charge, never paid) to `canceled` with `canceled_at`, `active` (renewal) to `past_due`; no attempt |

@@ -59,13 +59,19 @@ function disagreesWithOurRecords(
   );
 }
 
+const STATUSES_THAT_NEVER_ACCEPT_A_PAYMENT: readonly ChargeStatus[] = [
+  'expired',
+  'failed',
+  'uncollectible',
+];
+
 function capturesMoneyAlreadySettledElsewhere(
   { charge }: WebhookTarget,
   { type, gatewayChargeId }: WebhookChargeEvent,
 ): boolean {
   if (type !== 'charge.paid') return false;
   return (
-    charge.status === 'expired' ||
+    STATUSES_THAT_NEVER_ACCEPT_A_PAYMENT.includes(charge.status) ||
     (charge.status === 'paid' && charge.gatewayChargeId !== gatewayChargeId)
   );
 }
