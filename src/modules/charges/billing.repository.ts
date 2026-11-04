@@ -1,6 +1,7 @@
 import type { NewSubscription } from '../subscriptions/subscription.js';
 import type { ChargeStatus } from './charge-status.js';
 import type {
+  AttachedGatewayCharge,
   Charge,
   ChargeOutcomeRecord,
   GatewayAttempt,
@@ -29,8 +30,8 @@ export abstract class BillingRepository {
 
   abstract attachGatewayCharge(
     id: string,
-    gatewayChargeId: string,
-  ): Promise<void>;
+    attached: AttachedGatewayCharge,
+  ): Promise<Charge | null>;
 
   abstract recordChargeOutcome(
     record: ChargeOutcomeRecord,

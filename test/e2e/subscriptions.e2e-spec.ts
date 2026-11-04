@@ -90,7 +90,7 @@ describe('Subscriptions (e2e)', () => {
   }
 
   describe('POST /subscriptions', () => {
-    it('creates an incomplete pix subscription without a charge, clamping the period end to month length', async () => {
+    it('creates an incomplete pix subscription with a pending charge, clamping the period end to month length', async () => {
       const customer = await createCustomer();
       const plan = await createPlan();
 
@@ -115,9 +115,56 @@ describe('Subscriptions (e2e)', () => {
         canceledAt: null,
         createdAt: expect.any(String),
         updatedAt: expect.any(String),
-        latestCharge: null,
+        latestCharge: {
+          id: expect.stringMatching(/^ch_/),
+          status: 'pending',
+          amountCents: 1990,
+          expiresAt: '2026-01-31T11:00:00.000Z',
+          paymentInstructions: {
+            type: 'pix',
+            copyPaste: expect.any(String),
+          },
+        },
       });
-      expect(await prisma.charge.count()).toBe(0);
+      expect(await prisma.charge.count()).toBe(1);
+    });
+
+    it('creates a boleto subscription whose pending charge carries the digitable line', async () => {
+      const customer = await createCustomer();
+      const plan = await createPlan();
+
+      const response = await http()
+        .post('/subscriptions')
+        .send({
+          customerId: customer.id,
+          planId: plan.id,
+          paymentMethod: 'boleto',
+        })
+        .expect(201);
+
+      expect(response.body).toMatchObject({
+        status: 'incomplete',
+        latestCharge: {
+          status: 'pending',
+          expiresAt: '2026-02-03T10:30:00.000Z',
+          paymentInstructions: {
+            type: 'boleto',
+            digitableLine: expect.any(String),
+            barcode: expect.stringMatching(/^\d{44}$/),
+          },
+        },
+      });
+      expect(
+        await prisma.charge.findFirstOrThrow({
+          where: { id: response.body.latestCharge.id },
+        }),
+      ).toMatchObject({
+        status: 'pending',
+        method: 'boleto',
+        gatewayChargeId: expect.stringMatching(/^gch_/),
+        expiresAt: new Date('2026-02-03T10:30:00.000Z'),
+        paymentInstructions: response.body.latestCharge.paymentInstructions,
+      });
     });
 
     it('ignores a card token sent with boleto and stores none', async () => {
@@ -134,7 +181,7 @@ describe('Subscriptions (e2e)', () => {
         })
         .expect(201);
 
-      expect(response.body.latestCharge).toBeNull();
+      expect(response.body.latestCharge.status).toBe('pending');
       const stored = await prisma.subscription.findUniqueOrThrow({
         where: { id: response.body.id },
       });

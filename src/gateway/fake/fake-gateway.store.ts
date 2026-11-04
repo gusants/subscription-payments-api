@@ -6,6 +6,7 @@ import type {
   GatewayChargeStatus,
   GatewayFailureReason,
 } from '../payment-gateway.port.js';
+import type { PaymentInstructions } from '../payment-instructions.js';
 
 export interface StoredGatewayCustomer {
   id: string;
@@ -21,11 +22,13 @@ export interface StoredGatewayCharge {
   externalRef: string;
   amountCents: number;
   method: GatewayChargeMethod;
-  cardToken: string;
+  cardToken?: string;
   idempotencyKey: string;
   status: GatewayChargeStatus;
   failureReason?: GatewayFailureReason;
   createdAt: string;
+  expiresAt?: string;
+  paymentInstructions?: PaymentInstructions;
 }
 
 export interface FakeGatewayData {

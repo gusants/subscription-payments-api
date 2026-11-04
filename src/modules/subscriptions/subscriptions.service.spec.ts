@@ -1,6 +1,9 @@
 import { Logger } from '@nestjs/common';
 import { GatewayUnavailableError } from '../../gateway/index.js';
-import { StubPaymentGateway } from '../../gateway/testing/stub-payment-gateway.js';
+import {
+  STUB_EXPIRES_AT,
+  StubPaymentGateway,
+} from '../../gateway/testing/stub-payment-gateway.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import {
   ConflictError,
@@ -105,6 +108,8 @@ describe('SubscriptionsService', () => {
         status: 'paid',
         amountCents: 1990,
         failureReason: null,
+        expiresAt: null,
+        paymentInstructions: null,
       });
     });
 
@@ -243,6 +248,8 @@ describe('SubscriptionsService', () => {
         status: 'pending',
         amountCents: 1990,
         failureReason: null,
+        expiresAt: null,
+        paymentInstructions: null,
       });
       expect(billing.charges()).toEqual([
         expect.objectContaining({ status: 'pending', attemptCount: 0 }),
@@ -347,10 +354,19 @@ describe('SubscriptionsService', () => {
   describe.each(['pix', 'boleto'] as const)('create with %s', (method) => {
     const input = { ...pixInput, paymentMethod: method };
 
-    it('creates an incomplete subscription without a charge or card token', async () => {
+    const instructions = {
+      pix: { type: 'pix', copyPaste: 'stub-pix-copy-paste' },
+      boleto: {
+        type: 'boleto',
+        digitableLine: 'stub-digitable-line',
+        barcode: 'stub-barcode',
+      },
+    } as const;
+
+    it('creates an incomplete subscription without a card token', async () => {
       await seed();
 
-      const { subscription, latestCharge } = await service.create(input);
+      const { subscription } = await service.create(input);
 
       expect(subscription).toMatchObject({
         paymentMethod: method,
@@ -358,10 +374,106 @@ describe('SubscriptionsService', () => {
         cardToken: null,
         billingAnchor: startedAt,
       });
-      expect(latestCharge).toBeNull();
-      expect(billing.charges()).toEqual([]);
-      expect(gateway.customersRequested).toEqual([]);
-      expect(gateway.chargesRequested).toEqual([]);
+    });
+
+    it('creates the first charge pending with its expiry and payment instructions', async () => {
+      await seed();
+
+      const { latestCharge } = await service.create(input);
+
+      expect(latestCharge).toEqual({
+        id: expect.stringMatching(/^ch_[0-9a-z]{26}$/),
+        status: 'pending',
+        amountCents: 1990,
+        failureReason: null,
+        expiresAt: STUB_EXPIRES_AT,
+        paymentInstructions: instructions[method],
+      });
+    });
+
+    it('persists the pending charge with the gateway reference and no attempt', async () => {
+      await seed();
+
+      const { subscription, latestCharge } = await service.create(input);
+
+      expect(billing.charges()).toEqual([
+        expect.objectContaining({
+          id: latestCharge?.id,
+          subscriptionId: subscription.id,
+          method,
+          status: 'pending',
+          attemptCount: 0,
+          gatewayChargeId: expect.stringMatching(/^gch_/),
+          gatewayAttemptKey: `${latestCharge?.id}:1`,
+          expiresAt: STUB_EXPIRES_AT,
+          paymentInstructions: instructions[method],
+          paidAt: null,
+        }),
+      ]);
+      expect(billing.attempts()).toEqual([]);
+    });
+
+    it('asks the gateway for the method without card data', async () => {
+      await seed();
+
+      const { latestCharge } = await service.create(input);
+
+      expect(gateway.chargesRequested).toEqual([
+        {
+          gatewayCustomerId: expect.stringMatching(/^gcus_/),
+          amountCents: 1990,
+          method,
+          externalRef: latestCharge?.id,
+          idempotencyKey: `${latestCharge?.id}:1`,
+        },
+      ]);
+    });
+
+    it('keeps the charge pending for reconciliation when the gateway is unavailable', async () => {
+      await seed();
+      gateway.failChargeCreationWith(new GatewayUnavailableError('down'));
+      vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+      const { subscription, latestCharge } = await service.create(input);
+
+      expect(subscription.status).toBe('incomplete');
+      expect(latestCharge).toMatchObject({
+        status: 'pending',
+        expiresAt: null,
+        paymentInstructions: null,
+      });
+    });
+  });
+
+  describe('changeCardToken', () => {
+    it('replaces the token stored on a card subscription', async () => {
+      await seed();
+      const { subscription } = await service.create(cardInput);
+
+      const changed = await service.changeCardToken(
+        subscription.id,
+        'tok_insufficient_funds',
+      );
+
+      expect(changed.cardToken).toBe('tok_insufficient_funds');
+      await expect(service.getById(subscription.id)).resolves.toMatchObject({
+        cardToken: 'tok_insufficient_funds',
+      });
+    });
+
+    it('throws NotFoundError for an unknown subscription', async () => {
+      await expect(
+        service.changeCardToken('sub_missing', 'tok_success'),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    it('rejects a subscription that is not paid by card', async () => {
+      await seed();
+      const { subscription } = await service.create(pixInput);
+
+      await expect(
+        service.changeCardToken(subscription.id, 'tok_success'),
+      ).rejects.toBeInstanceOf(UnprocessableError);
     });
   });
 

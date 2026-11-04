@@ -9,6 +9,7 @@ import type {
 import { BillingRepository } from './billing.repository.js';
 import type { ChargeStatus } from './charge-status.js';
 import type {
+  AttachedGatewayCharge,
   Charge,
   ChargeOutcomeRecord,
   GatewayAttempt,
@@ -67,12 +68,17 @@ export class PrismaBillingRepository extends BillingRepository {
 
   async attachGatewayCharge(
     id: string,
-    gatewayChargeId: string,
-  ): Promise<void> {
-    await this.prisma.charge.updateMany({
+    { gatewayChargeId, expiresAt, paymentInstructions }: AttachedGatewayCharge,
+  ): Promise<Charge | null> {
+    const { count } = await this.prisma.charge.updateMany({
       where: { id, status: 'pending' },
-      data: { gatewayChargeId },
+      data: {
+        gatewayChargeId,
+        expiresAt,
+        ...(paymentInstructions && { paymentInstructions }),
+      },
     });
+    return count === 0 ? null : this.findChargeOrThrow(id);
   }
 
   recordChargeOutcome({

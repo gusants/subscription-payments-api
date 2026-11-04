@@ -4,6 +4,7 @@ import { InMemorySubscriptionsRepository } from '../../subscriptions/testing/in-
 import { BillingRepository } from '../billing.repository.js';
 import type { ChargeStatus } from '../charge-status.js';
 import type {
+  AttachedGatewayCharge,
   Charge,
   ChargeOutcomeRecord,
   GatewayAttempt,
@@ -78,12 +79,15 @@ export class InMemoryBillingRepository extends BillingRepository {
     return Promise.resolve({ ...leased });
   }
 
-  attachGatewayCharge(id: string, gatewayChargeId: string): Promise<void> {
+  attachGatewayCharge(
+    id: string,
+    attached: AttachedGatewayCharge,
+  ): Promise<Charge | null> {
     const found = this.stored.get(id);
-    if (found?.status === 'pending') {
-      this.stored.set(id, { ...found, gatewayChargeId });
-    }
-    return Promise.resolve();
+    if (found?.status !== 'pending') return Promise.resolve(null);
+    const updated: Charge = { ...found, ...attached };
+    this.stored.set(id, updated);
+    return Promise.resolve({ ...updated });
   }
 
   async recordChargeOutcome({

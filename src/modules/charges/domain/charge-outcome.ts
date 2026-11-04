@@ -27,6 +27,7 @@ export function toChargeOutcome(
         failureReason: gatewayCharge.failureReason ?? null,
       };
     case 'pending':
+    case 'expired':
       return null;
   }
 }

@@ -15,6 +15,9 @@ describe('validateEnv', () => {
       REDIS_PORT: 6379,
       PAYMENT_GATEWAY: 'fake',
       FAKE_GATEWAY_DATA_FILE: 'data/fake-gateway.json',
+      FAKE_GATEWAY_PIX_EXPIRATION_SECONDS: 1800,
+      FAKE_GATEWAY_BOLETO_EXPIRATION_SECONDS: 259200,
+      FAKE_GATEWAY_EXPIRATION_SWEEP_INTERVAL_MS: 5000,
       CHARGE_ATTEMPT_LEASE_SECONDS: 30,
     });
   });
@@ -55,6 +58,24 @@ describe('validateEnv', () => {
     expect(() =>
       validateEnv({ ...validEnv, FAKE_GATEWAY_ROUTES_ENABLED: 'maybe' }),
     ).toThrow(/FAKE_GATEWAY_ROUTES_ENABLED/);
+  });
+
+  it.each([
+    'FAKE_GATEWAY_PIX_EXPIRATION_SECONDS',
+    'FAKE_GATEWAY_BOLETO_EXPIRATION_SECONDS',
+  ])('rejects a non-positive %s', (name) => {
+    expect(() => validateEnv({ ...validEnv, [name]: '0' })).toThrow(
+      new RegExp(name),
+    );
+  });
+
+  it('accepts a zero sweep interval to disable the expiration sweep', () => {
+    expect(
+      validateEnv({
+        ...validEnv,
+        FAKE_GATEWAY_EXPIRATION_SWEEP_INTERVAL_MS: '0',
+      }).FAKE_GATEWAY_EXPIRATION_SWEEP_INTERVAL_MS,
+    ).toBe(0);
   });
 
   it('rejects a missing database url', () => {

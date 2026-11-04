@@ -192,14 +192,17 @@ export class ChargeProcessor {
     { charge, subscription, idempotencyKey }: GatewayAttempt,
     gatewayCustomerId: string,
   ): Promise<GatewayCharge> {
-    return this.gateway.createCharge({
+    const request = {
       gatewayCustomerId,
       amountCents: charge.amountCents,
-      method: 'card',
-      cardToken: subscription.cardToken,
       externalRef: charge.id,
       idempotencyKey,
-    });
+    };
+    return this.gateway.createCharge(
+      subscription.paymentMethod === 'card'
+        ? { ...request, method: 'card', cardToken: subscription.cardToken }
+        : { ...request, method: subscription.paymentMethod },
+    );
   }
 
   private abandon(charge: Charge, error: unknown): null {
@@ -226,14 +229,20 @@ export class ChargeProcessor {
     gatewayCharge: GatewayCharge,
   ): Promise<ProcessedCharge> {
     const outcome = toChargeOutcome(gatewayCharge);
-    if (!outcome) {
-      await this.billing.attachGatewayCharge(
-        target.charge.id,
-        gatewayCharge.id,
-      );
-      return this.unsettled(target);
-    }
+    if (!outcome) return this.awaitSettlement(target, gatewayCharge);
     return this.recordOutcome(target, gatewayCharge, outcome);
+  }
+
+  private async awaitSettlement(
+    target: AttemptTarget,
+    gatewayCharge: GatewayCharge,
+  ): Promise<ProcessedCharge> {
+    const attached = await this.billing.attachGatewayCharge(target.charge.id, {
+      gatewayChargeId: gatewayCharge.id,
+      expiresAt: gatewayCharge.expiresAt ?? null,
+      paymentInstructions: gatewayCharge.paymentInstructions ?? null,
+    });
+    return this.unsettled({ ...target, charge: attached ?? target.charge });
   }
 
   private async recordOutcome(

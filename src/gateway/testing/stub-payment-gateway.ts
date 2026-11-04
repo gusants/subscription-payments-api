@@ -7,7 +7,35 @@ import {
   type GatewayCustomer,
 } from '../payment-gateway.port.js';
 
-type ChargeResult = Pick<GatewayCharge, 'status' | 'failureReason'>;
+type ChargeResult = Pick<
+  GatewayCharge,
+  'status' | 'failureReason' | 'expiresAt' | 'paymentInstructions'
+>;
+
+export const STUB_EXPIRES_AT = new Date('2099-01-01T00:00:00.000Z');
+
+function defaultResultFor({ method }: CreateGatewayCharge): ChargeResult {
+  switch (method) {
+    case 'card':
+      return { status: 'paid' };
+    case 'pix':
+      return {
+        status: 'pending',
+        expiresAt: STUB_EXPIRES_AT,
+        paymentInstructions: { type: 'pix', copyPaste: 'stub-pix-copy-paste' },
+      };
+    case 'boleto':
+      return {
+        status: 'pending',
+        expiresAt: STUB_EXPIRES_AT,
+        paymentInstructions: {
+          type: 'boleto',
+          digitableLine: 'stub-digitable-line',
+          barcode: 'stub-barcode',
+        },
+      };
+  }
+}
 
 interface ChargeFailure {
   error: Error;
@@ -24,7 +52,7 @@ export class StubPaymentGateway extends PaymentGateway {
   readonly customersRequested: CreateGatewayCustomer[] = [];
   readonly chargesRequested: CreateGatewayCharge[] = [];
   readonly chargesProcessed = new Map<string, GatewayCharge>();
-  private chargeResult: ChargeResult = { status: 'paid' };
+  private chargeResult: ChargeResult | null = null;
   private customerError: Error | null = null;
   private lookupError: Error | null = null;
   private chargeFailure: ChargeFailure | null = null;
@@ -96,7 +124,7 @@ export class StubPaymentGateway extends PaymentGateway {
       amountCents: input.amountCents,
       method: input.method,
       createdAt: new Date(),
-      ...this.chargeResult,
+      ...(this.chargeResult ?? defaultResultFor(input)),
     };
     this.chargesProcessed.set(input.idempotencyKey, charge);
     return charge;

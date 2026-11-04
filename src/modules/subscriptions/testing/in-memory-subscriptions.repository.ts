@@ -25,6 +25,18 @@ export class InMemorySubscriptionsRepository extends SubscriptionsRepository {
     return Promise.resolve(found ? { ...found } : null);
   }
 
+  changeCardToken(id: string, cardToken: string): Promise<Subscription | null> {
+    const found = this.subscriptions.get(id);
+    if (!found) return Promise.resolve(null);
+    const updated: Subscription = {
+      ...found,
+      cardToken,
+      updatedAt: new Date(),
+    };
+    this.subscriptions.set(id, updated);
+    return Promise.resolve({ ...updated });
+  }
+
   changeStatus(
     id: string,
     { fromAnyOf, to, canceledAt }: StatusChange,

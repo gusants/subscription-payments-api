@@ -9,13 +9,17 @@ const POSSIBLE_OUTCOMES: readonly ChargeOutcome['chargeStatus'][] = [
   'failed',
 ];
 
-export type BillableSubscription = Subscription & { cardToken: string };
+export type BillableSubscription = Subscription &
+  (
+    | { paymentMethod: 'card'; cardToken: string }
+    | { paymentMethod: Exclude<Subscription['paymentMethod'], 'card'> }
+  );
 
 export function assertBillable(
   subscription: Subscription,
 ): asserts subscription is BillableSubscription {
-  const { id, status, cardToken } = subscription;
-  if (!cardToken) {
+  const { id, status, paymentMethod, cardToken } = subscription;
+  if (paymentMethod === 'card' && !cardToken) {
     throw new UnprocessableError(`Subscription ${id} has no card token`);
   }
   for (const outcome of POSSIBLE_OUTCOMES) {

@@ -12,6 +12,10 @@ export function toChargeSummaryResponse(
     status: charge.status,
     amountCents: charge.amountCents,
     ...(charge.failureReason && { failureReason: charge.failureReason }),
+    ...(charge.expiresAt && { expiresAt: charge.expiresAt.toISOString() }),
+    ...(charge.paymentInstructions && {
+      paymentInstructions: charge.paymentInstructions,
+    }),
   };
 }
 

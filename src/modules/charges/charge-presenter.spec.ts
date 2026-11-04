@@ -11,6 +11,8 @@ describe('toChargeSummaryResponse', () => {
         status: 'failed',
         amountCents: 1990,
         failureReason: 'insufficient_funds',
+        expiresAt: null,
+        paymentInstructions: null,
       }),
     ).toEqual({
       id: 'ch_1',
@@ -27,8 +29,29 @@ describe('toChargeSummaryResponse', () => {
         status: 'paid',
         amountCents: 1990,
         failureReason: null,
+        expiresAt: null,
+        paymentInstructions: null,
       }),
     ).toEqual({ id: 'ch_1', status: 'paid', amountCents: 1990 });
+  });
+
+  it('exposes the expiry and the payment instructions of a pending pix', () => {
+    expect(
+      toChargeSummaryResponse({
+        id: 'ch_1',
+        status: 'pending',
+        amountCents: 1990,
+        failureReason: null,
+        expiresAt: new Date('2026-01-31T11:00:00.000Z'),
+        paymentInstructions: { type: 'pix', copyPaste: '000201' },
+      }),
+    ).toEqual({
+      id: 'ch_1',
+      status: 'pending',
+      amountCents: 1990,
+      expiresAt: '2026-01-31T11:00:00.000Z',
+      paymentInstructions: { type: 'pix', copyPaste: '000201' },
+    });
   });
 });
 

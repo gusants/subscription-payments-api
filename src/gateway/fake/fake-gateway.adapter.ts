@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Clock } from '../../shared/clock/index.js';
 import { NotFoundError } from '../../shared/errors/index.js';
 import { GatewayCustomerNotFoundError } from '../gateway-customer-not-found.error.js';
@@ -12,10 +12,19 @@ import {
   type GatewayCustomer,
   type GatewayFailureReason,
 } from '../payment-gateway.port.js';
+import { toGatewayCharge } from './fake-gateway-charge.mapper.js';
+import {
+  FAKE_CHARGE_EXPIRATION,
+  type FakeChargeExpiration,
+} from './fake-gateway-options.js';
 import {
   FakeGatewayStore,
   type StoredGatewayCharge,
 } from './fake-gateway.store.js';
+import {
+  boletoInstructions,
+  pixInstructions,
+} from './fake-payment-instructions.js';
 
 type ChargeOutcome =
   | { status: 'paid' }
@@ -45,24 +54,13 @@ function decideOutcome(cardToken: string, attempt: number): ChargeOutcome {
   }
 }
 
-function toGatewayCharge(stored: StoredGatewayCharge): GatewayCharge {
-  return {
-    id: stored.id,
-    customerId: stored.customerId,
-    externalRef: stored.externalRef,
-    amountCents: stored.amountCents,
-    method: stored.method,
-    status: stored.status,
-    ...(stored.failureReason && { failureReason: stored.failureReason }),
-    createdAt: new Date(stored.createdAt),
-  };
-}
-
 @Injectable()
 export class FakeGatewayAdapter extends PaymentGateway {
   constructor(
     private readonly store: FakeGatewayStore,
     private readonly clock: Clock,
+    @Inject(FAKE_CHARGE_EXPIRATION)
+    private readonly expiration: FakeChargeExpiration,
   ) {
     super();
   }
@@ -98,18 +96,12 @@ export class FakeGatewayAdapter extends PaymentGateway {
         const previousAttempts = data.charges.filter(
           ({ externalRef }) => externalRef === input.externalRef,
         ).length;
-        const outcome = decideOutcome(input.cardToken, previousAttempts + 1);
-        const charge: StoredGatewayCharge = {
+        const charge = this.buildCharge(
+          input,
           id,
-          customerId: input.gatewayCustomerId,
-          externalRef: input.externalRef,
-          amountCents: input.amountCents,
-          method: input.method,
-          cardToken: input.cardToken,
-          idempotencyKey: input.idempotencyKey,
           createdAt,
-          ...outcome,
-        };
+          previousAttempts + 1,
+        );
         data.charges.push(charge);
         return toGatewayCharge(charge);
       }),
@@ -141,6 +133,51 @@ export class FakeGatewayAdapter extends PaymentGateway {
         return toGatewayCharge(charge);
       }),
     );
+  }
+
+  private buildCharge(
+    input: CreateGatewayCharge,
+    id: string,
+    createdAt: string,
+    attempt: number,
+  ): StoredGatewayCharge {
+    const common = {
+      id,
+      customerId: input.gatewayCustomerId,
+      externalRef: input.externalRef,
+      amountCents: input.amountCents,
+      idempotencyKey: input.idempotencyKey,
+      createdAt,
+    };
+    switch (input.method) {
+      case 'card':
+        return {
+          ...common,
+          method: 'card',
+          cardToken: input.cardToken,
+          ...decideOutcome(input.cardToken, attempt),
+        };
+      case 'pix':
+        return {
+          ...common,
+          method: 'pix',
+          status: 'pending',
+          expiresAt: this.expiresAt(this.expiration.pixMs),
+          paymentInstructions: pixInstructions(id),
+        };
+      case 'boleto':
+        return {
+          ...common,
+          method: 'boleto',
+          status: 'pending',
+          expiresAt: this.expiresAt(this.expiration.boletoMs),
+          paymentInstructions: boletoInstructions(id),
+        };
+    }
+  }
+
+  private expiresAt(durationMs: number): string {
+    return new Date(this.clock.now().getTime() + durationMs).toISOString();
   }
 
   private async guarded<T>(operation: () => Promise<T>): Promise<T> {

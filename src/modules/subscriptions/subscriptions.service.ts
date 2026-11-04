@@ -13,7 +13,7 @@ import {
 import { generateId, ID_PREFIXES } from '../../shared/ids/index.js';
 import { BillingRepository } from '../charges/billing.repository.js';
 import type { Charge, ChargeSummary } from '../charges/charge.js';
-import { nextGatewayAttempt } from '../charges/domain/index.js';
+import { assertBillable, nextGatewayAttempt } from '../charges/domain/index.js';
 import { ChargeProcessor } from '../charges/charge-processor.js';
 import type { Customer } from '../customers/customer.js';
 import { CustomersRepository } from '../customers/customers.repository.js';
@@ -48,9 +48,16 @@ export interface CreatedSubscription {
 }
 
 const summarize = (
-  { id, status, amountCents }: Charge,
+  { id, status, amountCents, expiresAt, paymentInstructions }: Charge,
   failureReason: ChargeSummary['failureReason'] = null,
-): ChargeSummary => ({ id, status, amountCents, failureReason });
+): ChargeSummary => ({
+  id,
+  status,
+  amountCents,
+  failureReason,
+  expiresAt,
+  paymentInstructions,
+});
 
 @Injectable()
 export class SubscriptionsService {
@@ -76,10 +83,7 @@ export class SubscriptionsService {
     if (!plan.active) {
       throw new UnprocessableError(`Plan ${plan.id} is not active`);
     }
-    if (input.paymentMethod !== 'card') {
-      return this.createWithoutCharge(input, plan);
-    }
-    return this.createChargingCard(input, customer, plan);
+    return this.createWithFirstCharge(input, customer, plan);
   }
 
   async getById(id: string): Promise<Subscription> {
@@ -104,23 +108,31 @@ export class SubscriptionsService {
     return canceled;
   }
 
-  private async createWithoutCharge(
-    input: CreateSubscriptionInput,
-    plan: Plan,
-  ): Promise<CreatedSubscription> {
-    const subscription = await this.subscriptions.create(
-      this.newSubscription(input, plan, null),
-    );
-    return { subscription, latestCharge: null };
+  async changeCardToken(id: string, cardToken: string): Promise<Subscription> {
+    const { paymentMethod } = await this.getById(id);
+    if (paymentMethod !== 'card') {
+      throw new UnprocessableError(
+        `Subscription ${id} is paid by ${paymentMethod}, not card`,
+      );
+    }
+    const changed = await this.subscriptions.changeCardToken(id, cardToken);
+    if (!changed) {
+      throw new NotFoundError(`Subscription ${id} not found`);
+    }
+    return changed;
   }
 
-  private async createChargingCard(
-    input: CreateSubscriptionInput & { paymentMethod: 'card' },
+  private async createWithFirstCharge(
+    input: CreateSubscriptionInput,
     customer: Customer,
     plan: Plan,
   ): Promise<CreatedSubscription> {
     const gatewayCustomerId = await this.ensureGatewayCustomer(customer);
-    const newSubscription = this.newSubscription(input, plan, input.cardToken);
+    const newSubscription = this.newSubscription(
+      input,
+      plan,
+      input.paymentMethod === 'card' ? input.cardToken : null,
+    );
     const chargeId = generateId(ID_PREFIXES.charge);
     const { subscription, charge } =
       await this.billing.createSubscriptionWithFirstCharge(newSubscription, {
@@ -136,9 +148,10 @@ export class SubscriptionsService {
           this.clock.now(),
         ),
       });
+    assertBillable(subscription);
     const processed = await this.chargeProcessor.process({
       charge,
-      subscription: { ...subscription, cardToken: input.cardToken },
+      subscription,
       customer: { ...customer, gatewayCustomerId },
     });
     return {

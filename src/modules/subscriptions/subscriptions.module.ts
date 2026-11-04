@@ -17,5 +17,6 @@ import { SubscriptionsService } from './subscriptions.service.js';
       useClass: PrismaSubscriptionsRepository,
     },
   ],
+  exports: [SubscriptionsService],
 })
 export class SubscriptionsModule {}

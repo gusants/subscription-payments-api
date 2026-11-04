@@ -14,6 +14,21 @@ export const envSchema = z.object({
   PAYMENT_GATEWAY: z.enum(['fake']).default('fake'),
   FAKE_GATEWAY_DATA_FILE: z.string().min(1).default('data/fake-gateway.json'),
   FAKE_GATEWAY_ROUTES_ENABLED: z.stringbool().optional(),
+  FAKE_GATEWAY_PIX_EXPIRATION_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(1800),
+  FAKE_GATEWAY_BOLETO_EXPIRATION_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(259200),
+  FAKE_GATEWAY_EXPIRATION_SWEEP_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(5000),
   CHARGE_ATTEMPT_LEASE_SECONDS: z.coerce.number().int().positive().default(30),
 });
 

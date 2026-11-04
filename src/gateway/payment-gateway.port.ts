@@ -1,6 +1,8 @@
-export type GatewayChargeMethod = 'card';
+import type { PaymentInstructions } from './payment-instructions.js';
 
-export type GatewayChargeStatus = 'pending' | 'paid' | 'failed';
+export type GatewayChargeMethod = 'card' | 'pix' | 'boleto';
+
+export type GatewayChargeStatus = 'pending' | 'paid' | 'failed' | 'expired';
 
 export type GatewayFailureReason =
   'insufficient_funds' | 'expired_card' | 'invalid_token';
@@ -16,14 +18,16 @@ export interface GatewayCustomer {
   externalRef: string;
 }
 
-export interface CreateGatewayCharge {
+interface CreateGatewayChargeBase {
   gatewayCustomerId: string;
   amountCents: number;
-  method: GatewayChargeMethod;
-  cardToken: string;
   externalRef: string;
   idempotencyKey: string;
 }
+
+export type CreateGatewayCharge =
+  | (CreateGatewayChargeBase & { method: 'card'; cardToken: string })
+  | (CreateGatewayChargeBase & { method: 'pix' | 'boleto' });
 
 export interface GatewayCharge {
   id: string;
@@ -34,6 +38,8 @@ export interface GatewayCharge {
   status: GatewayChargeStatus;
   failureReason?: GatewayFailureReason;
   createdAt: Date;
+  expiresAt?: Date;
+  paymentInstructions?: PaymentInstructions;
 }
 
 export abstract class PaymentGateway {

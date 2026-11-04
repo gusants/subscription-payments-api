@@ -503,14 +503,38 @@ describe('PrismaBillingRepository (integration)', () => {
       const charge = firstChargeOf(subscription);
       await repository.createSubscriptionWithFirstCharge(subscription, charge);
 
-      await repository.attachGatewayCharge(charge.id, 'gch_pending');
+      const attached = await repository.attachGatewayCharge(charge.id, {
+        gatewayChargeId: 'gch_pending',
+        expiresAt: null,
+        paymentInstructions: null,
+      });
 
-      expect(
-        await prisma.charge.findUniqueOrThrow({ where: { id: charge.id } }),
-      ).toMatchObject({
+      expect(attached).toMatchObject({
         status: 'pending',
         gatewayChargeId: 'gch_pending',
         attemptCount: 0,
+      });
+      expect(
+        await prisma.charge.findUniqueOrThrow({ where: { id: charge.id } }),
+      ).toMatchObject({ status: 'pending', gatewayChargeId: 'gch_pending' });
+    });
+
+    it('stores the expiry and payment instructions of an asynchronous charge', async () => {
+      const subscription = newSubscription();
+      const charge = firstChargeOf(subscription);
+      await repository.createSubscriptionWithFirstCharge(subscription, charge);
+      const expiresAt = new Date('2026-02-01T00:00:00.000Z');
+
+      const attached = await repository.attachGatewayCharge(charge.id, {
+        gatewayChargeId: 'gch_pix',
+        expiresAt,
+        paymentInstructions: { type: 'pix', copyPaste: '000201' },
+      });
+
+      expect(attached).toMatchObject({
+        gatewayChargeId: 'gch_pix',
+        expiresAt,
+        paymentInstructions: { type: 'pix', copyPaste: '000201' },
       });
     });
 
@@ -522,7 +546,13 @@ describe('PrismaBillingRepository (integration)', () => {
         outcomeRecord(subscription.id, charge.id),
       );
 
-      await repository.attachGatewayCharge(charge.id, 'gch_late');
+      const attached = await repository.attachGatewayCharge(charge.id, {
+        gatewayChargeId: 'gch_late',
+        expiresAt: null,
+        paymentInstructions: null,
+      });
+
+      expect(attached).toBeNull();
 
       expect(
         (await prisma.charge.findUniqueOrThrow({ where: { id: charge.id } }))

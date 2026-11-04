@@ -7,7 +7,7 @@ export const createdSubscriptionResponseSchema =
   subscriptionResponseSchema.extend({
     latestCharge: chargeSummaryResponseSchema.nullable().meta({
       description:
-        'Outcome of the first charge. Null for pix and boleto, which are charged in a later phase',
+        'First charge of the subscription. Card charges settle immediately; pix and boleto stay pending and carry their expiry and payment instructions',
     }),
   });
 

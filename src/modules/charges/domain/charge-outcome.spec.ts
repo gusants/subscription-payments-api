@@ -33,7 +33,10 @@ describe('toChargeOutcome', () => {
     });
   });
 
-  it('has no outcome while the gateway charge is still pending', () => {
-    expect(toChargeOutcome({ status: 'pending' })).toBeNull();
-  });
+  it.each(['pending', 'expired'] as const)(
+    'has no outcome while the gateway charge is %s',
+    (status) => {
+      expect(toChargeOutcome({ status })).toBeNull();
+    },
+  );
 });

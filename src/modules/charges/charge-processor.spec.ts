@@ -4,7 +4,10 @@ import {
   GatewayOutcomeUnknownError,
   GatewayUnavailableError,
 } from '../../gateway/index.js';
-import { StubPaymentGateway } from '../../gateway/testing/stub-payment-gateway.js';
+import {
+  STUB_EXPIRES_AT,
+  StubPaymentGateway,
+} from '../../gateway/testing/stub-payment-gateway.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import {
   ConflictError,
@@ -61,7 +64,10 @@ describe('ChargeProcessor', () => {
     vi.restoreAllMocks();
   });
 
-  async function seed(cardToken: string | null = 'tok_success') {
+  async function seed(
+    cardToken: string | null = 'tok_success',
+    method: 'card' | 'pix' | 'boleto' = 'card',
+  ) {
     await customers.create({ id: 'cus_1', name: 'Ana', email: 'ana@e.com' });
     await customers.assignGatewayCustomerId('cus_1', 'gcus_1');
     const { subscription, charge } =
@@ -70,7 +76,7 @@ describe('ChargeProcessor', () => {
           id: 'sub_1',
           customerId: 'cus_1',
           planId: 'plan_1',
-          paymentMethod: 'card',
+          paymentMethod: method,
           status: 'incomplete',
           cardToken,
           billingAnchor: periodStart,
@@ -81,7 +87,7 @@ describe('ChargeProcessor', () => {
           id: 'ch_1',
           subscriptionId: 'sub_1',
           amountCents: 1990,
-          method: 'card',
+          method,
           dueDate: periodStart,
           periodStart,
           periodEnd,
@@ -94,7 +100,11 @@ describe('ChargeProcessor', () => {
       charge,
       target: {
         charge,
-        subscription: { ...subscription, cardToken: cardToken ?? '' },
+        subscription: {
+          ...subscription,
+          paymentMethod: method,
+          cardToken: cardToken ?? '',
+        },
         customer: { ...customer!, gatewayCustomerId: 'gcus_1' },
       } satisfies AttemptTarget,
     };
@@ -521,6 +531,87 @@ describe('ChargeProcessor', () => {
       await expect(
         processor.reconcile({ ...stranded, id: 'ch_missing' }),
       ).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
+  describe.each(['pix', 'boleto'] as const)('%s charges', (method) => {
+    const seedInvoice = () => seed(null, method);
+
+    it('requests the gateway charge without card data and keeps it pending with its instructions', async () => {
+      const { target } = await seedInvoice();
+
+      const processed = await processor.process(target);
+
+      expect(gateway.chargesRequested).toEqual([
+        {
+          gatewayCustomerId: 'gcus_1',
+          amountCents: 1990,
+          method,
+          externalRef: 'ch_1',
+          idempotencyKey: 'ch_1:1',
+        },
+      ]);
+      expect(processed.charge).toMatchObject({
+        status: 'pending',
+        gatewayChargeId: expect.stringMatching(/^gch_/),
+        expiresAt: STUB_EXPIRES_AT,
+        paymentInstructions: expect.objectContaining({ type: method }),
+      });
+      expect(processed.subscription.status).toBe('incomplete');
+      expect(billing.attempts()).toEqual([]);
+    });
+
+    it('reconciles a charge waiting for payment by lookup, without re-sending or erroring', async () => {
+      const { target } = await seedInvoice();
+      await processor.process(target);
+      clock.set(afterLease);
+
+      const processed = await processor.reconcile(storedCharge());
+
+      expect(processed.charge).toMatchObject({
+        status: 'pending',
+        expiresAt: STUB_EXPIRES_AT,
+        paymentInstructions: expect.objectContaining({ type: method }),
+      });
+      expect(gateway.chargesRequested).toHaveLength(1);
+      expect(errorLog).not.toHaveBeenCalled();
+    });
+
+    it('settles as paid when reconciliation finds the gateway already paid it', async () => {
+      const { target } = await seedInvoice();
+      await processor.process(target);
+      const [held] = [...gateway.chargesProcessed.values()];
+      gateway.chargesProcessed.set('ch_1:1', { ...held!, status: 'paid' });
+      clock.set(afterLease);
+
+      const processed = await processor.reconcile(storedCharge());
+
+      expect(processed.charge.status).toBe('paid');
+      expect(processed.subscription.status).toBe('active');
+      expect(gateway.chargesRequested).toHaveLength(1);
+    });
+
+    it('keeps the charge pending when the gateway reports it expired, leaving that to the webhook', async () => {
+      const { target } = await seedInvoice();
+      await processor.process(target);
+      const [held] = [...gateway.chargesProcessed.values()];
+      gateway.chargesProcessed.set('ch_1:1', { ...held!, status: 'expired' });
+      clock.set(afterLease);
+
+      const processed = await processor.reconcile(storedCharge());
+
+      expect(processed.charge.status).toBe('pending');
+      expect(billing.attempts()).toEqual([]);
+    });
+
+    it('does not retry a pending charge as a new attempt', async () => {
+      const { target } = await seedInvoice();
+      await processor.process(target);
+
+      await expect(processor.retry(storedCharge())).rejects.toBeInstanceOf(
+        InvalidChargeTransitionError,
+      );
+      expect(gateway.chargesRequested).toHaveLength(1);
     });
   });
 });

@@ -56,6 +56,8 @@ describe('toCreatedSubscriptionResponse', () => {
         status: 'failed',
         amountCents: 1990,
         failureReason: 'expired_card',
+        expiresAt: null,
+        paymentInstructions: null,
       },
     });
 

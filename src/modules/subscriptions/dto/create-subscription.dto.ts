@@ -22,7 +22,7 @@ const invoiceSubscriptionSchema = z
   })
   .meta({
     description:
-      'Pix and boleto create the subscription as incomplete without a charge; any cardToken sent is ignored',
+      'Pix and boleto create the subscription as incomplete with a pending first charge until it is paid; any cardToken sent is ignored',
   });
 
 export const createSubscriptionSchema = z.discriminatedUnion('paymentMethod', [

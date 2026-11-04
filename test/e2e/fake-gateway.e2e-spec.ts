@@ -7,6 +7,7 @@ import { AppModule } from '../../src/app.module.js';
 import { GatewayModule } from '../../src/gateway/gateway.module.js';
 import { ClockModule } from '../../src/shared/clock/clock.module.js';
 import { AppConfigModule } from '../../src/shared/config/app-config.module.js';
+import { DatabaseModule } from '../../src/shared/database/database.module.js';
 import { PrismaService } from '../../src/shared/database/prisma.service.js';
 import { setupSwagger } from '../../src/shared/http/setup-swagger.js';
 
@@ -138,7 +139,12 @@ describe('Fake gateway reset (e2e)', () => {
   describe('outside development', () => {
     async function createGatewayApp(env: Record<string, unknown>) {
       const moduleRef = await Test.createTestingModule({
-        imports: [AppConfigModule, ClockModule, GatewayModule.register(env)],
+        imports: [
+          AppConfigModule,
+          ClockModule,
+          DatabaseModule,
+          GatewayModule.register(env),
+        ],
       }).compile();
       const gatewayApp = moduleRef.createNestApplication();
       await gatewayApp.init();

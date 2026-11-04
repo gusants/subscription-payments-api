@@ -88,7 +88,14 @@ export interface ChargeSummary {
   status: ChargeStatus;
   amountCents: number;
   failureReason: GatewayFailureReason | null;
+  expiresAt: Date | null;
+  paymentInstructions: PaymentInstructions | null;
 }
+
+export type AttachedGatewayCharge = Pick<
+  Charge,
+  'expiresAt' | 'paymentInstructions'
+> & { gatewayChargeId: string };
 
 export interface ChargeWithAttempts extends Charge {
   attempts: PaymentAttempt[];

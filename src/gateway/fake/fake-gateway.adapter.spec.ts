@@ -13,6 +13,7 @@ import { FakeGatewayAdapter } from './fake-gateway.adapter.js';
 import { FakeGatewayStore } from './fake-gateway.store.js';
 
 const now = new Date('2026-11-03T10:00:00.000Z');
+const expiration = { pixMs: 30 * 60_000, boletoMs: 3 * 24 * 3_600_000 };
 
 describe('FakeGatewayAdapter', () => {
   let directory: string;
@@ -41,6 +42,7 @@ describe('FakeGatewayAdapter', () => {
     gateway = new FakeGatewayAdapter(
       new FakeGatewayStore(filePath),
       new FixedClock(now),
+      expiration,
     );
     customer = await gateway.createCustomer({
       externalRef: 'cus_1',
@@ -233,6 +235,77 @@ describe('FakeGatewayAdapter', () => {
     });
   });
 
+  describe('pix and boleto', () => {
+    const invoice = (
+      method: 'pix' | 'boleto',
+      externalRef = 'chg_1',
+      idempotencyKey = `key_${(keySequence += 1)}`,
+    ): CreateGatewayCharge => ({
+      gatewayCustomerId: customer.id,
+      amountCents: 4990,
+      method,
+      externalRef,
+      idempotencyKey,
+    });
+
+    it('creates a pix charge pending with copy-and-paste instructions and an expiry', async () => {
+      const created = await gateway.createCharge(invoice('pix'));
+
+      expect(created).toEqual({
+        id: expect.stringMatching(/^gch_[0-9a-z]{26}$/),
+        customerId: customer.id,
+        externalRef: 'chg_1',
+        amountCents: 4990,
+        method: 'pix',
+        status: 'pending',
+        createdAt: now,
+        expiresAt: new Date('2026-11-03T10:30:00.000Z'),
+        paymentInstructions: {
+          type: 'pix',
+          copyPaste: expect.stringContaining(created.id),
+        },
+      });
+    });
+
+    it('creates a boleto charge pending with a digitable line, a barcode and a longer expiry', async () => {
+      const created = await gateway.createCharge(invoice('boleto'));
+
+      expect(created).toMatchObject({
+        method: 'boleto',
+        status: 'pending',
+        expiresAt: new Date('2026-11-06T10:00:00.000Z'),
+        paymentInstructions: {
+          type: 'boleto',
+          digitableLine: expect.stringMatching(
+            /^\d{5}\.\d{5} \d{5}\.\d{6} \d{5}\.\d{6} \d \d{14}$/,
+          ),
+          barcode: expect.stringMatching(/^\d{44}$/),
+        },
+      });
+    });
+
+    it('gives each charge its own instructions', async () => {
+      const first = await gateway.createCharge(invoice('boleto', 'chg_1'));
+      const second = await gateway.createCharge(invoice('boleto', 'chg_2'));
+
+      expect(first.paymentInstructions).not.toEqual(second.paymentInstructions);
+    });
+
+    it('returns the same charge for the same idempotency key', async () => {
+      const first = await gateway.createCharge(invoice('pix', 'chg_1', 'k'));
+      const second = await gateway.createCharge(invoice('pix', 'chg_1', 'k'));
+
+      expect(second).toEqual(first);
+      expect(await gateway.findChargeByIdempotencyKey('k')).toEqual(first);
+    });
+
+    it('reads a pending charge back with its instructions', async () => {
+      const created = await gateway.createCharge(invoice('pix'));
+
+      expect(await gateway.getCharge(created.id)).toEqual(created);
+    });
+  });
+
   describe('getCharge', () => {
     it('returns a previously created charge', async () => {
       const created = await gateway.createCharge(
@@ -247,6 +320,7 @@ describe('FakeGatewayAdapter', () => {
       const other = new FakeGatewayAdapter(
         new FakeGatewayStore(filePath),
         new FixedClock(now),
+        expiration,
       );
 
       expect(await other.getCharge(created.id)).toEqual(created);

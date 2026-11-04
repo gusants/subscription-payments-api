@@ -313,7 +313,7 @@
           },
           "latestCharge": {
             "additionalProperties": false,
-            "description": "Outcome of the first charge. Null for pix and boleto, which are charged in a later phase",
+            "description": "First charge of the subscription. Card charges settle immediately; pix and boleto stay pending and carry their expiry and payment instructions",
             "nullable": true,
             "properties": {
               "amountCents": {
@@ -321,12 +321,54 @@
                 "minimum": -9007199254740991,
                 "type": "integer"
               },
+              "expiresAt": {
+                "description": "Present only on pix and boleto charges: when payment expires",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "type": "string"
+              },
               "failureReason": {
                 "description": "Present only when the gateway declined the charge",
                 "type": "string"
               },
               "id": {
                 "type": "string"
+              },
+              "paymentInstructions": {
+                "description": "Present only on pix and boleto charges: what the customer pays with",
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "copyPaste": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": ["pix"],
+                        "type": "string"
+                      }
+                    },
+                    "required": ["type", "copyPaste"],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "barcode": {
+                        "type": "string"
+                      },
+                      "digitableLine": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": ["boleto"],
+                        "type": "string"
+                      }
+                    },
+                    "required": ["type", "digitableLine"],
+                    "type": "object"
+                  }
+                ]
               },
               "status": {
                 "enum": [
@@ -422,7 +464,7 @@
             "type": "object"
           },
           {
-            "description": "Pix and boleto create the subscription as incomplete without a charge; any cardToken sent is ignored",
+            "description": "Pix and boleto create the subscription as incomplete with a pending first charge until it is paid; any cardToken sent is ignored",
             "properties": {
               "customerId": {
                 "minLength": 1,
@@ -610,6 +652,92 @@
         "required": ["statusCode", "error", "message"],
         "type": "object"
       },
+      "GatewayChargeResponseDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "amountCents": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "customerId": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "externalRef": {
+            "type": "string"
+          },
+          "failureReason": {
+            "enum": ["insufficient_funds", "expired_card", "invalid_token"],
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "method": {
+            "enum": ["card", "pix", "boleto"],
+            "type": "string"
+          },
+          "paymentInstructions": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "copyPaste": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": ["pix"],
+                    "type": "string"
+                  }
+                },
+                "required": ["type", "copyPaste"],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "barcode": {
+                    "type": "string"
+                  },
+                  "digitableLine": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": ["boleto"],
+                    "type": "string"
+                  }
+                },
+                "required": ["type", "digitableLine"],
+                "type": "object"
+              }
+            ]
+          },
+          "status": {
+            "enum": ["pending", "paid", "failed", "expired"],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "customerId",
+          "externalRef",
+          "amountCents",
+          "method",
+          "status",
+          "createdAt"
+        ],
+        "type": "object"
+      },
       "PlanListResponseDto_Output": {
         "additionalProperties": false,
         "properties": {
@@ -731,6 +859,17 @@
           "createdAt",
           "updatedAt"
         ],
+        "type": "object"
+      },
+      "ReplaceCardTokenDto": {
+        "properties": {
+          "cardToken": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["cardToken"],
         "type": "object"
       },
       "SubscriptionResponseDto_Output": {
@@ -1093,6 +1232,102 @@
         "tags": ["charges"]
       }
     },
+    "/fake-gateway/charges/{id}/expire": {
+      "post": {
+        "operationId": "FakeGatewayController_expire",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayChargeResponseDto_Output"
+                }
+              }
+            },
+            "description": "Development only: marks the pending pix or boleto gateway charge of our charge id as expired"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": ["fake-gateway"]
+      }
+    },
+    "/fake-gateway/charges/{id}/pay": {
+      "post": {
+        "operationId": "FakeGatewayController_pay",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayChargeResponseDto_Output"
+                }
+              }
+            },
+            "description": "Development only: marks the pending pix or boleto gateway charge of our charge id as paid"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": ["fake-gateway"]
+      }
+    },
     "/fake-gateway/reset": {
       "post": {
         "operationId": "FakeGatewayController_reset",
@@ -1100,6 +1335,57 @@
         "responses": {
           "204": {
             "description": "Development only: empties the fake gateway data file"
+          }
+        },
+        "tags": ["fake-gateway"]
+      }
+    },
+    "/fake-gateway/subscriptions/{id}/card": {
+      "post": {
+        "operationId": "FakeGatewayController_replaceCardToken",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceCardTokenDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Development only: replaces the card token charged on the next attempt"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": ""
           }
         },
         "tags": ["fake-gateway"]

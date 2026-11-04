@@ -1,3 +1,8 @@
+export {
+  gatewayChargeJsonSchema,
+  toGatewayChargeJson,
+  type GatewayChargeJson,
+} from './gateway-charge-json.js';
 export { GatewayCustomerNotFoundError } from './gateway-customer-not-found.error.js';
 export { GatewayOutcomeUnknownError } from './gateway-outcome-unknown.error.js';
 export { GatewayUnavailableError } from './gateway-unavailable.error.js';
