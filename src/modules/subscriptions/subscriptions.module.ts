@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { Clock, SystemClock } from '../../shared/clock/index.js';
 import { ChargesModule } from '../charges/charges.module.js';
 import { CustomersModule } from '../customers/customers.module.js';
 import { PlansModule } from '../plans/plans.module.js';
@@ -17,7 +16,6 @@ import { SubscriptionsService } from './subscriptions.service.js';
       provide: SubscriptionsRepository,
       useClass: PrismaSubscriptionsRepository,
     },
-    { provide: Clock, useClass: SystemClock },
   ],
 })
 export class SubscriptionsModule {}

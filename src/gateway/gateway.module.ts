@@ -1,7 +1,6 @@
 import { Global, Module, type DynamicModule } from '@nestjs/common';
 import { resolve } from 'node:path';
 import { ConfigService } from '@nestjs/config';
-import { Clock, SystemClock } from '../shared/clock/index.js';
 import type { Env } from '../shared/config/env.schema.js';
 import { FakeGatewayController } from './fake/fake-gateway.controller.js';
 import { isFakeGatewayControllerEnabled } from './fake/fake-gateway-routes.js';
@@ -12,7 +11,6 @@ import { PaymentGateway } from './payment-gateway.port.js';
 @Global()
 @Module({
   providers: [
-    { provide: Clock, useClass: SystemClock },
     {
       provide: FakeGatewayStore,
       inject: [ConfigService],

@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { Clock, SystemClock } from '../../shared/clock/index.js';
 import { CustomersModule } from '../customers/customers.module.js';
 import { BillingRepository } from './billing.repository.js';
 import { ChargeProcessor } from './charge-processor.js';
@@ -17,7 +16,6 @@ import { PrismaChargesRepository } from './prisma-charges.repository.js';
     ChargeProcessor,
     { provide: BillingRepository, useClass: PrismaBillingRepository },
     { provide: ChargesRepository, useClass: PrismaChargesRepository },
-    { provide: Clock, useClass: SystemClock },
   ],
   exports: [BillingRepository, ChargeProcessor],
 })
