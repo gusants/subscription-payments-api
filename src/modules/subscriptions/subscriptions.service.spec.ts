@@ -126,6 +126,8 @@ describe('SubscriptionsService', () => {
         method: 'card',
         status: 'paid',
         attemptCount: 1,
+        retryCount: 0,
+        firstFailedAt: null,
         nextRetryAt: null,
         dueDate: startedAt,
         periodStart: startedAt,

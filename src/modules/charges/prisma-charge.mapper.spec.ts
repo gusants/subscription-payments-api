@@ -11,6 +11,8 @@ const row = (overrides: Partial<ChargeRow> = {}): ChargeRow => ({
   gatewayAttemptKey: null,
   attemptStartedAt: null,
   attemptCount: 0,
+  retryCount: 0,
+  firstFailedAt: null,
   nextRetryAt: null,
   dueDate: new Date('2026-01-31T00:00:00.000Z'),
   periodStart: new Date('2026-01-31T00:00:00.000Z'),

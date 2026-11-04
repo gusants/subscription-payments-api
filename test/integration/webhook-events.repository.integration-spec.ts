@@ -8,6 +8,8 @@ import type { NewCharge } from '../../src/modules/charges/charge.js';
 import { PrismaWebhookEventsRepository } from '../../src/modules/webhooks/prisma-webhook-events.repository.js';
 import { WebhookEventProcessor } from '../../src/modules/webhooks/webhook-event.processor.js';
 import type { NewSubscription } from '../../src/modules/subscriptions/subscription.js';
+import { RecordingBillingQueue } from '../../src/modules/billing-queue/testing/recording-billing-queue.js';
+import { ChargeDunning } from '../../src/modules/charges/charge-dunning.js';
 import { FixedClock } from '../../src/shared/clock/testing/fixed-clock.js';
 import { PrismaService } from '../../src/shared/database/prisma.service.js';
 import { generateId, ID_PREFIXES } from '../../src/shared/ids/index.js';
@@ -29,7 +31,16 @@ describe('PrismaWebhookEventsRepository (integration)', () => {
     prisma = createPrismaService();
     repository = new PrismaWebhookEventsRepository(prisma);
     billing = new PrismaBillingRepository(prisma);
-    processor = new WebhookEventProcessor(repository, new FixedClock(now));
+    processor = new WebhookEventProcessor(
+      repository,
+      new FixedClock(now),
+      new ChargeDunning(
+        billing,
+        new RecordingBillingQueue(),
+        new FixedClock(now),
+        'days',
+      ),
+    );
   });
 
   beforeEach(async () => {

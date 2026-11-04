@@ -6,8 +6,10 @@ import {
   Param,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
 import { ApiResponse, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { ZodResponse } from 'nestjs-zod';
 import { ErrorResponseDto } from '../../shared/errors/error-response.js';
 import { Idempotent } from '../../shared/idempotency/index.js';
@@ -43,7 +45,13 @@ export class ChargesController {
   @ZodResponse({
     status: HttpStatus.OK,
     description:
-      'The attempt ran. A failed charge is retried as a new attempt; a pending charge past its attempt lease is reconciled with the gateway. charge.status is paid or failed once the gateway decided, and stays pending when the gateway is unavailable, its outcome is unknown or it has not decided yet; retry again later',
+      'A pending charge past its attempt lease was reconciled with the gateway inline. charge.status is paid or failed once the gateway decided, and stays pending when the gateway is unavailable, its outcome is unknown or it has not decided yet; retry again later',
+    type: ChargeRetryResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.ACCEPTED,
+    description:
+      'A failed charge: the next dunning retry was queued to run now (same deterministic job as the scheduled retry, so it never runs twice) and the body shows the charge as it is at this moment, still failed. The worker settles it asynchronously; poll the customer charge history',
     type: ChargeRetryResponseDto,
   })
   @ApiResponse({
@@ -55,7 +63,7 @@ export class ChargesController {
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description:
-      'The charge cannot be retried: it is paid, its subscription is canceled, it was modified concurrently, or it is pending with an attempt still in flight within the lease (CHARGE_ATTEMPT_LEASE_SECONDS); or a request with the same Idempotency-Key is still being processed',
+      'The charge cannot be retried: it is paid, expired or uncollectible, its subscription is canceled, it has used its dunning retries, it was modified concurrently, or it is pending with an attempt still in flight within the lease (CHARGE_ATTEMPT_LEASE_SECONDS); or a request with the same Idempotency-Key is still being processed',
     type: ErrorResponseDto,
   })
   @ApiResponse({
@@ -67,10 +75,15 @@ export class ChargesController {
   @ApiResponse({
     status: HttpStatus.SERVICE_UNAVAILABLE,
     description:
-      'An Idempotency-Key was sent and the idempotency store is unavailable',
+      'The retry queue is unavailable (nothing was queued; the same Idempotency-Key can be sent again), or an Idempotency-Key was sent and the idempotency store is unavailable',
     type: ErrorResponseDto,
   })
-  async retry(@Param('id') id: string): Promise<ChargeRetryResponseDto> {
-    return toChargeRetryResponse(await this.charges.retry(id));
+  async retry(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<ChargeRetryResponseDto> {
+    const result = await this.charges.retry(id);
+    if (result.queued) response.status(HttpStatus.ACCEPTED);
+    return toChargeRetryResponse(result);
   }
 }

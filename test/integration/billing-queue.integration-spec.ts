@@ -2,7 +2,9 @@ import { Queue, Worker } from 'bullmq';
 import type { Redis } from 'ioredis';
 import {
   BILLING_DEFAULT_JOB_OPTIONS,
+  BULLMQ_PRODUCER_REDIS_OPTIONS,
   BULLMQ_REDIS_OPTIONS,
+  ENQUEUE_TIMEOUT_MS,
 } from '../../src/modules/billing-queue/billing-queue.options.js';
 import { BullMqBillingQueue } from '../../src/modules/billing-queue/bullmq-billing-queue.js';
 import type { ChargeRetryJobData } from '../../src/modules/billing-queue/bullmq-billing-queue.js';
@@ -109,6 +111,64 @@ describe('BullMqBillingQueue (integration)', () => {
     expect(await processed).toEqual({
       id: 'retry:ch_01abc:3',
       data: { chargeId: 'ch_01abc', attempt: 3 },
+    });
+  });
+
+  it('promotes the already scheduled job when asked to run now instead of duplicating it', async () => {
+    await billingQueue.scheduleRetry({
+      chargeId: 'ch_01abc',
+      attempt: 1,
+      delayMs: FAR_FUTURE_MS,
+    });
+
+    await billingQueue.scheduleRetry({
+      chargeId: 'ch_01abc',
+      attempt: 1,
+      delayMs: 0,
+    });
+
+    const job = await queue.getJob(retryJobId('ch_01abc', 1));
+    expect(await job?.getState()).toBe('waiting');
+    expect(await queue.getJobCountByTypes('delayed', 'waiting')).toBe(1);
+  });
+
+  describe('with Redis down', () => {
+    const UNREACHABLE_PORT = 1;
+    let downConnection: Redis;
+    let downQueue: Queue<ChargeRetryJobData>;
+
+    beforeEach(() => {
+      downConnection = createRedisConnection({
+        host: '127.0.0.1',
+        port: UNREACHABLE_PORT,
+        ...BULLMQ_PRODUCER_REDIS_OPTIONS,
+      });
+      downQueue = new Queue<ChargeRetryJobData>(queueName, {
+        connection: downConnection,
+        prefix: 'bull-test',
+      });
+      downQueue.on('error', () => undefined);
+    });
+
+    afterEach(async () => {
+      downConnection.disconnect();
+      await downQueue.close().catch(() => undefined);
+    });
+
+    it('rejects the enqueue within the enqueue timeout instead of hanging', async () => {
+      const startedAt = Date.now();
+
+      await expect(
+        new BullMqBillingQueue(downQueue).scheduleRetry({
+          chargeId: 'ch_01abc',
+          attempt: 1,
+          delayMs: FAR_FUTURE_MS,
+        }),
+      ).rejects.toThrow();
+
+      expect(Date.now() - startedAt).toBeLessThanOrEqual(
+        ENQUEUE_TIMEOUT_MS + 500,
+      );
     });
   });
 });

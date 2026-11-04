@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { HealthIndicatorService } from '@nestjs/terminus';
 import { PrismaService } from '../../shared/database/prisma.service.js';
 import { describeError } from './describe-error.js';
-import { HEALTH_CHECK_TIMEOUT_MS, withTimeout } from './with-timeout.js';
+import { withTimeout } from '../../shared/async/with-timeout.js';
+import { HEALTH_CHECK_TIMEOUT_MS } from './health-check-timeout.js';
 
 @Injectable()
 export class DatabaseHealthIndicator {

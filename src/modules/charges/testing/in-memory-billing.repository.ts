@@ -8,6 +8,7 @@ import type {
   AttachedGatewayCharge,
   Charge,
   ChargeSettlementRecord,
+  DunningExhaustion,
   GatewayAttempt,
   NewCharge,
   PaymentAttempt,
@@ -28,35 +29,49 @@ export class InMemoryBillingRepository extends BillingRepository {
     charge: NewCharge,
   ): Promise<SubscriptionWithCharge> {
     const created = await this.subscriptions.create(subscription);
-    const now = new Date();
-    const createdCharge: Charge = {
-      ...charge,
-      status: 'pending',
-      gatewayChargeId: null,
-      attemptCount: 0,
-      nextRetryAt: null,
-      paidAt: null,
-      expiresAt: null,
-      paymentInstructions: null,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const createdCharge = this.newStoredCharge(charge);
     this.stored.set(createdCharge.id, createdCharge);
     return { subscription: created, charge: { ...createdCharge } };
+  }
+
+  createRetryCharge(charge: NewCharge): Promise<Charge | null> {
+    const periodTaken = this.charges().some(
+      (found) =>
+        found.subscriptionId === charge.subscriptionId &&
+        found.periodStart.getTime() === charge.periodStart.getTime() &&
+        found.status !== 'expired',
+    );
+    if (periodTaken) return Promise.resolve(null);
+    const created = this.newStoredCharge(charge);
+    this.stored.set(created.id, created);
+    return Promise.resolve({ ...created });
+  }
+
+  recordDunningExhaustion({
+    charge,
+    subscription,
+  }: DunningExhaustion): Promise<boolean> {
+    return this.exhaust(charge, subscription);
   }
 
   markChargePending(
     id: string,
     fromAnyOf: readonly ChargeStatus[],
     attempt: GatewayAttempt,
+    retryNumber: number,
   ): Promise<Charge | null> {
     const found = this.stored.get(id);
-    if (!found || !fromAnyOf.includes(found.status)) {
+    if (
+      !found ||
+      !fromAnyOf.includes(found.status) ||
+      found.retryCount !== retryNumber - 1
+    ) {
       return Promise.resolve(null);
     }
     const reopened: Charge = {
       ...found,
       status: 'pending',
+      retryCount: retryNumber,
       ...attempt,
       updatedAt: new Date(),
     };
@@ -114,6 +129,7 @@ export class InMemoryBillingRepository extends BillingRepository {
       status: charge.to,
       gatewayChargeId: charge.gatewayChargeId,
       paidAt: charge.paidAt,
+      firstFailedAt: found.firstFailedAt ?? charge.firstFailedAt ?? null,
       attemptCount: found.attemptCount + (attempt ? 1 : 0),
       updatedAt: new Date(),
     };
@@ -134,6 +150,42 @@ export class InMemoryBillingRepository extends BillingRepository {
       charge: { ...settled },
       subscriptionChangeApplied: !subscription.change || changed !== null,
     };
+  }
+
+  private newStoredCharge(charge: NewCharge): Charge {
+    const now = new Date();
+    return {
+      retryCount: 0,
+      firstFailedAt: null,
+      ...charge,
+      status: 'pending',
+      gatewayChargeId: null,
+      attemptCount: 0,
+      nextRetryAt: null,
+      paidAt: null,
+      expiresAt: null,
+      paymentInstructions: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  private async exhaust(
+    charge: DunningExhaustion['charge'],
+    subscription: DunningExhaustion['subscription'],
+  ): Promise<boolean> {
+    if (charge) {
+      const found = this.stored.get(charge.id);
+      if (!found || !charge.fromAnyOf.includes(found.status)) return false;
+      this.stored.set(found.id, { ...found, status: 'uncollectible' });
+    }
+    const canceled = subscription.change
+      ? await this.subscriptions.changeStatus(
+          subscription.id,
+          subscription.change,
+        )
+      : null;
+    return charge !== null || canceled !== null;
   }
 
   private async currentStateOfIdenticalSettlement(

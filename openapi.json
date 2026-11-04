@@ -140,6 +140,125 @@
         "required": ["data", "meta"],
         "type": "object"
       },
+      "ChargeRetryResponseDto": {
+        "properties": {
+          "charge": {
+            "properties": {
+              "amountCents": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "attemptCount": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "attempts": {
+                "description": "Gateway attempts, oldest first",
+                "items": {
+                  "properties": {
+                    "createdAt": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string"
+                    },
+                    "failureReason": {
+                      "type": ["string", "null"]
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "enum": ["succeeded", "declined"],
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "result", "failureReason", "createdAt"],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "createdAt": {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "type": "string"
+              },
+              "dueDate": {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "method": {
+                "enum": ["card", "pix", "boleto"],
+                "type": "string"
+              },
+              "paidAt": {
+                "format": "date-time",
+                "nullable": true,
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "type": "string"
+              },
+              "periodEnd": {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "type": "string"
+              },
+              "periodStart": {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "paid",
+                  "failed",
+                  "expired",
+                  "uncollectible"
+                ],
+                "type": "string"
+              },
+              "subscriptionId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "subscriptionId",
+              "amountCents",
+              "method",
+              "status",
+              "attemptCount",
+              "dueDate",
+              "periodStart",
+              "periodEnd",
+              "paidAt",
+              "createdAt",
+              "attempts"
+            ],
+            "type": "object"
+          },
+          "subscription": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "enum": ["incomplete", "active", "past_due", "canceled"],
+                "type": "string"
+              }
+            },
+            "required": ["id", "status"],
+            "type": "object"
+          }
+        },
+        "required": ["charge", "subscription"],
+        "type": "object"
+      },
       "ChargeRetryResponseDto_Output": {
         "additionalProperties": false,
         "properties": {
@@ -1114,7 +1233,17 @@
                 }
               }
             },
-            "description": "The attempt ran. A failed charge is retried as a new attempt; a pending charge past its attempt lease is reconciled with the gateway. charge.status is paid or failed once the gateway decided, and stays pending when the gateway is unavailable, its outcome is unknown or it has not decided yet; retry again later"
+            "description": "A pending charge past its attempt lease was reconciled with the gateway inline. charge.status is paid or failed once the gateway decided, and stays pending when the gateway is unavailable, its outcome is unknown or it has not decided yet; retry again later"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChargeRetryResponseDto"
+                }
+              }
+            },
+            "description": "A failed charge: the next dunning retry was queued to run now (same deterministic job as the scheduled retry, so it never runs twice) and the body shows the charge as it is at this moment, still failed. The worker settles it asynchronously; poll the customer charge history"
           },
           "400": {
             "content": {
@@ -1144,7 +1273,7 @@
                 }
               }
             },
-            "description": "The charge cannot be retried: it is paid, its subscription is canceled, it was modified concurrently, or it is pending with an attempt still in flight within the lease (CHARGE_ATTEMPT_LEASE_SECONDS); or a request with the same Idempotency-Key is still being processed"
+            "description": "The charge cannot be retried: it is paid, expired or uncollectible, its subscription is canceled, it has used its dunning retries, it was modified concurrently, or it is pending with an attempt still in flight within the lease (CHARGE_ATTEMPT_LEASE_SECONDS); or a request with the same Idempotency-Key is still being processed"
           },
           "422": {
             "content": {
@@ -1164,7 +1293,7 @@
                 }
               }
             },
-            "description": "An Idempotency-Key was sent and the idempotency store is unavailable"
+            "description": "The retry queue is unavailable (nothing was queued; the same Idempotency-Key can be sent again), or an Idempotency-Key was sent and the idempotency store is unavailable"
           }
         },
         "tags": ["charges"]

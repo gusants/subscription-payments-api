@@ -3,11 +3,10 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
 import { BullModule } from '@nestjs/bullmq';
 import { Module, type DynamicModule } from '@nestjs/common';
-import {
-  areBillingWorkersEnabled,
-  isBullBoardEnabled,
-} from './billing-queue-flags.js';
+import { isBullBoardEnabled } from './billing-queue-flags.js';
 import { BillingQueueConnection } from './billing-queue-connection.js';
+import { BillingQueueProducerConnection } from './billing-queue-producer-connection.js';
+import { BillingQueueProducerConnectionModule } from './billing-queue-producer-connection.module.js';
 import {
   BILLING_QUEUE_NAMES,
   BILLING_QUEUE_PREFIX,
@@ -16,13 +15,13 @@ import {
 import { BILLING_DEFAULT_JOB_OPTIONS } from './billing-queue.options.js';
 import { BillingQueue } from './billing-queue.port.js';
 import { BullMqBillingQueue } from './bullmq-billing-queue.js';
-import { BillingWorkersModule } from './processors/billing-workers.module.js';
 
 @Module({})
 export class BillingQueueModule {
   static register(env: Record<string, unknown> = process.env): DynamicModule {
     return {
       module: BillingQueueModule,
+      global: true,
       imports: [
         BullModule.forRootAsync({
           extraProviders: [BillingQueueConnection],
@@ -33,8 +32,15 @@ export class BillingQueueModule {
             defaultJobOptions: BILLING_DEFAULT_JOB_OPTIONS,
           }),
         }),
-        BullModule.registerQueue(
-          ...BILLING_QUEUE_NAMES.map((name) => ({ name })),
+        ...BILLING_QUEUE_NAMES.map((name) =>
+          BullModule.registerQueueAsync({
+            name,
+            imports: [BillingQueueProducerConnectionModule],
+            inject: [BillingQueueProducerConnection],
+            useFactory: ({ redis }: BillingQueueProducerConnection) => ({
+              connection: redis,
+            }),
+          }),
         ),
         ...(isBullBoardEnabled(env)
           ? [
@@ -50,7 +56,6 @@ export class BillingQueueModule {
               ),
             ]
           : []),
-        ...(areBillingWorkersEnabled(env) ? [BillingWorkersModule] : []),
       ],
       providers: [{ provide: BillingQueue, useClass: BullMqBillingQueue }],
       exports: [BillingQueue],

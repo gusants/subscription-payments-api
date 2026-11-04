@@ -4,6 +4,7 @@ import type {
   AttachedGatewayCharge,
   Charge,
   ChargeSettlementRecord,
+  DunningExhaustion,
   GatewayAttempt,
   NewCharge,
   RecordedOutcome,
@@ -20,7 +21,14 @@ export abstract class BillingRepository {
     id: string,
     fromAnyOf: readonly ChargeStatus[],
     attempt: GatewayAttempt,
+    retryNumber: number,
   ): Promise<Charge | null>;
+
+  abstract createRetryCharge(charge: NewCharge): Promise<Charge | null>;
+
+  abstract recordDunningExhaustion(
+    exhaustion: DunningExhaustion,
+  ): Promise<boolean>;
 
   abstract takeAttemptLease(
     id: string,

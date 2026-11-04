@@ -1,5 +1,9 @@
 import type { GatewayWebhookPayload } from '../../gateway/index.js';
-import type { ChargeSettlementRecord, Charge } from '../charges/charge.js';
+import type {
+  ChargeSettlementRecord,
+  Charge,
+  RecordedOutcome,
+} from '../charges/charge.js';
 import type { Subscription } from '../subscriptions/subscription.js';
 
 export const WEBHOOK_EVENT_OUTCOMES = [
@@ -51,15 +55,18 @@ export type WebhookIngestion =
       kind: 'processed';
       outcome: WebhookEventOutcome;
       refundRisk?: RefundRisk;
+      recorded?: RecordedOutcome;
     };
 
 export function toProcessedIngestion(
   decision: WebhookDecision,
+  recorded?: RecordedOutcome,
 ): WebhookIngestion {
   const refundRisk = 'refundRisk' in decision ? decision.refundRisk : undefined;
   return {
     kind: 'processed',
     outcome: decision.outcome,
     ...(refundRisk && { refundRisk }),
+    ...(recorded && { recorded }),
   };
 }

@@ -9,7 +9,7 @@ import type {
 import { ChargeSettlementConflictError } from './charge-settlement-conflict.error.js';
 import { toCharge } from './prisma-charge.mapper.js';
 
-function changeSubscription(
+export function changeSubscription(
   tx: Prisma.TransactionClient,
   id: string,
   { fromAnyOf, to, canceledAt }: StatusChange,
@@ -65,6 +65,12 @@ export async function applyChargeOutcome(
   });
   if (count === 0) {
     return currentStateOfIdenticalSettlement(tx, charge, subscription.id);
+  }
+  if (charge.firstFailedAt) {
+    await tx.charge.updateMany({
+      where: { id: charge.id, firstFailedAt: null },
+      data: { firstFailedAt: charge.firstFailedAt },
+    });
   }
   if (attempt) await tx.paymentAttempt.create({ data: attempt });
   const changed = subscription.change

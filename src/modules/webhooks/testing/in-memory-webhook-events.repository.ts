@@ -35,16 +35,17 @@ export class InMemoryWebhookEventsRepository extends WebhookEventsRepository {
   ): Promise<WebhookIngestion> {
     if (this.stored.has(event.gatewayEventId)) return { kind: 'duplicate' };
     const decision = decide(await this.findTarget(event));
-    if (decision.outcome === 'applied') {
-      await this.billing.recordChargeOutcome(decision.settlement);
-    }
+    const recorded =
+      decision.outcome === 'applied'
+        ? await this.billing.recordChargeOutcome(decision.settlement)
+        : undefined;
     this.stored.set(event.gatewayEventId, {
       gatewayEventId: event.gatewayEventId,
       type: event.type,
       outcome: decision.outcome,
       processedAt: event.at,
     });
-    return toProcessedIngestion(decision);
+    return toProcessedIngestion(decision, recorded);
   }
 
   events(): StoredWebhookEvent[] {

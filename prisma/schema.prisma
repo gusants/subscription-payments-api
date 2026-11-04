@@ -117,6 +117,8 @@ model Charge {
   gatewayAttemptKey   String?          @unique @map("gateway_attempt_key")
   attemptStartedAt    DateTime?        @map("attempt_started_at") @db.Timestamptz(3)
   attemptCount        Int              @default(0) @map("attempt_count")
+  retryCount          Int              @default(0) @map("retry_count")
+  firstFailedAt       DateTime?        @map("first_failed_at") @db.Timestamptz(3)
   nextRetryAt         DateTime?        @map("next_retry_at") @db.Timestamptz(3)
   dueDate             DateTime         @map("due_date") @db.Timestamptz(3)
   periodStart         DateTime         @map("period_start") @db.Timestamptz(3)
@@ -129,7 +131,6 @@ model Charge {
   subscription        Subscription     @relation(fields: [subscriptionId], references: [id])
   attempts            PaymentAttempt[]
 
-  @@unique([subscriptionId, periodStart])
   @@index([status, nextRetryAt])
   @@map("charges")
 }

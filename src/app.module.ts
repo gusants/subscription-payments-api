@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { GatewayModule } from './gateway/gateway.module.js';
 import { BillingQueueModule } from './modules/billing-queue/billing-queue.module.js';
+import { BillingWorkersModule } from './modules/billing-queue/processors/billing-workers.module.js';
 import { ChargesModule } from './modules/charges/charges.module.js';
 import { CustomersModule } from './modules/customers/customers.module.js';
 import { HealthModule } from './modules/health/health.module.js';
@@ -32,6 +33,7 @@ import { RedisModule } from './shared/redis/redis.module.js';
     SubscriptionsModule,
     WebhooksModule,
     BillingQueueModule.register(),
+    BillingWorkersModule.register(),
   ],
 })
 export class AppModule {}

@@ -5,9 +5,15 @@ import { InMemoryCustomersRepository } from '../customers/testing/in-memory-cust
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
 import { ChargesController } from './charges.controller.js';
 import { ChargesService } from './charges.service.js';
-import { buildChargeProcessor } from './testing/build-charge-processor.js';
+import type { Response } from 'express';
+import {
+  buildChargeDunning,
+  buildChargeProcessor,
+} from './testing/build-charge-processor.js';
 import { InMemoryBillingRepository } from './testing/in-memory-billing.repository.js';
 import { InMemoryChargesRepository } from './testing/in-memory-charges.repository.js';
+
+const responseStub = () => ({ status: vi.fn() }) as unknown as Response;
 
 describe('ChargesController', () => {
   const at = new Date('2026-01-31T10:30:00.000Z');
@@ -54,6 +60,7 @@ describe('ChargesController', () => {
           gateway: new StubPaymentGateway(),
           clock: new FixedClock(at),
         }),
+        buildChargeDunning(billing, new FixedClock(at)),
       ),
     );
   });
@@ -79,8 +86,8 @@ describe('ChargesController', () => {
   });
 
   it('propagates NotFoundError when retrying an unknown charge', async () => {
-    await expect(controller.retry('ch_missing')).rejects.toBeInstanceOf(
-      NotFoundError,
-    );
+    await expect(
+      controller.retry('ch_missing', responseStub()),
+    ).rejects.toBeInstanceOf(NotFoundError);
   });
 });

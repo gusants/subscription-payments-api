@@ -141,6 +141,8 @@ describe('PrismaBillingRepository (integration)', () => {
         status: 'pending',
         gatewayChargeId: null,
         attemptCount: 0,
+        retryCount: 0,
+        firstFailedAt: null,
         nextRetryAt: null,
         paidAt: null,
         expiresAt: null,
@@ -392,11 +394,13 @@ describe('PrismaBillingRepository (integration)', () => {
         charge.id,
         ['failed'],
         attempt(charge.id, 2),
+        1,
       );
 
       expect(reopened).toMatchObject({
         status: 'pending',
         attemptCount: 1,
+        retryCount: 1,
         gatewayAttemptKey: `${charge.id}:2`,
         attemptStartedAt: retryStartedAt,
       });
@@ -412,10 +416,15 @@ describe('PrismaBillingRepository (integration)', () => {
       );
 
       await expect(
-        repository.markChargePending(charge.id, ['failed'], {
-          gatewayAttemptKey: other.gatewayAttemptKey,
-          attemptStartedAt: retryStartedAt,
-        }),
+        repository.markChargePending(
+          charge.id,
+          ['failed'],
+          {
+            gatewayAttemptKey: other.gatewayAttemptKey,
+            attemptStartedAt: retryStartedAt,
+          },
+          1,
+        ),
       ).rejects.toMatchObject({ code: 'P2002' });
     });
 
@@ -426,6 +435,7 @@ describe('PrismaBillingRepository (integration)', () => {
         charge.id,
         ['paid'],
         attempt(charge.id, 2),
+        1,
       );
 
       expect(reopened).toBeNull();
@@ -444,6 +454,7 @@ describe('PrismaBillingRepository (integration)', () => {
             charge.id,
             ['failed'],
             attempt(charge.id, 2),
+            1,
           ),
         ),
       );
@@ -616,6 +627,253 @@ describe('PrismaBillingRepository (integration)', () => {
 
       expect(settled.charge.status).toBe('paid');
       expect(settled.subscription.status).toBe('past_due');
+    });
+  });
+
+  describe('markChargePending retry numbering', () => {
+    it('refuses a retry numbered out of sequence', async () => {
+      const subscription = newSubscription();
+      const charge = firstChargeOf(subscription);
+      await repository.createSubscriptionWithFirstCharge(subscription, charge);
+      await repository.recordChargeOutcome(
+        outcomeRecord(subscription.id, charge.id, {
+          charge: {
+            id: charge.id,
+            fromAnyOf: ['pending'],
+            to: 'failed',
+            gatewayChargeId: 'gch_1',
+            paidAt: null,
+          },
+          subscription: { id: subscription.id, change: null },
+        }),
+      );
+
+      const reopened = await repository.markChargePending(
+        charge.id,
+        ['failed'],
+        attempt(charge.id, 2),
+        2,
+      );
+
+      expect(reopened).toBeNull();
+    });
+  });
+
+  describe('first failure time', () => {
+    it('records it on the first failed settlement and never overwrites it', async () => {
+      const subscription = newSubscription();
+      const charge = firstChargeOf(subscription);
+      await repository.createSubscriptionWithFirstCharge(subscription, charge);
+      const failure = (firstFailedAt: Date, gatewayChargeId: string) =>
+        outcomeRecord(subscription.id, charge.id, {
+          charge: {
+            id: charge.id,
+            fromAnyOf: ['pending'],
+            to: 'failed',
+            gatewayChargeId,
+            paidAt: null,
+            firstFailedAt,
+          },
+          attempt: {
+            id: generateId(ID_PREFIXES.paymentAttempt),
+            chargeId: charge.id,
+            gatewayChargeId,
+            result: 'declined',
+            failureReason: null,
+          },
+          subscription: { id: subscription.id, change: null },
+        });
+      const first = new Date('2026-02-01T00:00:00.000Z');
+
+      await repository.recordChargeOutcome(failure(first, 'gch_1'));
+      await repository.markChargePending(
+        charge.id,
+        ['failed'],
+        attempt(charge.id, 2),
+        1,
+      );
+      const second = await repository.recordChargeOutcome(
+        failure(new Date('2026-02-02T00:00:00.000Z'), 'gch_2'),
+      );
+
+      expect(second.charge).toMatchObject({
+        firstFailedAt: first,
+        retryCount: 1,
+      });
+    });
+  });
+
+  describe('createRetryCharge', () => {
+    async function seedExpiredCharge() {
+      const subscription = {
+        ...newSubscription(),
+        paymentMethod: 'pix' as const,
+      };
+      const charge = { ...firstChargeOf(subscription), method: 'pix' as const };
+      await repository.createSubscriptionWithFirstCharge(subscription, charge);
+      await repository.recordChargeOutcome(
+        outcomeRecord(subscription.id, charge.id, {
+          charge: {
+            id: charge.id,
+            fromAnyOf: ['pending'],
+            to: 'expired',
+            gatewayChargeId: 'gch_1',
+            paidAt: null,
+          },
+          subscription: { id: subscription.id, change: null },
+        }),
+      );
+      return { subscription, charge };
+    }
+
+    const retryOf = (original: NewCharge, retryCount: number): NewCharge => {
+      const id = generateId(ID_PREFIXES.charge);
+      return {
+        ...original,
+        id,
+        gatewayAttemptKey: `${id}:1`,
+        retryCount,
+        firstFailedAt: periodEnd,
+      };
+    };
+
+    it('stores a new charge for the period of an expired one', async () => {
+      const { charge } = await seedExpiredCharge();
+
+      const created = await repository.createRetryCharge(retryOf(charge, 1));
+
+      expect(created).toMatchObject({
+        status: 'pending',
+        retryCount: 1,
+        firstFailedAt: periodEnd,
+        periodStart,
+      });
+    });
+
+    it('answers null instead of throwing when the period already has a live charge', async () => {
+      const { charge } = await seedExpiredCharge();
+      await repository.createRetryCharge(retryOf(charge, 1));
+
+      const duplicate = await repository.createRetryCharge(retryOf(charge, 1));
+
+      expect(duplicate).toBeNull();
+      expect(await prisma.charge.count()).toBe(2);
+    });
+
+    it('lets only one of several concurrent reissues win', async () => {
+      const { charge } = await seedExpiredCharge();
+
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () =>
+          repository.createRetryCharge(retryOf(charge, 1)),
+        ),
+      );
+
+      expect(results.filter(Boolean)).toHaveLength(1);
+    });
+
+    it('allows a further reissue once the previous reissue expired too', async () => {
+      const { charge } = await seedExpiredCharge();
+      const first = await repository.createRetryCharge(retryOf(charge, 1));
+      await prisma.charge.update({
+        where: { id: first!.id },
+        data: { status: 'expired' },
+      });
+
+      const second = await repository.createRetryCharge(retryOf(charge, 2));
+
+      expect(second).toMatchObject({ retryCount: 2, status: 'pending' });
+    });
+  });
+
+  describe('recordDunningExhaustion', () => {
+    async function seedFailedPastDue() {
+      const subscription = {
+        ...newSubscription(),
+        status: 'past_due' as const,
+      };
+      const charge = firstChargeOf(subscription);
+      await repository.createSubscriptionWithFirstCharge(subscription, charge);
+      await repository.recordChargeOutcome(
+        outcomeRecord(subscription.id, charge.id, {
+          charge: {
+            id: charge.id,
+            fromAnyOf: ['pending'],
+            to: 'failed',
+            gatewayChargeId: 'gch_1',
+            paidAt: null,
+          },
+          subscription: { id: subscription.id, change: null },
+        }),
+      );
+      return { subscription, charge };
+    }
+
+    const exhaustion = (subscriptionId: string, chargeId: string) => ({
+      charge: { id: chargeId, fromAnyOf: ['failed' as const] },
+      subscription: {
+        id: subscriptionId,
+        change: {
+          fromAnyOf: [
+            'incomplete' as const,
+            'active' as const,
+            'past_due' as const,
+          ],
+          to: 'canceled' as const,
+          canceledAt: periodEnd,
+        },
+      },
+    });
+
+    it('makes the charge uncollectible and cancels the subscription together', async () => {
+      const { subscription, charge } = await seedFailedPastDue();
+
+      const applied = await repository.recordDunningExhaustion(
+        exhaustion(subscription.id, charge.id),
+      );
+
+      expect(applied).toBe(true);
+      expect(
+        (await prisma.charge.findUniqueOrThrow({ where: { id: charge.id } }))
+          .status,
+      ).toBe('uncollectible');
+      expect(
+        await prisma.subscription.findUniqueOrThrow({
+          where: { id: subscription.id },
+        }),
+      ).toMatchObject({ status: 'canceled', canceledAt: periodEnd });
+    });
+
+    it('changes nothing when the charge left the failed status meanwhile', async () => {
+      const { subscription, charge } = await seedFailedPastDue();
+      await prisma.charge.update({
+        where: { id: charge.id },
+        data: { status: 'pending' },
+      });
+
+      const applied = await repository.recordDunningExhaustion(
+        exhaustion(subscription.id, charge.id),
+      );
+
+      expect(applied).toBe(false);
+      expect(
+        (
+          await prisma.subscription.findUniqueOrThrow({
+            where: { id: subscription.id },
+          })
+        ).status,
+      ).toBe('past_due');
+    });
+
+    it('cancels the subscription only when there is no charge to exhaust', async () => {
+      const { subscription } = await seedFailedPastDue();
+
+      const applied = await repository.recordDunningExhaustion({
+        charge: null,
+        subscription: exhaustion(subscription.id, 'unused').subscription,
+      });
+
+      expect(applied).toBe(true);
     });
   });
 });

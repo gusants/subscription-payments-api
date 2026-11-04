@@ -35,14 +35,15 @@ export class PrismaWebhookEventsRepository extends WebhookEventsRepository {
       });
       if (count === 0) return { kind: 'duplicate' };
       const decision = decide(await this.lockTarget(tx, event));
-      if (decision.outcome === 'applied') {
-        await applyChargeOutcome(tx, decision.settlement);
-      }
+      const recorded =
+        decision.outcome === 'applied'
+          ? await applyChargeOutcome(tx, decision.settlement)
+          : undefined;
       await tx.webhookEvent.update({
         where: { id: event.id },
         data: { processedAt: event.at, outcome: decision.outcome },
       });
-      return toProcessedIngestion(decision);
+      return toProcessedIngestion(decision, recorded);
     });
   }
 

@@ -24,6 +24,7 @@ export function expirySettlement({
       to: 'expired',
       gatewayChargeId,
       paidAt: null,
+      firstFailedAt: now,
     },
     attempt: null,
     subscription: {

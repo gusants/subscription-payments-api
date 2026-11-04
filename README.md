@@ -57,13 +57,22 @@ Environment variables are validated at startup. See `.env.example` for the full 
 
 ## Queues
 
-BullMQ queues `charge-retries`, `subscription-renewals` and `charge-reconciliation` live in the same Redis, under the key prefix `bull` (`bull:<queue>:*`). BullMQ gets its own connections, not the app Redis client: that client fails fast, while BullMQ workers need `maxRetriesPerRequest: null` and an offline queue to wait out Redis restarts.
+BullMQ queues `charge-retries`, `subscription-renewals` and `charge-reconciliation` live in the same Redis, under the key prefix `bull` (`bull:<queue>:*`). BullMQ gets its own connections, not the app Redis client. Producers (the queues the API enqueues into) use a fail-fast connection (`enableOfflineQueue: false`, command and connect timeouts, plus a 2 s enqueue timeout), so an enqueue during a Redis outage rejects quickly instead of hanging the request. Workers use a separate connection with `maxRetriesPerRequest: null` and an offline queue, which BullMQ requires to wait out Redis restarts.
 
 Jobs keep the last 1000 completed (or 24h, whichever bound is hit first). Failed jobs are never removed: a job that exhausts its technical attempts stays in the failed set, which plays the dead-letter role and is visible in Bull Board.
 
 - `WORKERS_ENABLED` (default true): when false the process only enqueues. `pnpm start:worker` (`pnpm start:worker:prod` after a build) boots the same modules as an application context, with no HTTP server and workers forced on, so workers can run in their own process: run the API with `WORKERS_ENABLED=false` and the worker separately. Mind the single-process fake gateway store (see Payment gateway): with the fake gateway the workers must stay in the API process.
 - `RETRY_INTERVAL_UNIT` (`days` default, or `minutes`; the Docker demo uses `minutes`): unit of the dunning calendar. Retries fall on D+1, D+3 and D+7, each measured from the original failure (not chained from the previous retry); after the third retry the charge is exhausted. Retry jobs get the deterministic id `retry:{chargeId}:{attempt}`, so scheduling the same retry twice yields one job.
 - `BULL_BOARD_ENABLED`: Bull Board is served at `/queues` (not in Swagger or `openapi.json`). Defaults to true outside `NODE_ENV=production` and false in production unless set; the Docker demo sets it to true.
+
+### Dunning retries
+
+When a charge fails (declined by the gateway, a `charge.failed` webhook, or a pix/boleto charge expiring on a renewal) the settlement is committed first and only then is the next retry scheduled as a delayed job in `charge-retries`, never inside a database transaction. The state that drives the calendar lives on the charge: `first_failed_at` (set once, on the first failed or expired settlement) and `retry_count` (retries already started). Retry `n` is due at `first_failed_at` + D+1, D+3 or D+7 and its job id is `retry:{chargeId}:{n}`, so the charge flow and the webhook scheduling the same retry yield one job.
+
+- If the enqueue fails the settlement is kept and an ERROR is logged with charge, subscription and retry number; nothing is rolled back. The failed charge with its `first_failed_at` and `retry_count` is the persisted record of the missing retry: the same follow-up is idempotent and is recovered by `POST /charges/{id}/retry` (or the reconciliation job, when it lands).
+- The worker (`WORKERS_ENABLED`) runs a retry only if the charge still matches it: a `failed` card charge with exactly `n - 1` retries is resubmitted as a new attempt (`{chargeId}:{attempts + 1}` key) and `retry_count` becomes `n`; stale or duplicated jobs are skipped.
+- Pix and boleto: `expired` is terminal, so each retry issues a new `pending` charge for the same period carrying `first_failed_at` and `retry_count`. The unique index on (`subscription_id`, `period_start`) is partial and excludes `expired` charges, so a period has at most one live charge.
+- After the third retry fails the charge becomes `uncollectible` (an expired pix/boleto charge stays `expired`) and the subscription `canceled`, in one transaction, guarded by the current status so a concurrent payment wins.
 
 ## Payment gateway
 
@@ -135,8 +144,9 @@ Every gateway attempt carries the idempotency key `<chargeId>:<attemptNumber>`, 
 
 `POST /charges/{id}/retry` answers:
 
-- `200` with `charge.status` `paid` or `failed` once the gateway decided.
-- `200` with `charge.status` `pending` when the gateway was unavailable, its outcome is unknown (timeout) or it has not decided yet. The charge keeps its attempt key; retry again later.
-- `409` when the charge is paid, its subscription is canceled, or it is `pending` with an attempt still in flight, that is, started less than `CHARGE_ATTEMPT_LEASE_SECONDS` (default 30) ago.
+- `202` for a `failed` charge: the next dunning retry was queued to run now, with the same deterministic job id as the scheduled one (a job already scheduled for later is promoted, never duplicated), and the body is the charge as it is at that moment, still `failed`. The worker settles it asynchronously; read the result in the customer charge history. A replay with the same `Idempotency-Key` answers `202` too.
+- `200` for a `pending` charge past its attempt lease, reconciled inline (below): `charge.status` is `paid` or `failed` once the gateway decided, and stays `pending` when the gateway is unavailable, its outcome is unknown (timeout) or it has not decided yet; the charge keeps its attempt key.
+- `409` when the charge is paid, expired or uncollectible, its subscription is canceled, it already used its 3 dunning retries, or it is `pending` with an attempt still in flight, that is, started less than `CHARGE_ATTEMPT_LEASE_SECONDS` (default 30) ago.
+- `503` when the retry queue is unreachable; nothing was queued and the same `Idempotency-Key` can be sent again.
 
 Retrying a `pending` charge past that lease reconciles it: the gateway is asked for the charge of the attempt key and its outcome is recorded; when the gateway never received it, the same attempt key is re-sent.

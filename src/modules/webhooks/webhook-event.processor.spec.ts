@@ -6,6 +6,8 @@ import type {
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import type { ChargeStatus } from '../charges/charge-status.js';
 import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
+import { RecordingBillingQueue } from '../billing-queue/testing/recording-billing-queue.js';
+import { buildChargeDunning } from '../charges/testing/build-charge-processor.js';
 import { InMemoryBillingRepository } from '../charges/testing/in-memory-billing.repository.js';
 import type { SubscriptionStatus } from '../subscriptions/subscription-status.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
@@ -20,6 +22,7 @@ describe('WebhookEventProcessor', () => {
   let billing: InMemoryBillingRepository;
   let customers: InMemoryCustomersRepository;
   let events: InMemoryWebhookEventsRepository;
+  let queue: RecordingBillingQueue;
   let processor: WebhookEventProcessor;
   let warn: ReturnType<typeof vi.spyOn>;
   let error: ReturnType<typeof vi.spyOn>;
@@ -33,7 +36,12 @@ describe('WebhookEventProcessor', () => {
       subscriptions,
       customers,
     );
-    processor = new WebhookEventProcessor(events, new FixedClock(now));
+    queue = new RecordingBillingQueue();
+    processor = new WebhookEventProcessor(
+      events,
+      new FixedClock(now),
+      buildChargeDunning(billing, new FixedClock(now), queue),
+    );
     warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => undefined);
@@ -136,7 +144,7 @@ describe('WebhookEventProcessor', () => {
 
     const result = await processor.process(event('charge.paid'));
 
-    expect(result).toEqual({ kind: 'processed', outcome: 'applied' });
+    expect(result).toMatchObject({ kind: 'processed', outcome: 'applied' });
     expect(chargeNow()).toMatchObject({
       status: 'paid',
       gatewayChargeId: 'gch_1',
@@ -198,7 +206,7 @@ describe('WebhookEventProcessor', () => {
 
     const result = await processor.process(event('charge.paid'));
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       kind: 'processed',
       outcome: 'ignored_duplicate_state',
     });
@@ -212,7 +220,7 @@ describe('WebhookEventProcessor', () => {
 
     const result = await processor.process(event('charge.failed'));
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       kind: 'processed',
       outcome: 'ignored_duplicate_state',
     });
@@ -226,7 +234,7 @@ describe('WebhookEventProcessor', () => {
       event('charge.failed', { failureReason: 'insufficient_funds' }),
     );
 
-    expect(result).toEqual({ kind: 'processed', outcome: 'applied' });
+    expect(result).toMatchObject({ kind: 'processed', outcome: 'applied' });
     expect(chargeNow()).toMatchObject({ status: 'failed', paidAt: null });
     expect(billing.attempts()).toEqual([
       expect.objectContaining({
@@ -242,7 +250,7 @@ describe('WebhookEventProcessor', () => {
 
     const result = await processor.process(event('charge.expired'));
 
-    expect(result).toEqual({ kind: 'processed', outcome: 'applied' });
+    expect(result).toMatchObject({ kind: 'processed', outcome: 'applied' });
     expect(chargeNow()).toMatchObject({ status: 'expired', attemptCount: 0 });
     expect(billing.attempts()).toEqual([]);
     expect(await subscriptionNow()).toMatchObject({
@@ -263,6 +271,70 @@ describe('WebhookEventProcessor', () => {
     });
   });
 
+  describe('dunning follow-up', () => {
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    it('schedules retry 1 one day after a charge.failed settles the charge', async () => {
+      await seed('active');
+
+      await processor.process(event('charge.failed'));
+
+      expect(chargeNow().firstFailedAt).toEqual(now);
+      expect(queue.scheduled()).toEqual([
+        { chargeId: 'ch_1', attempt: 1, delayMs: dayMs },
+      ]);
+    });
+
+    it('schedules retry 1 when a renewal charge expires on an active subscription', async () => {
+      await seed('active');
+
+      await processor.process(event('charge.expired'));
+
+      expect(queue.scheduled()).toEqual([
+        { chargeId: 'ch_1', attempt: 1, delayMs: dayMs },
+      ]);
+    });
+
+    it('schedules nothing when the first charge expires and cancels the subscription', async () => {
+      await seed();
+
+      await processor.process(event('charge.expired'));
+
+      expect(queue.scheduled()).toEqual([]);
+    });
+
+    it('schedules nothing for a paid event or for a duplicated delivery', async () => {
+      await seed('active');
+      await processor.process(event('charge.paid'));
+      await processor.process(event('charge.paid'));
+
+      expect(queue.scheduled()).toEqual([]);
+    });
+
+    it('schedules nothing when the failure was already recorded for the same gateway charge', async () => {
+      await seed();
+      await settleCharge('failed');
+
+      await processor.process(event('charge.failed'));
+
+      expect(queue.scheduled()).toEqual([]);
+    });
+
+    it('still applies the event and answers processed when the retry cannot be enqueued', async () => {
+      await seed('active');
+      queue.failure = new Error('redis down');
+
+      const result = await processor.process(event('charge.failed'));
+
+      expect(result).toMatchObject({ kind: 'processed', outcome: 'applied' });
+      expect(chargeNow().status).toBe('failed');
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining('charge ch_1 (subscription sub_1'),
+        expect.any(String),
+      );
+    });
+  });
+
   it('records an event for an unknown charge and changes nothing', async () => {
     await seed();
 
@@ -270,7 +342,7 @@ describe('WebhookEventProcessor', () => {
       event('charge.paid', { externalRef: 'ch_unknown' }),
     );
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       kind: 'processed',
       outcome: 'ignored_unknown_charge',
     });
@@ -285,7 +357,7 @@ describe('WebhookEventProcessor', () => {
       event('charge.paid', {}, 'evt_paid'),
     );
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       kind: 'processed',
       outcome: 'requires_refund',
       refundRisk: { subscriptionId: 'sub_1' },
@@ -326,7 +398,7 @@ describe('WebhookEventProcessor', () => {
 
     const result = await processor.process(event('charge.paid'));
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       kind: 'processed',
       outcome: 'applied',
       refundRisk: { subscriptionId: 'sub_1' },
@@ -346,7 +418,7 @@ describe('WebhookEventProcessor', () => {
 
       const result = await processor.process(event('charge.paid', overrides));
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         kind: 'processed',
         outcome: 'rejected_mismatch',
       });
@@ -373,7 +445,7 @@ describe('WebhookEventProcessor', () => {
       event('charge.expired', {}, 'evt_expired'),
     );
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       kind: 'processed',
       outcome: 'rejected_out_of_order',
     });

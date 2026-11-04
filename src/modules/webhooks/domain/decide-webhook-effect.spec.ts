@@ -27,6 +27,8 @@ describe('decideWebhookEffect', () => {
     gatewayAttemptKey: 'ch_1:1',
     attemptStartedAt: null,
     attemptCount: 0,
+    retryCount: 0,
+    firstFailedAt: null,
     nextRetryAt: null,
     dueDate: now,
     periodStart: now,
@@ -358,6 +360,7 @@ describe('decideWebhookEffect', () => {
             to: 'failed',
             gatewayChargeId: EVENT_GATEWAY_CHARGE,
             paidAt: null,
+            firstFailedAt: now,
           },
           attempt: {
             id: 'pa_1',
@@ -394,6 +397,7 @@ describe('decideWebhookEffect', () => {
             to: 'expired',
             gatewayChargeId: EVENT_GATEWAY_CHARGE,
             paidAt: null,
+            firstFailedAt: now,
           },
           attempt: null,
           subscription: {

@@ -5,9 +5,11 @@ import {
   Module,
   Param,
   Post,
+  Res,
 } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
+import type { Response } from 'express';
 import request from 'supertest';
 import { createZodDto, ZodResponse } from 'nestjs-zod';
 import { z } from 'zod';
@@ -66,6 +68,15 @@ class WidgetsController {
         probe.release = resolve;
       });
     }
+    return { id, executions: probe.executions };
+  }
+
+  @Post(':id/accept')
+  @Idempotent()
+  @HttpCode(200)
+  accept(@Param('id') id: string, @Res({ passthrough: true }) res: Response) {
+    probe.executions += 1;
+    res.status(202);
     return { id, executions: probe.executions };
   }
 
@@ -128,6 +139,15 @@ describe('IdempotencyInterceptor', () => {
 
     expect(probe.executions).toBe(2);
     expect(store.entries.size).toBe(0);
+  });
+
+  it('replays the stored 2xx status code, not the route default', async () => {
+    const first = await post('/widgets/w_1/accept', 'k').expect(202);
+    const second = await post('/widgets/w_1/accept', 'k').expect(202);
+
+    expect(second.body).toEqual(first.body);
+    expect(second.headers['idempotent-replayed']).toBe('true');
+    expect(probe.executions).toBe(1);
   });
 
   it('leaves routes without @Idempotent() alone even with the header', async () => {

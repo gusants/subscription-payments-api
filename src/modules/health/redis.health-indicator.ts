@@ -3,7 +3,8 @@ import { HealthIndicatorService } from '@nestjs/terminus';
 import type { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../shared/redis/redis.constants.js';
 import { describeError } from './describe-error.js';
-import { HEALTH_CHECK_TIMEOUT_MS, withTimeout } from './with-timeout.js';
+import { withTimeout } from '../../shared/async/with-timeout.js';
+import { HEALTH_CHECK_TIMEOUT_MS } from './health-check-timeout.js';
 
 @Injectable()
 export class RedisHealthIndicator {

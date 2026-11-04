@@ -15,3 +15,10 @@ export { nextGatewayAttempt } from './gateway-attempt.js';
 export { subscriptionStatusAfterExpiry } from './subscription-status-after-expiry.js';
 export { expirySettlement } from './charge-expiry.js';
 export { subscriptionChange } from './subscription-change.js';
+export {
+  dunningRetryKind,
+  dunningStepAfterFailure,
+  type DunningRetryKind,
+  type DunningStep,
+} from './dunning-step.js';
+export { newRetryCharge } from './retry-charge.js';

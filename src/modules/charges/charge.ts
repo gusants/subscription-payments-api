@@ -19,6 +19,8 @@ export interface Charge {
   gatewayAttemptKey: string | null;
   attemptStartedAt: Date | null;
   attemptCount: number;
+  retryCount: number;
+  firstFailedAt: Date | null;
   nextRetryAt: Date | null;
   dueDate: Date;
   periodStart: Date;
@@ -45,7 +47,8 @@ export type NewCharge = Pick<
   | 'periodStart'
   | 'periodEnd'
 > &
-  GatewayAttempt;
+  GatewayAttempt &
+  Partial<Pick<Charge, 'retryCount' | 'firstFailedAt'>>;
 
 export interface PaymentAttempt {
   id: string;
@@ -64,6 +67,7 @@ export interface ChargeSettlement {
   to: ChargeStatus;
   gatewayChargeId: string;
   paidAt: Date | null;
+  firstFailedAt?: Date;
 }
 
 export interface ChargeOutcomeRecord {
@@ -75,6 +79,11 @@ export interface ChargeOutcomeRecord {
 export type ChargeSettlementRecord = Omit<ChargeOutcomeRecord, 'attempt'> & {
   attempt: NewPaymentAttempt | null;
 };
+
+export interface DunningExhaustion {
+  charge: Pick<ChargeSettlement, 'id' | 'fromAnyOf'> | null;
+  subscription: { id: string; change: StatusChange | null };
+}
 
 export interface RecordedOutcome {
   subscription: Subscription;

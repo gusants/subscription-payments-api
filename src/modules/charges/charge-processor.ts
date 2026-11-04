@@ -20,6 +20,7 @@ import { statusesAllowedToTransitionTo as subscriptionStatusesAllowedToTransitio
 import type { Subscription } from '../subscriptions/subscription.js';
 import { BillingRepository } from './billing.repository.js';
 import { CHARGE_ATTEMPT_LEASE_MS } from './charge-attempt-lease.js';
+import { ChargeDunning } from './charge-dunning.js';
 import { ChargeSettlementConflictError } from './charge-settlement-conflict.error.js';
 import type {
   Charge,
@@ -32,6 +33,7 @@ import {
   type BillableSubscription,
   expirySettlement,
   assertTransition as assertChargeTransition,
+  newRetryCharge,
   nextGatewayAttempt,
   statusesAllowedToTransitionTo as chargeStatusesAllowedToTransitionTo,
   subscriptionStatusAfterCharge,
@@ -82,6 +84,7 @@ export class ChargeProcessor {
     private readonly customers: CustomersRepository,
     private readonly gateway: PaymentGateway,
     private readonly clock: Clock,
+    private readonly dunning: ChargeDunning,
     @Inject(CHARGE_ATTEMPT_LEASE_MS) private readonly leaseMs: number,
   ) {}
 
@@ -92,13 +95,14 @@ export class ChargeProcessor {
       : this.unsettled(target);
   }
 
-  async retry(charge: Charge): Promise<ProcessedCharge> {
+  async retry(charge: Charge, retryNumber: number): Promise<ProcessedCharge> {
     assertChargeTransition(charge.status, 'pending');
     const target = await this.resolveTarget(charge);
     const pending = await this.billing.markChargePending(
       charge.id,
       chargeStatusesAllowedToTransitionTo('pending'),
       nextGatewayAttempt(charge, this.clock.now()),
+      retryNumber,
     );
     if (!pending) {
       throw new ConflictError(`Charge ${charge.id} was modified concurrently`, {
@@ -106,6 +110,27 @@ export class ChargeProcessor {
       });
     }
     return this.process({ ...target, charge: pending });
+  }
+
+  async reissue(
+    expired: Charge,
+    retryNumber: number,
+  ): Promise<ProcessedCharge> {
+    const target = await this.resolveTarget(expired);
+    const created = await this.billing.createRetryCharge(
+      newRetryCharge(
+        expired,
+        retryNumber,
+        generateId(ID_PREFIXES.charge),
+        this.clock.now(),
+      ),
+    );
+    if (!created) {
+      throw new ConflictError(
+        `Period of charge ${expired.id} already has a live charge`,
+      );
+    }
+    return this.process({ ...target, charge: created });
   }
 
   async reconcile(charge: Charge): Promise<ProcessedCharge> {
@@ -304,6 +329,9 @@ export class ChargeProcessor {
             outcome.chargeStatus === 'paid'
               ? (gatewayCharge.paidAt ?? this.clock.now())
               : null,
+          ...(outcome.chargeStatus === 'failed' && {
+            firstFailedAt: this.clock.now(),
+          }),
         },
         attempt: {
           id: generateId(ID_PREFIXES.paymentAttempt),
@@ -331,9 +359,14 @@ export class ChargeProcessor {
   ): Promise<ProcessedCharge> {
     const recorded = await this.recordSettlement(settlement);
     this.reportSettlement(settlement, recorded);
+    const exhausted = await this.dunning.afterSettlement(recorded);
+    const current = exhausted
+      ? ((await this.charges.findWithSubscription(recorded.charge.id)) ??
+        recorded)
+      : recorded;
     return {
-      charge: recorded.charge,
-      subscription: recorded.subscription,
+      charge: current.charge,
+      subscription: current.subscription,
       failureReason,
     };
   }

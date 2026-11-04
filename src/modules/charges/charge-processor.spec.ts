@@ -14,6 +14,7 @@ import {
   NotFoundError,
   UnprocessableError,
 } from '../../shared/errors/index.js';
+import { RecordingBillingQueue } from '../billing-queue/testing/recording-billing-queue.js';
 import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
 import { InvalidTransitionError } from '../subscriptions/domain/index.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
@@ -39,6 +40,7 @@ describe('ChargeProcessor', () => {
   let customers: InMemoryCustomersRepository;
   let gateway: StubPaymentGateway;
   let clock: FixedClock;
+  let queue: RecordingBillingQueue;
   let processor: ChargeProcessor;
   let errorLog: ReturnType<typeof vi.spyOn>;
 
@@ -48,12 +50,14 @@ describe('ChargeProcessor', () => {
     customers = new InMemoryCustomersRepository();
     gateway = new StubPaymentGateway();
     clock = new FixedClock(periodStart);
+    queue = new RecordingBillingQueue();
     processor = buildChargeProcessor({
       billing,
       subscriptions,
       customers,
       gateway,
       clock,
+      queue,
     });
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     errorLog = vi
@@ -452,7 +456,7 @@ describe('ChargeProcessor', () => {
     it('starts a new attempt with the next key and settles it', async () => {
       const failed = await seedFailed();
 
-      const processed = await processor.retry(failed);
+      const processed = await processor.retry(failed, 1);
 
       expect(processed.charge).toMatchObject({
         status: 'paid',
@@ -467,7 +471,7 @@ describe('ChargeProcessor', () => {
       const { target } = await seed();
       const { charge: paid } = await processor.process(target);
 
-      await expect(processor.retry(paid)).rejects.toBeInstanceOf(
+      await expect(processor.retry(paid, 1)).rejects.toBeInstanceOf(
         InvalidChargeTransitionError,
       );
       expect(gateway.chargesRequested).toHaveLength(1);
@@ -477,7 +481,7 @@ describe('ChargeProcessor', () => {
       const { charge } = await seed(null);
 
       await expect(
-        processor.retry({ ...charge, status: 'failed' }),
+        processor.retry({ ...charge, status: 'failed' }, 1),
       ).rejects.toBeInstanceOf(UnprocessableError);
       expect(storedCharge().attemptStartedAt).toEqual(periodStart);
       expect(gateway.chargesRequested).toEqual([]);
@@ -490,7 +494,7 @@ describe('ChargeProcessor', () => {
         to: 'canceled',
       });
 
-      await expect(processor.retry(failed)).rejects.toBeInstanceOf(
+      await expect(processor.retry(failed, 1)).rejects.toBeInstanceOf(
         InvalidTransitionError,
       );
       expect(storedCharge()).toMatchObject({
@@ -528,7 +532,7 @@ describe('ChargeProcessor', () => {
       );
 
       await expect(
-        processor.retry({ ...charge, status: 'failed' }),
+        processor.retry({ ...charge, status: 'failed' }, 1),
       ).rejects.toBeInstanceOf(UnprocessableError);
       expect(gateway.chargesRequested).toEqual([]);
     });
@@ -537,7 +541,7 @@ describe('ChargeProcessor', () => {
       const { charge } = await seed();
 
       await expect(
-        processor.retry({ ...charge, id: 'ch_missing', status: 'failed' }),
+        processor.retry({ ...charge, id: 'ch_missing', status: 'failed' }, 1),
       ).rejects.toBeInstanceOf(NotFoundError);
     });
 
@@ -545,7 +549,7 @@ describe('ChargeProcessor', () => {
       const { charge } = await seed();
 
       await expect(
-        processor.retry({ ...charge, status: 'failed' }),
+        processor.retry({ ...charge, status: 'failed' }, 1),
       ).rejects.toMatchObject({
         name: 'ConflictError',
         transient: true,
@@ -798,10 +802,199 @@ describe('ChargeProcessor', () => {
       const { target } = await seedInvoice();
       await processor.process(target);
 
-      await expect(processor.retry(storedCharge())).rejects.toBeInstanceOf(
+      await expect(processor.retry(storedCharge(), 1)).rejects.toBeInstanceOf(
         InvalidChargeTransitionError,
       );
       expect(gateway.chargesRequested).toHaveLength(1);
+    });
+  });
+
+  describe('dunning', () => {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const declined = () =>
+      gateway.respondWith({
+        status: 'failed',
+        failureReason: 'insufficient_funds',
+      });
+
+    async function failFirstAttempt() {
+      const { target } = await seed();
+      declined();
+      return processor.process(target);
+    }
+
+    it('records the first failure time and schedules retry 1 one day later', async () => {
+      await failFirstAttempt();
+
+      expect(storedCharge()).toMatchObject({
+        status: 'failed',
+        retryCount: 0,
+        firstFailedAt: periodStart,
+      });
+      expect(queue.scheduled()).toEqual([
+        { chargeId: 'ch_1', attempt: 1, delayMs: dayMs },
+      ]);
+    });
+
+    it('schedules nothing for an approved charge', async () => {
+      const { target } = await seed();
+
+      await processor.process(target);
+
+      expect(queue.scheduled()).toEqual([]);
+    });
+
+    it('keeps the settlement and logs when the retry cannot be enqueued', async () => {
+      const { target } = await seed();
+      declined();
+      queue.failure = new Error('redis down');
+
+      const processed = await processor.process(target);
+
+      expect(processed.charge.status).toBe('failed');
+      expect(processed.subscription.status).toBe('past_due');
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining('charge ch_1 (subscription sub_1'),
+        expect.any(String),
+      );
+    });
+
+    it('counts each retry from the first failure and moves on the calendar', async () => {
+      const first = await failFirstAttempt();
+      clock.set(new Date(periodStart.getTime() + dayMs));
+
+      const second = await processor.retry(first.charge, 1);
+      clock.set(new Date(periodStart.getTime() + 3 * dayMs));
+      const third = await processor.retry(second.charge, 2);
+
+      expect(third.charge).toMatchObject({ status: 'failed', retryCount: 2 });
+      expect(queue.scheduled().map(({ attempt }) => attempt)).toEqual([
+        1, 2, 3,
+      ]);
+      expect(queue.scheduled()[2]?.delayMs).toBe(4 * dayMs);
+    });
+
+    it('makes the charge uncollectible and cancels the subscription when the third retry fails', async () => {
+      const first = await failFirstAttempt();
+      const second = await processor.retry(first.charge, 1);
+      const third = await processor.retry(second.charge, 2);
+
+      const last = await processor.retry(third.charge, 3);
+
+      expect(last.charge.status).toBe('uncollectible');
+      expect(last.subscription.status).toBe('canceled');
+      expect(storedCharge()).toMatchObject({
+        status: 'uncollectible',
+        retryCount: 3,
+      });
+      expect(queue.scheduled().map(({ attempt }) => attempt)).toEqual([
+        1, 2, 3,
+      ]);
+    });
+
+    it('rejects a retry numbered out of sequence', async () => {
+      const first = await failFirstAttempt();
+
+      await expect(processor.retry(first.charge, 2)).rejects.toMatchObject({
+        name: 'ConflictError',
+        transient: true,
+      });
+    });
+
+    it('schedules retry 1 when a renewal pix expires on an active subscription', async () => {
+      const { target } = await seed(null, 'pix');
+      await processor.process(target);
+      await subscriptions.changeStatus('sub_1', {
+        fromAnyOf: ['incomplete'],
+        to: 'active',
+      });
+      const [held] = [...gateway.chargesProcessed.values()];
+      gateway.chargesProcessed.set('ch_1:1', { ...held!, status: 'expired' });
+      clock.set(afterLease);
+
+      await processor.reconcile(storedCharge());
+
+      expect(queue.scheduled()).toEqual([
+        {
+          chargeId: 'ch_1',
+          attempt: 1,
+          delayMs: dayMs,
+        },
+      ]);
+    });
+
+    it('schedules nothing when the first pix expires and cancels the subscription', async () => {
+      const { target } = await seed(null, 'pix');
+      await processor.process(target);
+      const [held] = [...gateway.chargesProcessed.values()];
+      gateway.chargesProcessed.set('ch_1:1', { ...held!, status: 'expired' });
+      clock.set(afterLease);
+
+      await processor.reconcile(storedCharge());
+
+      expect(queue.scheduled()).toEqual([]);
+    });
+
+    describe('reissue', () => {
+      async function expireRenewal() {
+        const { target } = await seed(null, 'pix');
+        await processor.process(target);
+        await subscriptions.changeStatus('sub_1', {
+          fromAnyOf: ['incomplete'],
+          to: 'active',
+        });
+        const [held] = [...gateway.chargesProcessed.values()];
+        gateway.chargesProcessed.set('ch_1:1', { ...held!, status: 'expired' });
+        clock.set(afterLease);
+        const { charge } = await processor.reconcile(storedCharge());
+        return charge;
+      }
+
+      it('issues a new pending charge for the same period carrying the dunning state', async () => {
+        const expired = await expireRenewal();
+        clock.set(new Date(periodStart.getTime() + dayMs));
+
+        const processed = await processor.reissue(expired, 1);
+
+        expect(processed.charge).toMatchObject({
+          status: 'pending',
+          method: 'pix',
+          amountCents: 1990,
+          periodStart,
+          retryCount: 1,
+          firstFailedAt: afterLease,
+          gatewayAttemptKey: `${processed.charge.id}:1`,
+        });
+        expect(processed.charge.id).not.toBe('ch_1');
+        expect(billing.charges()).toHaveLength(2);
+        expect(gateway.chargesRequested.at(-1)).toMatchObject({
+          method: 'pix',
+          externalRef: processed.charge.id,
+        });
+      });
+
+      it('rejects reissuing when the period already has a live charge', async () => {
+        const expired = await expireRenewal();
+        await processor.reissue(expired, 1);
+
+        await expect(processor.reissue(expired, 1)).rejects.toBeInstanceOf(
+          ConflictError,
+        );
+        expect(billing.charges()).toHaveLength(2);
+      });
+
+      it('rejects reissuing for a canceled subscription before creating anything', async () => {
+        const expired = await expireRenewal();
+        await subscriptions.changeStatus('sub_1', {
+          fromAnyOf: ['past_due'],
+          to: 'canceled',
+        });
+
+        await expect(processor.reissue(expired, 1)).rejects.toBeInstanceOf(
+          InvalidTransitionError,
+        );
+        expect(billing.charges()).toHaveLength(1);
+      });
     });
   });
 });

@@ -1,5 +1,3 @@
-export const HEALTH_CHECK_TIMEOUT_MS = 3000;
-
 export function withTimeout<T>(
   operation: Promise<T>,
   timeoutMs: number,

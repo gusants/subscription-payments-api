@@ -13,6 +13,7 @@ import { Clock } from '../../src/shared/clock/index.js';
 import { FixedClock } from '../../src/shared/clock/testing/fixed-clock.js';
 import { PrismaService } from '../../src/shared/database/prisma.service.js';
 import { setupSwagger } from '../../src/shared/http/setup-swagger.js';
+import { runRetryJob } from '../support/charge-retry-jobs.js';
 import { createTestApp } from '../support/create-test-app.js';
 
 interface GatewayFile {
@@ -118,7 +119,8 @@ describe('Gateway and charging flows (e2e)', () => {
       const { customer, response } = await subscribe('tok_fail_then_success');
       const chargeId = response.body.latestCharge.id as string;
 
-      await http().post(`/charges/${chargeId}/retry`).expect(200);
+      await http().post(`/charges/${chargeId}/retry`).expect(202);
+      await runRetryJob(app, chargeId, 1);
 
       const stored = await readGatewayFile();
       expect(stored.customers).toEqual([
@@ -189,7 +191,7 @@ describe('Gateway and charging flows (e2e)', () => {
       expect(await prisma.paymentAttempt.count()).toBe(0);
     });
 
-    it('answers 200 keeping the charge pending and the subscription past_due when retry cannot reach the gateway', async () => {
+    it('keeps the charge pending and the subscription past_due when the queued retry cannot reach the gateway', async () => {
       gateway.respondWith({
         status: 'failed',
         failureReason: 'insufficient_funds',
@@ -198,15 +200,19 @@ describe('Gateway and charging flows (e2e)', () => {
       const chargeId = response.body.latestCharge.id as string;
       gateway.failChargeCreationWith(new GatewayUnavailableError('down'));
 
-      const retried = await http().post(`/charges/${chargeId}/retry`);
+      await http().post(`/charges/${chargeId}/retry`).expect(202);
+      await runRetryJob(app, chargeId, 1);
 
-      expect(retried.status).toBe(200);
-      expect(retried.body.charge).toMatchObject({
-        id: chargeId,
-        status: 'pending',
-        attemptCount: 1,
-      });
-      expect(retried.body.subscription.status).toBe('past_due');
+      expect(
+        await prisma.charge.findUniqueOrThrow({ where: { id: chargeId } }),
+      ).toMatchObject({ status: 'pending', attemptCount: 1 });
+      expect(
+        (
+          await prisma.subscription.findFirstOrThrow({
+            where: { charges: { some: { id: chargeId } } },
+          })
+        ).status,
+      ).toBe('past_due');
     });
   });
 
@@ -283,18 +289,26 @@ describe('Gateway and charging flows (e2e)', () => {
       const { response } = await subscribe('tok_fail_then_success');
       const subscriptionId = response.body.id as string;
       const chargeId = response.body.latestCharge.id as string;
+      await http().post(`/charges/${chargeId}/retry`).expect(202);
       gateway.runAfterCharge(async () => {
         await http()
           .post(`/subscriptions/${subscriptionId}/cancel`)
           .expect(200);
       });
 
-      const retried = await http()
-        .post(`/charges/${chargeId}/retry`)
-        .expect(200);
+      await runRetryJob(app, chargeId, 1);
 
-      expect(retried.body.charge.status).toBe('paid');
-      expect(retried.body.subscription.status).toBe('canceled');
+      expect(
+        (await prisma.charge.findUniqueOrThrow({ where: { id: chargeId } }))
+          .status,
+      ).toBe('paid');
+      expect(
+        (
+          await prisma.subscription.findUniqueOrThrow({
+            where: { id: subscriptionId },
+          })
+        ).status,
+      ).toBe('canceled');
       expect(await prisma.paymentAttempt.count()).toBe(2);
       expect(errorLog).toHaveBeenCalledWith(
         expect.stringContaining(`${chargeId}`),

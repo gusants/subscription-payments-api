@@ -67,6 +67,8 @@ describe('charges schema (integration)', () => {
       status: 'pending',
       attemptCount: 0,
       gatewayChargeId: null,
+      retryCount: 0,
+      firstFailedAt: null,
       nextRetryAt: null,
       paidAt: null,
     });
@@ -245,5 +247,19 @@ describe('charges schema (integration)', () => {
         AND data_type LIKE 'timestamp%'`;
 
     expect(columns).toEqual([{ data_type: 'timestamp with time zone' }]);
+  });
+
+  it('rejects a second live charge for the same period but ignores expired ones', async () => {
+    const expired = await prisma.charge.create({
+      data: chargeData({ status: 'expired' }),
+    });
+    await prisma.charge.create({ data: chargeData({ status: 'expired' }) });
+    await prisma.charge.create({ data: chargeData() });
+
+    await expect(
+      prisma.charge.create({ data: chargeData({ status: 'failed' }) }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+    expect(expired.retryCount).toBe(0);
+    expect(expired.firstFailedAt).toBeNull();
   });
 });

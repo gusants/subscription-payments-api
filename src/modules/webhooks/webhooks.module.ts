@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ChargesModule } from '../charges/charges.module.js';
 import { GatewaySignatureGuard } from './gateway-signature.guard.js';
 import { PrismaWebhookEventsRepository } from './prisma-webhook-events.repository.js';
 import { WebhookEventProcessor } from './webhook-event.processor.js';
@@ -6,6 +7,7 @@ import { WebhookEventsRepository } from './webhook-events.repository.js';
 import { WebhooksController } from './webhooks.controller.js';
 
 @Module({
+  imports: [ChargesModule],
   controllers: [WebhooksController],
   providers: [
     GatewaySignatureGuard,

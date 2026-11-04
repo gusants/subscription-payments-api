@@ -69,6 +69,8 @@ describe('toChargeHistoryItemResponse', () => {
       gatewayAttemptKey: 'ch_1:1',
       attemptStartedAt: at,
       attemptCount: 1,
+      retryCount: 0,
+      firstFailedAt: null,
       nextRetryAt: null,
       dueDate: at,
       periodStart: at,

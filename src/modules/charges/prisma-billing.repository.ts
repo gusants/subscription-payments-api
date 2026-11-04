@@ -1,4 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import {
+  isPrismaError,
+  PRISMA_UNIQUE_CONSTRAINT_VIOLATION,
+} from '../../shared/database/prisma-error-codes.js';
 import { PrismaService } from '../../shared/database/prisma.service.js';
 import type { NewSubscription } from '../subscriptions/subscription.js';
 import { BillingRepository } from './billing.repository.js';
@@ -7,12 +11,16 @@ import type {
   AttachedGatewayCharge,
   Charge,
   ChargeSettlementRecord,
+  DunningExhaustion,
   GatewayAttempt,
   NewCharge,
   RecordedOutcome,
   SubscriptionWithCharge,
 } from './charge.js';
-import { applyChargeOutcome } from './apply-charge-outcome.js';
+import {
+  applyChargeOutcome,
+  changeSubscription,
+} from './apply-charge-outcome.js';
 import { toCharge } from './prisma-charge.mapper.js';
 
 @Injectable()
@@ -35,12 +43,45 @@ export class PrismaBillingRepository extends BillingRepository {
     id: string,
     fromAnyOf: readonly ChargeStatus[],
     attempt: GatewayAttempt,
+    retryNumber: number,
   ): Promise<Charge | null> {
     const { count } = await this.prisma.charge.updateMany({
-      where: { id, status: { in: [...fromAnyOf] } },
-      data: { status: 'pending', ...attempt },
+      where: {
+        id,
+        status: { in: [...fromAnyOf] },
+        retryCount: retryNumber - 1,
+      },
+      data: { status: 'pending', retryCount: retryNumber, ...attempt },
     });
     return count === 0 ? null : this.findChargeOrThrow(id);
+  }
+
+  async createRetryCharge(charge: NewCharge): Promise<Charge | null> {
+    try {
+      return toCharge(await this.prisma.charge.create({ data: charge }));
+    } catch (error) {
+      if (isPrismaError(error, PRISMA_UNIQUE_CONSTRAINT_VIOLATION)) return null;
+      throw error;
+    }
+  }
+
+  recordDunningExhaustion({
+    charge,
+    subscription,
+  }: DunningExhaustion): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      if (charge) {
+        const { count } = await tx.charge.updateMany({
+          where: { id: charge.id, status: { in: [...charge.fromAnyOf] } },
+          data: { status: 'uncollectible' },
+        });
+        if (count === 0) return false;
+      }
+      const canceled = subscription.change
+        ? await changeSubscription(tx, subscription.id, subscription.change)
+        : null;
+      return charge !== null || (canceled?.count ?? 0) > 0;
+    });
   }
 
   async takeAttemptLease(

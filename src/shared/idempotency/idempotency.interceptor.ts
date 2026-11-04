@@ -143,6 +143,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
     if (statusCode >= HttpStatus.BAD_REQUEST) {
       throw new HttpException(body as object, statusCode);
     }
+    response.status(statusCode);
     return from([body]);
   }
 

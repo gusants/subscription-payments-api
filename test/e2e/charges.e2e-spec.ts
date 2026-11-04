@@ -8,6 +8,7 @@ import { Clock } from '../../src/shared/clock/index.js';
 import { FixedClock } from '../../src/shared/clock/testing/fixed-clock.js';
 import { PrismaService } from '../../src/shared/database/prisma.service.js';
 import { setupSwagger } from '../../src/shared/http/setup-swagger.js';
+import { findRetryJob, runRetryJob } from '../support/charge-retry-jobs.js';
 import { createTestApp } from '../support/create-test-app.js';
 
 describe('Charges (e2e)', () => {
@@ -211,91 +212,124 @@ describe('Charges (e2e)', () => {
       });
     });
 
-    it('pays the charge and reactivates the subscription on the second attempt with tok_fail_then_success', async () => {
-      const { subscription, chargeId } = await seedPastDueSubscription(
-        'tok_fail_then_success',
-      );
+    it('queues the retry answering 202, and the worker run pays the charge and reactivates the subscription with tok_fail_then_success', async () => {
+      const { customer, subscription, chargeId } =
+        await seedPastDueSubscription('tok_fail_then_success');
       expect(subscription.status).toBe('past_due');
+      expect(await (await findRetryJob(app, chargeId, 1))?.getState()).toBe(
+        'delayed',
+      );
 
       const response = await http()
         .post(`/charges/${chargeId}/retry`)
-        .expect(200);
+        .expect(202);
 
       expect(response.body).toEqual({
-        charge: {
+        charge: expect.objectContaining({
           id: chargeId,
-          subscriptionId: subscription.id,
-          amountCents: 1990,
-          method: 'card',
-          status: 'paid',
-          attemptCount: 2,
-          dueDate: '2026-01-31T10:30:00.000Z',
-          periodStart: '2026-01-31T10:30:00.000Z',
-          periodEnd: '2026-02-28T10:30:00.000Z',
-          paidAt: '2026-01-31T10:30:00.000Z',
-          createdAt: expect.any(String),
-          attempts: [
-            expect.objectContaining({
-              result: 'declined',
-              failureReason: 'insufficient_funds',
-            }),
-            expect.objectContaining({
-              result: 'succeeded',
-              failureReason: null,
-            }),
-          ],
-        },
-        subscription: { id: subscription.id, status: 'active' },
+          status: 'failed',
+          attemptCount: 1,
+        }),
+        subscription: { id: subscription.id, status: 'past_due' },
       });
-      expect(JSON.stringify(response.body)).not.toContain('tok_');
+      expect(await (await findRetryJob(app, chargeId, 1))?.getState()).toBe(
+        'waiting',
+      );
+
+      await runRetryJob(app, chargeId, 1);
+
+      const history = await http()
+        .get(`/customers/${customer.id}/charges`)
+        .expect(200);
+      expect(history.body.data[0]).toMatchObject({
+        id: chargeId,
+        status: 'paid',
+        attemptCount: 2,
+        paidAt: '2026-01-31T10:30:00.000Z',
+        attempts: [
+          expect.objectContaining({
+            result: 'declined',
+            failureReason: 'insufficient_funds',
+          }),
+          expect.objectContaining({ result: 'succeeded', failureReason: null }),
+        ],
+      });
+      expect(JSON.stringify(history.body)).not.toContain('tok_');
       const stored = await http()
         .get(`/subscriptions/${subscription.id}`)
         .expect(200);
       expect(stored.body.status).toBe('active');
     });
 
-    it('keeps the charge failed and the subscription past_due when declined again', async () => {
+    it('keeps the charge failed and the subscription past_due when the worker run is declined again, scheduling the next retry', async () => {
+      const { subscription, chargeId } = await seedPastDueSubscription(
+        'tok_insufficient_funds',
+      );
+      await http().post(`/charges/${chargeId}/retry`).expect(202);
+
+      await runRetryJob(app, chargeId, 1);
+
+      const stored = await prisma.charge.findUniqueOrThrow({
+        where: { id: chargeId },
+      });
+      expect(stored).toMatchObject({
+        status: 'failed',
+        attemptCount: 2,
+        retryCount: 1,
+        paidAt: null,
+      });
+      expect(await prisma.paymentAttempt.count({ where: { chargeId } })).toBe(
+        2,
+      );
+      expect(
+        (
+          await prisma.subscription.findUniqueOrThrow({
+            where: { id: subscription.id },
+          })
+        ).status,
+      ).toBe('past_due');
+      expect(await (await findRetryJob(app, chargeId, 2))?.getState()).toBe(
+        'delayed',
+      );
+    });
+
+    it('queues one job however many times the retry is requested and runs the attempt once', async () => {
+      const { chargeId } = await seedPastDueSubscription(
+        'tok_fail_then_success',
+      );
+
+      const responses = await Promise.all(
+        Array.from({ length: 5 }, () =>
+          http().post(`/charges/${chargeId}/retry`),
+        ),
+      );
+      await runRetryJob(app, chargeId, 1);
+      await runRetryJob(app, chargeId, 1);
+
+      expect(responses.map(({ status }) => status)).toEqual([
+        202, 202, 202, 202, 202,
+      ]);
+      expect(await prisma.paymentAttempt.count({ where: { chargeId } })).toBe(
+        2,
+      );
+    });
+
+    it('makes the charge uncollectible and cancels the subscription when the third retry is declined', async () => {
       const { subscription, chargeId } = await seedPastDueSubscription(
         'tok_insufficient_funds',
       );
 
-      const response = await http()
-        .post(`/charges/${chargeId}/retry`)
-        .expect(200);
+      for (const attempt of [1, 2, 3]) {
+        await runRetryJob(app, chargeId, attempt);
+      }
 
-      expect(response.body.charge).toMatchObject({
-        id: chargeId,
-        status: 'failed',
-        attemptCount: 2,
-        paidAt: null,
-      });
-      expect(response.body.charge.attempts).toEqual([
-        expect.objectContaining({
-          result: 'declined',
-          failureReason: 'insufficient_funds',
-        }),
-        expect.objectContaining({
-          result: 'declined',
-          failureReason: 'insufficient_funds',
-        }),
-      ]);
-      expect(response.body.subscription).toEqual({
-        id: subscription.id,
-        status: 'past_due',
-      });
-    });
-
-    it('can be retried again after another decline', async () => {
-      const { chargeId } = await seedPastDueSubscription(
-        'tok_insufficient_funds',
-      );
-      await http().post(`/charges/${chargeId}/retry`).expect(200);
-
-      const response = await http()
-        .post(`/charges/${chargeId}/retry`)
-        .expect(200);
-
-      expect(response.body.charge.attemptCount).toBe(3);
+      expect(
+        await prisma.charge.findUniqueOrThrow({ where: { id: chargeId } }),
+      ).toMatchObject({ status: 'uncollectible', retryCount: 3 });
+      expect(
+        await http().get(`/subscriptions/${subscription.id}`).expect(200),
+      ).toMatchObject({ body: { status: 'canceled' } });
+      await http().post(`/charges/${chargeId}/retry`).expect(409);
     });
 
     it('answers 409 when the charge is already paid', async () => {
@@ -335,24 +369,6 @@ describe('Charges (e2e)', () => {
         (await prisma.charge.findUniqueOrThrow({ where: { id: chargeId } }))
           .status,
       ).toBe('failed');
-    });
-
-    it('lets only one of several concurrent retries through', async () => {
-      const { chargeId } = await seedPastDueSubscription(
-        'tok_fail_then_success',
-      );
-
-      const responses = await Promise.all(
-        Array.from({ length: 5 }, () =>
-          http().post(`/charges/${chargeId}/retry`),
-        ),
-      );
-
-      expect(responses.filter(({ status }) => status === 200)).toHaveLength(1);
-      expect(responses.filter(({ status }) => status === 409)).toHaveLength(4);
-      expect(await prisma.paymentAttempt.count({ where: { chargeId } })).toBe(
-        2,
-      );
     });
   });
 });

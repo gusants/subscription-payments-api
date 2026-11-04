@@ -1,10 +1,10 @@
-import { GatewayUnavailableError } from '../../gateway/index.js';
+import { Logger } from '@nestjs/common';
 import { StubPaymentGateway } from '../../gateway/testing/stub-payment-gateway.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import {
   ConflictError,
   NotFoundError,
-  UnprocessableError,
+  ServiceUnavailableError,
 } from '../../shared/errors/index.js';
 import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
 import type { SubscriptionStatus } from '../subscriptions/subscription-status.js';
@@ -13,7 +13,11 @@ import type { ChargeStatus } from './charge-status.js';
 import { ChargesService } from './charges.service.js';
 import { InvalidTransitionError } from '../subscriptions/domain/index.js';
 import { InvalidChargeTransitionError } from './domain/index.js';
-import { buildChargeProcessor } from './testing/build-charge-processor.js';
+import { RecordingBillingQueue } from '../billing-queue/testing/recording-billing-queue.js';
+import {
+  buildChargeDunning,
+  buildChargeProcessor,
+} from './testing/build-charge-processor.js';
 import { InMemoryBillingRepository } from './testing/in-memory-billing.repository.js';
 import { InMemoryChargesRepository } from './testing/in-memory-charges.repository.js';
 
@@ -26,6 +30,7 @@ describe('ChargesService', () => {
   let billing: InMemoryBillingRepository;
   let gateway: StubPaymentGateway;
   let clock: FixedClock;
+  let queue: RecordingBillingQueue;
   let service: ChargesService;
 
   beforeEach(() => {
@@ -34,6 +39,7 @@ describe('ChargesService', () => {
     billing = new InMemoryBillingRepository(subscriptions);
     gateway = new StubPaymentGateway();
     clock = new FixedClock(retriedAt);
+    queue = new RecordingBillingQueue();
     service = new ChargesService(
       new InMemoryChargesRepository(billing, subscriptions),
       customers,
@@ -43,7 +49,9 @@ describe('ChargesService', () => {
         customers,
         gateway,
         clock,
+        queue,
       }),
+      buildChargeDunning(billing, clock, queue),
     );
   });
 
@@ -59,11 +67,13 @@ describe('ChargesService', () => {
     chargeId = 'ch_1',
     chargeStatus = 'failed',
     subscriptionStatus = 'past_due',
+    retryCount = 0,
   }: {
     customerId?: string;
     chargeId?: string;
     chargeStatus?: ChargeStatus;
     subscriptionStatus?: SubscriptionStatus;
+    retryCount?: number;
   } = {}) {
     const subscriptionId = `sub_${chargeId}`;
     await billing.createSubscriptionWithFirstCharge(
@@ -88,6 +98,7 @@ describe('ChargesService', () => {
         periodEnd,
         gatewayAttemptKey: `${chargeId}:1`,
         attemptStartedAt: periodStart,
+        retryCount,
       },
     );
     if (chargeStatus === 'failed' || chargeStatus === 'paid') {
@@ -186,75 +197,74 @@ describe('ChargesService', () => {
       );
     });
 
-    it('pays the charge and reactivates the subscription when the gateway approves', async () => {
+    it('queues the next dunning retry to run now and leaves the failed charge untouched', async () => {
       await seedCustomer();
       const { subscriptionId } = await seedCharge();
 
-      const { charge, subscription } = await service.retry('ch_1');
+      const { charge, subscription, queued } = await service.retry('ch_1');
 
-      expect(charge).toMatchObject({
-        id: 'ch_1',
-        status: 'paid',
-        attemptCount: 2,
-        paidAt: retriedAt,
-      });
-      expect(charge.attempts.map(({ result }) => result)).toEqual([
-        'declined',
-        'succeeded',
+      expect(queued).toBe(true);
+      expect(queue.scheduled()).toEqual([
+        { chargeId: 'ch_1', attempt: 1, delayMs: 0 },
       ]);
+      expect(charge).toMatchObject({ id: 'ch_1', status: 'failed' });
       expect(subscription).toMatchObject({
         id: subscriptionId,
-        status: 'active',
+        status: 'past_due',
       });
+      expect(gateway.chargesRequested).toEqual([]);
     });
 
-    it('charges the stored card token for the customer gateway account using the charge id as reference', async () => {
+    it('queues the attempt that follows the retries already made', async () => {
+      await seedCustomer();
+      await seedCharge({ retryCount: 2 });
+
+      await service.retry('ch_1');
+
+      expect(queue.scheduled()).toEqual([
+        { chargeId: 'ch_1', attempt: 3, delayMs: 0 },
+      ]);
+    });
+
+    it('queues a retry for a failed charge of an active subscription', async () => {
+      await seedCustomer();
+      await seedCharge({ subscriptionStatus: 'active' });
+
+      const { queued } = await service.retry('ch_1');
+
+      expect(queued).toBe(true);
+    });
+
+    it('queues the same job when asked twice', async () => {
       await seedCustomer();
       await seedCharge();
 
       await service.retry('ch_1');
+      await service.retry('ch_1');
 
-      expect(gateway.chargesRequested).toEqual([
-        {
-          gatewayCustomerId: 'gcus_cus_1',
-          amountCents: 1990,
-          method: 'card',
-          cardToken: 'tok_success',
-          externalRef: 'ch_1',
-          idempotencyKey: 'ch_1:2',
-        },
-      ]);
+      expect(queue.scheduled()).toHaveLength(1);
     });
 
-    it('returns the charge to failed, records the reason and keeps the subscription past_due when declined again', async () => {
+    it('rejects a charge that used all its dunning retries', async () => {
+      await seedCustomer();
+      await seedCharge({ retryCount: 3 });
+
+      await expect(service.retry('ch_1')).rejects.toBeInstanceOf(ConflictError);
+      expect(queue.scheduled()).toEqual([]);
+    });
+
+    it('answers service unavailable and queues nothing when the queue is down', async () => {
       await seedCustomer();
       await seedCharge();
-      gateway.respondWith({ status: 'failed', failureReason: 'expired_card' });
+      queue.failure = new Error('redis down');
+      vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 
-      const { charge, subscription } = await service.retry('ch_1');
-
-      expect(charge).toMatchObject({
-        status: 'failed',
-        attemptCount: 2,
-        paidAt: null,
-      });
-      expect(charge.attempts[1]).toMatchObject({
-        result: 'declined',
-        failureReason: 'expired_card',
-      });
-      expect(subscription.status).toBe('past_due');
+      await expect(service.retry('ch_1')).rejects.toBeInstanceOf(
+        ServiceUnavailableError,
+      );
     });
 
-    it('keeps an active subscription active when the retried charge is paid', async () => {
-      await seedCustomer();
-      await seedCharge({ subscriptionStatus: 'active' });
-
-      const { subscription } = await service.retry('ch_1');
-
-      expect(subscription.status).toBe('active');
-    });
-
-    it('rejects retrying a paid charge without calling the gateway', async () => {
+    it('rejects retrying a paid charge without queueing', async () => {
       await seedCustomer();
       await seedCharge({
         chargeStatus: 'paid',
@@ -264,21 +274,33 @@ describe('ChargesService', () => {
       await expect(service.retry('ch_1')).rejects.toBeInstanceOf(
         InvalidChargeTransitionError,
       );
-      expect(gateway.chargesRequested).toEqual([]);
+      expect(queue.scheduled()).toEqual([]);
     });
 
-    it('reconciles a pending charge whose lease expired instead of rejecting it', async () => {
+    it('rejects retrying a charge of a canceled subscription without queueing', async () => {
+      await seedCustomer();
+      await seedCharge({ subscriptionStatus: 'canceled' });
+
+      await expect(service.retry('ch_1')).rejects.toBeInstanceOf(
+        InvalidTransitionError,
+      );
+      expect(queue.scheduled()).toEqual([]);
+    });
+
+    it('reconciles a pending charge whose lease expired inline instead of queueing', async () => {
       await seedCustomer();
       await seedCharge({
         chargeStatus: 'pending',
         subscriptionStatus: 'incomplete',
       });
 
-      const { charge, subscription } = await service.retry('ch_1');
+      const { charge, subscription, queued } = await service.retry('ch_1');
 
+      expect(queued).toBe(false);
       expect(charge.status).toBe('paid');
       expect(subscription.status).toBe('active');
       expect(gateway.chargesRequested).toHaveLength(1);
+      expect(queue.scheduled()).toEqual([]);
     });
 
     it('rejects retrying a pending charge still within its lease as in flight', async () => {
@@ -291,54 +313,6 @@ describe('ChargesService', () => {
 
       await expect(service.retry('ch_1')).rejects.toBeInstanceOf(ConflictError);
       expect(gateway.chargesRequested).toEqual([]);
-    });
-
-    it('rejects retrying a charge of a canceled subscription without calling the gateway', async () => {
-      await seedCustomer();
-      await seedCharge({ subscriptionStatus: 'canceled' });
-
-      await expect(service.retry('ch_1')).rejects.toBeInstanceOf(
-        InvalidTransitionError,
-      );
-      expect(gateway.chargesRequested).toEqual([]);
-    });
-
-    it('rejects a customer that has no gateway account', async () => {
-      await seedCustomer('cus_1', false);
-      await seedCharge();
-
-      await expect(service.retry('ch_1')).rejects.toBeInstanceOf(
-        UnprocessableError,
-      );
-      expect(gateway.chargesRequested).toEqual([]);
-    });
-
-    it('lets only one of two concurrent retries reach the gateway', async () => {
-      await seedCustomer();
-      await seedCharge();
-
-      const results = await Promise.allSettled([
-        service.retry('ch_1'),
-        service.retry('ch_1'),
-      ]);
-
-      expect(results.map(({ status }) => status).sort()).toEqual([
-        'fulfilled',
-        'rejected',
-      ]);
-      expect(gateway.chargesRequested).toHaveLength(1);
-    });
-
-    it('leaves the charge pending for reconciliation when the gateway is unavailable', async () => {
-      await seedCustomer();
-      await seedCharge();
-      gateway.failChargeCreationWith(new GatewayUnavailableError('down'));
-
-      const { charge, subscription } = await service.retry('ch_1');
-
-      expect(charge).toMatchObject({ status: 'pending', attemptCount: 1 });
-      expect(charge.attempts).toHaveLength(1);
-      expect(subscription.status).toBe('past_due');
     });
   });
 });

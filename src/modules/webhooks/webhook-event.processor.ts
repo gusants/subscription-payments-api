@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { GatewayWebhookPayload } from '../../gateway/index.js';
 import { Clock } from '../../shared/clock/index.js';
 import { generateId, ID_PREFIXES } from '../../shared/ids/index.js';
+import { ChargeDunning } from '../charges/charge-dunning.js';
 import { decideWebhookEffect } from './domain/decide-webhook-effect.js';
 import type { WebhookIngestion } from './webhook-event.js';
 import { WebhookEventsRepository } from './webhook-events.repository.js';
@@ -13,6 +14,7 @@ export class WebhookEventProcessor {
   constructor(
     private readonly events: WebhookEventsRepository,
     private readonly clock: Clock,
+    private readonly dunning: ChargeDunning,
   ) {}
 
   async process(payload: GatewayWebhookPayload): Promise<WebhookIngestion> {
@@ -45,6 +47,9 @@ export class WebhookEventProcessor {
         }),
     );
     this.report(payload, ingestion);
+    if (ingestion.kind === 'processed' && ingestion.recorded) {
+      await this.dunning.afterSettlement(ingestion.recorded);
+    }
     return ingestion;
   }
 

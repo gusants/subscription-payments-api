@@ -8,6 +8,9 @@ import { BILLING_QUEUE_NAMES } from '../../src/modules/billing-queue/billing-que
 import { BillingQueue } from '../../src/modules/billing-queue/billing-queue.port.js';
 import { BillingQueueModule } from '../../src/modules/billing-queue/billing-queue.module.js';
 import { BillingWorkersModule } from '../../src/modules/billing-queue/processors/billing-workers.module.js';
+import { GatewayModule } from '../../src/gateway/gateway.module.js';
+import { ClockModule } from '../../src/shared/clock/clock.module.js';
+import { DatabaseModule } from '../../src/shared/database/database.module.js';
 import { AppConfigModule } from '../../src/shared/config/app-config.module.js';
 import { createTestApp } from '../support/create-test-app.js';
 
@@ -111,19 +114,54 @@ describe('Billing queues (e2e)', () => {
   });
 
   describe('workers', () => {
-    it('registers the workers module by default', async () => {
-      const app = await start();
+    async function startWithWorkers(env: Record<string, unknown>) {
+      const moduleRef = await Test.createTestingModule({
+        imports: [
+          AppConfigModule,
+          ClockModule,
+          DatabaseModule,
+          GatewayModule.register(),
+          BillingQueueModule.register(env),
+          BillingWorkersModule.register(env),
+        ],
+      }).compile();
+      const app = createTestApp<App>(moduleRef);
+      await app.init();
+      apps.push(app);
+      return app;
+    }
 
-      expect(app.get(BillingWorkersModule, { strict: false })).toBeDefined();
+    it('consumes charge-retries jobs when workers are enabled', async () => {
+      const app = await startWithWorkers({ WORKERS_ENABLED: 'true' });
+      const chargeId = `ch_missing_${Date.now()}`;
+
+      await app
+        .get(BillingQueue)
+        .scheduleRetry({ chargeId, attempt: 1, delayMs: 0 });
+
+      const queue = app.get<Queue>(getQueueToken('charge-retries'));
+      await vi.waitFor(
+        async () => {
+          const job = await queue.getJob(`retry:${chargeId}:1`);
+          expect(await job?.isCompleted()).toBe(true);
+        },
+        { timeout: 10_000 },
+      );
     });
 
-    it('registers no workers when WORKERS_ENABLED is false', async () => {
-      const app = await start({ WORKERS_ENABLED: 'false' });
+    it('leaves the job waiting when workers are disabled', async () => {
+      const app = await startWithWorkers({ WORKERS_ENABLED: 'false' });
+      const chargeId = `ch_idle_${Date.now()}`;
 
-      expect(() => app.get(BillingWorkersModule, { strict: false })).toThrow();
-      expect(
-        app.get<Queue>(getQueueToken(BILLING_QUEUE_NAMES[0])),
-      ).toBeDefined();
+      await app
+        .get(BillingQueue)
+        .scheduleRetry({ chargeId, attempt: 1, delayMs: 0 });
+
+      const queue = app.get<Queue>(getQueueToken('charge-retries'));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const job = await queue.getJob(`retry:${chargeId}:1`);
+      expect(await job?.getState()).toBe('waiting');
+      await job?.remove();
     });
   });
 });

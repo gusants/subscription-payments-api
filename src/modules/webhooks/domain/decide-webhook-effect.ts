@@ -131,6 +131,7 @@ export function decideWebhookEffect({
           outcome.chargeStatus === 'paid'
             ? (event.paidAt ?? event.occurredAt)
             : null,
+        ...(outcome.chargeStatus === 'failed' && { firstFailedAt: now }),
       },
       attempt: {
         id: attemptId,

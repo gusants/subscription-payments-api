@@ -9,6 +9,7 @@ import { Clock } from '../../src/shared/clock/index.js';
 import { FixedClock } from '../../src/shared/clock/testing/fixed-clock.js';
 import { PrismaService } from '../../src/shared/database/prisma.service.js';
 import { setupSwagger } from '../../src/shared/http/setup-swagger.js';
+import { runRetryJob } from '../support/charge-retry-jobs.js';
 import { createTestApp } from '../support/create-test-app.js';
 
 describe('Idempotency-Key (e2e)', () => {
@@ -223,20 +224,21 @@ describe('Idempotency-Key (e2e)', () => {
   });
 
   describe('POST /charges/:id/retry', () => {
-    it('runs one gateway attempt for the same key twice and replays the response', async () => {
+    it('queues one retry for the same key twice and replays the response with its 202', async () => {
       const chargeId = await seedPastDueCharge();
       const key = newKey();
 
       const first = await http()
         .post(`/charges/${chargeId}/retry`)
         .set('Idempotency-Key', key)
-        .expect(200);
+        .expect(202);
       const second = await http()
         .post(`/charges/${chargeId}/retry`)
         .set('Idempotency-Key', key)
-        .expect(200);
+        .expect(202);
+      await runRetryJob(app, chargeId, 1);
 
-      expect(first.body.charge.status).toBe('paid');
+      expect(first.body.charge.status).toBe('failed');
       expect(second.body).toEqual(first.body);
       expect(second.headers['idempotent-replayed']).toBe('true');
       expect(await prisma.paymentAttempt.count({ where: { chargeId } })).toBe(
@@ -246,7 +248,8 @@ describe('Idempotency-Key (e2e)', () => {
 
     it('replays the stored 409 instead of re-running the retry', async () => {
       const chargeId = await seedPastDueCharge();
-      await http().post(`/charges/${chargeId}/retry`).expect(200);
+      await http().post(`/charges/${chargeId}/retry`).expect(202);
+      await runRetryJob(app, chargeId, 1);
       const key = newKey();
 
       const first = await http()
@@ -270,11 +273,13 @@ describe('Idempotency-Key (e2e)', () => {
       const first = await http()
         .post(`/charges/${firstChargeId}/retry`)
         .set('Idempotency-Key', key)
-        .expect(200);
+        .expect(202);
       const second = await http()
         .post(`/charges/${secondChargeId}/retry`)
         .set('Idempotency-Key', key)
-        .expect(200);
+        .expect(202);
+      await runRetryJob(app, firstChargeId, 1);
+      await runRetryJob(app, secondChargeId, 1);
 
       expect(first.body.charge.id).toBe(firstChargeId);
       expect(second.body.charge.id).toBe(secondChargeId);
@@ -286,7 +291,7 @@ describe('Idempotency-Key (e2e)', () => {
       ).toBe(4);
     });
 
-    it('runs one attempt when the same key arrives concurrently', async () => {
+    it('queues a single job when the same key arrives concurrently', async () => {
       const chargeId = await seedPastDueCharge();
       const key = newKey();
 
@@ -295,12 +300,13 @@ describe('Idempotency-Key (e2e)', () => {
           http().post(`/charges/${chargeId}/retry`).set('Idempotency-Key', key),
         ),
       );
+      await runRetryJob(app, chargeId, 1);
 
-      expect(responses.filter(({ status }) => status === 200)).not.toHaveLength(
+      expect(responses.filter(({ status }) => status === 202)).not.toHaveLength(
         0,
       );
       expect(
-        responses.every(({ status }) => status === 200 || status === 409),
+        responses.every(({ status }) => status === 202 || status === 409),
       ).toBe(true);
       expect(await prisma.paymentAttempt.count({ where: { chargeId } })).toBe(
         2,
