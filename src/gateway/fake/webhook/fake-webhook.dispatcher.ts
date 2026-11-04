@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Clock } from '../../../shared/clock/index.js';
 import { toGatewayChargeJson } from '../../gateway-charge-json.js';
 import type { GatewayWebhookPayload } from '../../gateway-webhook-event.js';
@@ -17,6 +17,7 @@ import { RandomSource } from './random-source.js';
 import { WebhookTransport } from './webhook-transport.js';
 
 const MAX_RESENDS = 3;
+const MAX_ATTEMPTS = MAX_RESENDS + 1;
 const RETRY_BASE_DELAY_MS = 1000;
 const MILLISECONDS_PER_SECOND = 1000;
 
@@ -26,7 +27,7 @@ const backoffAfter = (attempt: number): number =>
   RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
 
 @Injectable()
-export class FakeWebhookDispatcher {
+export class FakeWebhookDispatcher implements OnModuleInit {
   private readonly logger = new Logger(FakeWebhookDispatcher.name);
 
   constructor(
@@ -37,6 +38,28 @@ export class FakeWebhookDispatcher {
     private readonly clock: Clock,
     @Inject(FAKE_WEBHOOK_OPTIONS) private readonly options: FakeWebhookOptions,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    if (!this.options.enabled) return;
+    try {
+      const undelivered = await this.store.read((data) =>
+        data.events.filter(
+          ({ deliveredAt, attempts }) =>
+            deliveredAt === null && attempts < MAX_ATTEMPTS,
+        ),
+      );
+      for (const { id, attempts } of undelivered) {
+        this.scheduler.after(this.options.delayMs, () =>
+          this.attempt(id, attempts + 1),
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        'Could not reschedule undelivered webhooks',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
 
   schedule(events: readonly StoredGatewayEvent[]): void {
     if (!this.options.enabled) return;
@@ -119,7 +142,7 @@ export class FakeWebhookDispatcher {
   }
 
   private retryOrGiveUp(eventId: string, attempt: number): void {
-    if (attempt > MAX_RESENDS) {
+    if (attempt >= MAX_ATTEMPTS) {
       this.logger.warn(
         `Gave up delivering webhook ${eventId} after ${attempt} attempts`,
       );

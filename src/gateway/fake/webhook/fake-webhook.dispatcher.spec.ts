@@ -92,6 +92,64 @@ describe('FakeWebhookDispatcher', () => {
     expect(scheduler.delays).toEqual([]);
   });
 
+  describe('on module init', () => {
+    const addEvent = (overrides: Partial<StoredGatewayEvent>) =>
+      store.transaction((data) => {
+        data.events.push({
+          ...data.events[0]!,
+          ...overrides,
+        });
+      });
+
+    it('reschedules an undelivered event as its next attempt after the configured delay', async () => {
+      await seed();
+      await store.transaction((data) => {
+        data.events[0]!.attempts = 2;
+      });
+      const { dispatcher, scheduler, transport } = build({ delayMs: 300 });
+
+      await dispatcher.onModuleInit();
+
+      expect(scheduler.delays).toEqual([300]);
+      await scheduler.runNext();
+      expect(transport.requests).toHaveLength(1);
+      expect((await storedEvent()).attempts).toBe(3);
+      expect((await storedEvent()).deliveredAt).not.toBeNull();
+    });
+
+    it('skips delivered events and events that exhausted their attempts', async () => {
+      await seed();
+      await addEvent({ id: 'evt_done', deliveredAt: now.toISOString() });
+      await addEvent({ id: 'evt_gave_up', attempts: 4 });
+      await store.transaction((data) => {
+        data.events.splice(0, 1);
+      });
+      const { dispatcher, scheduler } = build();
+
+      await dispatcher.onModuleInit();
+
+      expect(scheduler.delays).toEqual([]);
+    });
+
+    it('schedules nothing when dispatch is disabled', async () => {
+      await seed();
+      const { dispatcher, scheduler } = build({ enabled: false });
+
+      await dispatcher.onModuleInit();
+
+      expect(scheduler.delays).toEqual([]);
+    });
+
+    it('does not fail the boot when the store cannot be read', async () => {
+      vi.spyOn(store, 'read').mockRejectedValue(new Error('disk gone'));
+      const { dispatcher, scheduler } = build();
+
+      await expect(dispatcher.onModuleInit()).resolves.toBeUndefined();
+
+      expect(scheduler.delays).toEqual([]);
+    });
+  });
+
   describe('delivery', () => {
     it('posts the JSON payload to the configured url with a signature over the raw body', async () => {
       const event = await seed();
