@@ -106,21 +106,25 @@ Requirements: Docker, Node.js 24 (`.nvmrc`) and pnpm 10 for the host-side comman
 
 ### Option A: everything in Docker
 
+Requirements: Docker with Compose 2.24 or newer. No Node.js, pnpm or `.env` is needed.
+
 ```bash
-cp .env.example .env
-docker compose up --build
-curl http://localhost:3000/health
+docker compose up --build -d --wait
+docker compose run --rm seed
+./scripts/demo.sh
 ```
 
-This starts PostgreSQL, Redis and the API. The container applies migrations (`prisma migrate deploy`) on start and runs the workers in the same process. Swagger is at <http://localhost:3000/docs> and Bull Board at <http://localhost:3000/queues>.
-
-Gaps before this is a literal single command:
-
-- `.env` must exist first: compose reads `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` from it.
-- The container does not seed data. Seeding needs the host toolchain (below).
-- Compose forwards only the variables listed in `docker-compose.yml`. Settings such as `LLM_PROVIDER`, `GEMINI_API_KEY`, `RENEWAL_*` or `IDEMPOTENCY_*` in `.env` do not reach the container, so the API runs with their defaults.
+- `docker compose up --build -d --wait` starts PostgreSQL, Redis and the API and returns when all three are healthy. The API container applies the migrations (`prisma migrate deploy`) on start and runs the workers in the same process. Swagger is at <http://localhost:3000/docs> and Bull Board at <http://localhost:3000/queues>.
+- `docker compose run --rm seed` waits for the API, then loads the demo data set (plans, customers and months of payment history) with the opt-in the seed requires (see below). The `seed` service is behind the `tools` profile, so `up` never starts it.
+- `./scripts/demo.sh` needs `curl` and `jq` on the host. It subscribes with a declining card, fires the retry, summarises with AI and reads the metrics.
+- Without a `.env`, compose uses the development defaults (`POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` are all `payments`).
+- With a `.env` (`cp .env.example .env`), compose also passes it to the API container, so every setting in the [Configuration](#configuration) table (`LLM_PROVIDER`, `GEMINI_API_KEY`, `RENEWAL_*`, `RECONCILIATION_*`, `IDEMPOTENCY_*`...) takes effect. The compose file overrides only what must point at the compose network or be fixed for the container: `NODE_ENV`, `PORT`, `DATABASE_URL`, `REDIS_*`, `FAKE_GATEWAY_DATA_FILE`, `FAKE_GATEWAY_WEBHOOK_URL`, `OTEL_EXPORTER_OTLP_ENDPOINT` and `ALLOW_ACCELERATED_RETRIES`. `docker compose down -v` also wipes the data.
+- `DEV_ROUTES_ENABLED`, `BULL_BOARD_ENABLED` and `FAKE_GATEWAY_ROUTES_ENABLED` default to `true` in compose (`scripts/demo.sh` needs the first one); set them to `false` in the shell or in `.env` to turn them off.
+- The dunning calendar runs in days (D+1, D+3, D+7). To watch it end to end in minutes, set `RETRY_INTERVAL_UNIT=minutes` in `.env` and run `docker compose up -d --wait` again (see [Seeded past-due subscriptions](#seeded-past-due-subscriptions)). Use `.env` rather than an inline variable: compose evaluates the variable on every command, and `docker compose run --rm seed` with a different value would recreate the API with that value.
 
 ### Option B: API on the host
+
+Requirements: Docker, Node.js 24 (`.nvmrc`) and pnpm 10.
 
 ```bash
 cp .env.example .env
@@ -130,18 +134,20 @@ pnpm prisma:migrate
 pnpm start:dev
 ```
 
-`pnpm db:up` starts only PostgreSQL and Redis. `start:dev` does not run migrations, so `pnpm prisma:migrate` is required on a fresh database.
+`pnpm db:up` starts only PostgreSQL and Redis. `start:dev` does not run migrations, so `pnpm prisma:migrate` is required on a fresh database. With the API running (`.env.example` sets `DEV_ROUTES_ENABLED=true`), `pnpm db:seed` loads the demo data and `./scripts/demo.sh` runs the walkthrough.
 
 ### Demo data and the demo script
 
-With either option running (the compose file and `.env.example` both set `DEV_ROUTES_ENABLED=true`):
+`scripts/demo.sh` reads `BASE_URL` (default `http://localhost:3000`) and fails with a clear message if `POST /dev/retries/run-now` answers 404 (dev routes off) or if the subscription does not become `active` within `POLL_TIMEOUT_SECONDS` (default 30). It works under either retry unit because it fires the scheduled retry through the dev route instead of waiting for it.
 
-```bash
-pnpm db:seed          # plans, customers and months of payment history
-./scripts/demo.sh     # subscribe with a declining card, run the retry, summarise with AI, read metrics
-```
+The seed (`pnpm db:seed`, or `docker compose run --rm seed`) is a development tool and refuses to run unless the target is clearly a throwaway database:
 
-`pnpm db:seed` refuses to run with `NODE_ENV=production` and uses `DATABASE_URL` from `.env`, which points at the PostgreSQL port published by compose. `scripts/demo.sh` reads `BASE_URL` (default `http://localhost:3000`) and fails with a clear message if `POST /dev/retries/run-now` answers 404 (dev routes off) or if the subscription does not become `active` within `POLL_TIMEOUT_SECONDS` (default 30).
+- It refuses when `NODE_ENV=production` or when `DATABASE_URL` points at a host other than `localhost`, `127.0.0.1` or `[::1]`.
+- `SEED_ALLOW_REMOTE=true` overrides both refusals. The compose `seed` service sets it, because from inside the compose network the database host is `postgres` and the container runs with `NODE_ENV=production`. Do not set it against a database you care about: the seed deletes and recreates its own rows (ids starting with `sub_demo`, and their charges and attempts) and upserts the plans and customers.
+
+#### Seeded past-due subscriptions
+
+The seed reads `RETRY_INTERVAL_UNIT` and places the three past-due subscriptions as if their first failure happened 1, 1 and 3 retry units ago (so they have made 1, 1 and 2 retries), measured from the moment you seed. The reconciliation sweep treats a charge as overdue once its next retry offset (D+3, D+3 and D+7 from the first failure) plus `RECONCILIATION_STALE_AFTER_MINUTES` has passed. So they stay `past_due` for about 2 retry units (the first two) and 4 retry units (the third) after seeding: 2 and 4 days with the default `days`, but only about 7 and 9 minutes under `RETRY_INTERVAL_UNIT=minutes` (observed: the first two canceled about 8 minutes after seeding, the third about 10), after which the accelerated dunning retries them and cancels them (the seeded card always declines). The seed must see the same `RETRY_INTERVAL_UNIT` as the API (keep it in `.env`). Run the seed again to reset the demo.
 
 ## Scripts
 
@@ -154,7 +160,7 @@ pnpm db:seed          # plans, customers and months of payment history
 | `pnpm db:up` / `pnpm db:down` | Starts / stops PostgreSQL and Redis with compose |
 | `pnpm prisma:migrate` | `prisma migrate dev`: applies migrations and creates new ones |
 | `pnpm prisma:generate` | Regenerates the Prisma client into `src/generated/prisma` |
-| `pnpm db:seed` | Loads the demo data set into `DATABASE_URL` |
+| `pnpm db:seed` | Loads the demo data set into `DATABASE_URL`; see [Demo data](#demo-data-and-the-demo-script) for what it refuses |
 | `pnpm openapi:export` | Regenerates `openapi.json`; CI fails when the committed file is stale |
 | `pnpm llm:smoke` | One real call to the Gemini provider (needs `LLM_PROVIDER=gemini` and `GEMINI_API_KEY`); not run in CI |
 | `pnpm lint` / `pnpm format:check` / `pnpm typecheck` | oxlint (type-aware), Prettier check, `tsc --noEmit` |
@@ -224,8 +230,9 @@ Variables are validated at startup from `src/shared/config/env.schema.ts`; an in
 | `FAKE_GATEWAY_WEBHOOK_DELAY_MS` | `500` | Delay before each webhook |
 | `FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE` | `0` | Probability (0 to 1) of re-sending an event |
 | `FAKE_GATEWAY_WEBHOOK_DISPATCH_ENABLED` | `true` | `false` stores events without delivering them |
+| `SEED_ALLOW_REMOTE` | unset | Read only by the seed tool (`pnpm db:seed`, compose `seed` service); `true` lets it run against a non-local database or with `NODE_ENV=production` |
 | `GATEWAY_WEBHOOK_SECRET` | required, 32+ chars | HMAC key for webhooks, shared by the fake gateway and the API |
-| `RETRY_INTERVAL_UNIT` | `days` | `minutes` compresses the dunning calendar; refused in production |
+| `RETRY_INTERVAL_UNIT` | `days` | `minutes` compresses the dunning calendar; refused in production. Compose defaults to `days` too |
 | `ALLOW_ACCELERATED_RETRIES` | unset | Must be `true` to boot with `RETRY_INTERVAL_UNIT=minutes` in production |
 | `WORKERS_ENABLED` | `true` | `false` makes the process enqueue only |
 | `RENEWAL_JOB_INTERVAL_SECONDS` | `3600` (days) / `30` (minutes) | Renewal sweep period |
@@ -366,7 +373,7 @@ Refunds are not implemented; a `requires_refund` outcome is a log signal, not an
 
 Testcontainers starts its own databases; no compose stack is needed. Domain rules are tested as pure functions in the unit layer; the integration layer checks repositories, Redis scripts and the partial index; the e2e layer covers the journeys (subscription, dunning recovery, reconciliation, webhooks, idempotency, summary, metrics).
 
-CI (`.github/workflows/ci.yml`) runs on push and pull request. The `quality` job runs lint, format check, typecheck, unit tests with coverage, integration, e2e, build, and a check that `openapi.json` is up to date. On push to `main` a second job publishes the coverage badge JSON to the `badges` branch, which the badge above reads. The badge shows line coverage.
+CI (`.github/workflows/ci.yml`) runs on push and pull request. The `quality` job runs lint, format check, typecheck, unit tests with coverage, integration, e2e, build, and a check that `openapi.json` is up to date. On push to `main` a second job publishes the coverage badge JSON to the `badges` branch, which the badge above reads. The badge shows line coverage of the unit tests only (`pnpm test:cov`); integration and e2e runs are not measured.
 
 ## Following a payment in the logs
 
@@ -386,7 +393,7 @@ TODO: record the demo GIF and save it as `docs/demo.gif`. The file does not exis
 - **Authentication and authorization.** No route is authenticated, including `/docs`, `/queues` (Bull Board, which shows and can act on jobs), `/dev/*`, `/fake-gateway/*`, customer data and the summary endpoint that triggers LLM calls. Put the API behind an authenticating gateway and keep the dev and fake gateway routes off.
 - **Rate limits.** No HTTP rate limit. The LLM bucket is per process, so N instances make up to N times `LLM_MAX_CALLS_PER_MINUTE` calls.
 - **Secrets.** `GATEWAY_WEBHOOK_SECRET`, `GEMINI_API_KEY` and database credentials come from `.env` in this repository. Use a secret manager. The values in `.env.example` are development values.
-- **Demo flags in production.** `RETRY_INTERVAL_UNIT=minutes` (with `ALLOW_ACCELERATED_RETRIES=true`), `BULL_BOARD_ENABLED`, `DEV_ROUTES_ENABLED` and `FAKE_GATEWAY_ROUTES_ENABLED` are set by the compose file for the demo. Production must not use them.
+- **Demo flags in production.** `RETRY_INTERVAL_UNIT=minutes` (with `ALLOW_ACCELERATED_RETRIES=true`), `BULL_BOARD_ENABLED`, `DEV_ROUTES_ENABLED` and `FAKE_GATEWAY_ROUTES_ENABLED` are on in the compose file for the demo (`RETRY_INTERVAL_UNIT=minutes` only when you ask for it). Production must not use them.
 - **Data retention and privacy.** Customer names and e-mails, webhook events, payment attempts and failed jobs are kept indefinitely; there is no deletion or export endpoint, which LGPD requests will need. Logs are written to stdout; there is no shipping or retention configuration.
 - **Queues and Redis.** One Redis instance holds the queues, idempotency keys and summary cache, with `noeviction` and AOF in compose. A managed Redis with persistence and failover is needed. Completed jobs are kept for 1000 entries or 24 hours; failed jobs are kept until someone removes them.
 - **Time zones and multi-region.** The project has no time zone setting: metrics months and summary timelines are UTC. Multi-region deployment is not designed; the renewal and reconciliation sweeps assume one shared Redis and database.
@@ -396,5 +403,7 @@ TODO: record the demo GIF and save it as `docs/demo.gif`. The file does not exis
 
 - Only the fake gateway exists; it stores data in a local file and delivers webhooks with a timer.
 - Cancellation is immediate; there is no cancel-at-period-end.
+- The coverage badge and the thresholds cover unit tests only; the integration and e2e suites are not instrumented.
+- `charges.next_retry_at` is declared in the schema but never written or read by the application (the retry schedule is derived from `first_failed_at` and `retry_count`), so it is always empty.
 - Metrics are computed on request from the tables; there is no pre-aggregation.
 - `monthlyRecurringRevenueCents`, `activeSubscriptions`, `pastDueSubscriptions` and `subscriptionsByStatus` are current counts, while the cancellations in the delinquency rate and `revenueByMonth` are bounded by the requested period. There is no point-in-time history: asking for a past period does not reconstruct the past MRR.
