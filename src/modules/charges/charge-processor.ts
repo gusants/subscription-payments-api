@@ -20,11 +20,12 @@ import { statusesAllowedToTransitionTo as subscriptionStatusesAllowedToTransitio
 import type { Subscription } from '../subscriptions/subscription.js';
 import { BillingRepository } from './billing.repository.js';
 import { CHARGE_ATTEMPT_LEASE_MS } from './charge-attempt-lease.js';
-import type { Charge } from './charge.js';
+import type { Charge, ChargeSettlementRecord } from './charge.js';
 import { ChargesRepository } from './charges.repository.js';
 import {
   assertBillable,
   type BillableSubscription,
+  expirySettlement,
   assertTransition as assertChargeTransition,
   nextGatewayAttempt,
   statusesAllowedToTransitionTo as chargeStatusesAllowedToTransitionTo,
@@ -228,6 +229,9 @@ export class ChargeProcessor {
     target: AttemptTarget,
     gatewayCharge: GatewayCharge,
   ): Promise<ProcessedCharge> {
+    if (gatewayCharge.status === 'expired') {
+      return this.recordExpiry(target, gatewayCharge);
+    }
     const outcome = toChargeOutcome(gatewayCharge);
     if (!outcome) return this.awaitSettlement(target, gatewayCharge);
     return this.recordOutcome(target, gatewayCharge, outcome);
@@ -245,7 +249,22 @@ export class ChargeProcessor {
     return this.unsettled({ ...target, charge: attached ?? target.charge });
   }
 
-  private async recordOutcome(
+  private recordExpiry(
+    { charge, subscription }: AttemptTarget,
+    gatewayCharge: GatewayCharge,
+  ): Promise<ProcessedCharge> {
+    return this.persist(
+      expirySettlement({
+        charge,
+        subscription,
+        gatewayChargeId: gatewayCharge.id,
+        now: this.clock.now(),
+      }),
+      null,
+    );
+  }
+
+  private recordOutcome(
     { charge, subscription }: AttemptTarget,
     gatewayCharge: GatewayCharge,
     outcome: ChargeOutcome,
@@ -254,42 +273,52 @@ export class ChargeProcessor {
       subscription.status,
       outcome.chargeStatus,
     );
-    const recorded = await this.billing.recordChargeOutcome({
-      charge: {
-        id: charge.id,
-        fromAnyOf: ['pending'],
-        to: outcome.chargeStatus,
-        gatewayChargeId: gatewayCharge.id,
-        paidAt:
-          outcome.chargeStatus === 'paid'
-            ? (gatewayCharge.paidAt ?? this.clock.now())
-            : null,
-      },
-      attempt: {
-        id: generateId(ID_PREFIXES.paymentAttempt),
-        chargeId: charge.id,
-        gatewayChargeId: gatewayCharge.id,
-        result: outcome.attemptResult,
-        failureReason: outcome.failureReason,
-      },
-      subscription: {
-        id: subscription.id,
-        change: subscriptionStatus && {
-          fromAnyOf:
-            subscriptionStatusesAllowedToTransitionTo(subscriptionStatus),
-          to: subscriptionStatus,
+    return this.persist(
+      {
+        charge: {
+          id: charge.id,
+          fromAnyOf: ['pending'],
+          to: outcome.chargeStatus,
+          gatewayChargeId: gatewayCharge.id,
+          paidAt:
+            outcome.chargeStatus === 'paid'
+              ? (gatewayCharge.paidAt ?? this.clock.now())
+              : null,
+        },
+        attempt: {
+          id: generateId(ID_PREFIXES.paymentAttempt),
+          chargeId: charge.id,
+          gatewayChargeId: gatewayCharge.id,
+          result: outcome.attemptResult,
+          failureReason: outcome.failureReason,
+        },
+        subscription: {
+          id: subscription.id,
+          change: subscriptionStatus && {
+            fromAnyOf:
+              subscriptionStatusesAllowedToTransitionTo(subscriptionStatus),
+            to: subscriptionStatus,
+          },
         },
       },
-    });
+      outcome.failureReason,
+    );
+  }
+
+  private async persist(
+    settlement: ChargeSettlementRecord,
+    failureReason: GatewayFailureReason | null,
+  ): Promise<ProcessedCharge> {
+    const recorded = await this.billing.recordChargeOutcome(settlement);
     if (!recorded.subscriptionChangeApplied) {
       this.logger.error(
-        `Charge ${charge.id} settled as ${outcome.chargeStatus} (gateway charge ${gatewayCharge.id}) but subscription ${subscription.id} did not move to ${subscriptionStatus}; its status is now ${recorded.subscription.status}`,
+        `Charge ${settlement.charge.id} settled as ${settlement.charge.to} (gateway charge ${settlement.charge.gatewayChargeId}) but subscription ${settlement.subscription.id} did not move to ${settlement.subscription.change?.to}; its status is now ${recorded.subscription.status}`,
       );
     }
     return {
       charge: recorded.charge,
       subscription: recorded.subscription,
-      failureReason: outcome.failureReason,
+      failureReason,
     };
   }
 }

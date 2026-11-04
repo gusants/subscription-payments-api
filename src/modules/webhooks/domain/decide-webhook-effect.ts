@@ -7,19 +7,11 @@ import type { ChargeStatus } from '../../charges/charge-status.js';
 import {
   canTransition,
   statusesAllowedToTransitionTo as chargeStatusesAllowedToTransitionTo,
+  expirySettlement,
+  subscriptionChange,
   subscriptionStatusAfterCharge,
-  subscriptionStatusAfterExpiry,
   toChargeOutcome,
-  type ChargeOutcome,
 } from '../../charges/domain/index.js';
-import {
-  canTransition as canSubscriptionTransition,
-  statusesAllowedToTransitionTo as subscriptionStatusesAllowedToTransitionTo,
-} from '../../subscriptions/domain/index.js';
-import type {
-  StatusChange,
-  Subscription,
-} from '../../subscriptions/subscription.js';
 import type { WebhookDecision, WebhookTarget } from '../webhook-event.js';
 
 export interface WebhookChargeEvent {
@@ -55,28 +47,6 @@ function isAlreadyApplied(
   return charge.status === 'pending' && settlesAttempt && attemptRecorded;
 }
 
-function subscriptionChange(
-  subscription: Subscription,
-  to: Subscription['status'] | null,
-  now: Date,
-): StatusChange | null {
-  if (!to || !canSubscriptionTransition(subscription.status, to)) return null;
-  return {
-    fromAnyOf: subscriptionStatusesAllowedToTransitionTo(to),
-    to,
-    ...(to === 'canceled' && { canceledAt: now }),
-  };
-}
-
-function subscriptionStatusAfter(
-  current: Subscription['status'],
-  outcome: ChargeOutcome | null,
-): Subscription['status'] | null {
-  return outcome
-    ? subscriptionStatusAfterCharge(current, outcome.chargeStatus)
-    : subscriptionStatusAfterExpiry(current);
-}
-
 export function decideWebhookEffect({
   event,
   target,
@@ -96,17 +66,31 @@ export function decideWebhookEffect({
     status: to,
     failureReason: event.failureReason,
   });
+  if (!outcome) {
+    return {
+      outcome: 'applied',
+      settlement: expirySettlement({
+        charge,
+        subscription,
+        gatewayChargeId: event.gatewayChargeId,
+        now,
+      }),
+    };
+  }
   return {
     outcome: 'applied',
     settlement: {
       charge: {
         id: charge.id,
-        fromAnyOf: chargeStatusesAllowedToTransitionTo(to),
-        to,
+        fromAnyOf: chargeStatusesAllowedToTransitionTo(outcome.chargeStatus),
+        to: outcome.chargeStatus,
         gatewayChargeId: event.gatewayChargeId,
-        paidAt: to === 'paid' ? (event.paidAt ?? event.occurredAt) : null,
+        paidAt:
+          outcome.chargeStatus === 'paid'
+            ? (event.paidAt ?? event.occurredAt)
+            : null,
       },
-      attempt: outcome && {
+      attempt: {
         id: attemptId,
         chargeId: charge.id,
         gatewayChargeId: event.gatewayChargeId,
@@ -117,7 +101,10 @@ export function decideWebhookEffect({
         id: subscription.id,
         change: subscriptionChange(
           subscription,
-          subscriptionStatusAfter(subscription.status, outcome),
+          subscriptionStatusAfterCharge(
+            subscription.status,
+            outcome.chargeStatus,
+          ),
           now,
         ),
       },

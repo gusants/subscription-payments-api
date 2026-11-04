@@ -670,7 +670,7 @@ describe('ChargeProcessor', () => {
       expect(gateway.chargesRequested).toHaveLength(1);
     });
 
-    it('keeps the charge pending when the gateway reports it expired, leaving that to the webhook', async () => {
+    it('settles as expired when reconciliation finds the gateway expired it, canceling the incomplete subscription', async () => {
       const { target } = await seedInvoice();
       await processor.process(target);
       const [held] = [...gateway.chargesProcessed.values()];
@@ -679,8 +679,32 @@ describe('ChargeProcessor', () => {
 
       const processed = await processor.reconcile(storedCharge());
 
-      expect(processed.charge.status).toBe('pending');
+      expect(processed.charge.status).toBe('expired');
+      expect(processed.charge.gatewayChargeId).toBe(held!.id);
+      expect(processed.subscription).toMatchObject({
+        status: 'canceled',
+        canceledAt: afterLease,
+      });
+      expect(processed.failureReason).toBeNull();
       expect(billing.attempts()).toEqual([]);
+      expect(storedCharge().attemptCount).toBe(0);
+    });
+
+    it('moves an active subscription to past_due when reconciliation finds its renewal expired', async () => {
+      const { target } = await seedInvoice();
+      await processor.process(target);
+      await subscriptions.changeStatus('sub_1', {
+        fromAnyOf: ['incomplete'],
+        to: 'active',
+      });
+      const [held] = [...gateway.chargesProcessed.values()];
+      gateway.chargesProcessed.set('ch_1:1', { ...held!, status: 'expired' });
+      clock.set(afterLease);
+
+      const processed = await processor.reconcile(storedCharge());
+
+      expect(processed.charge.status).toBe('expired');
+      expect(processed.subscription.status).toBe('past_due');
     });
 
     it('does not retry a pending charge as a new attempt', async () => {
