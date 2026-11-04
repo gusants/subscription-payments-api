@@ -7,11 +7,15 @@ import {
   type ServerResponse,
 } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { getQueueToken } from '@nestjs/bullmq';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import type { Queue } from 'bullmq';
 import { Logger } from 'nestjs-pino';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
+import { CHARGE_RETRIES_QUEUE } from '../../src/modules/billing-queue/billing-queue.constants.js';
+import { retryJobId } from '../../src/modules/billing-queue/domain/retry-job-id.js';
 import { Clock } from '../../src/shared/clock/index.js';
 import { FixedClock } from '../../src/shared/clock/testing/fixed-clock.js';
 import { PrismaService } from '../../src/shared/database/prisma.service.js';
@@ -132,6 +136,13 @@ describe('Following a payment by correlation id (e2e)', () => {
   it('tok_fail_then_success — whole journey — logs every step under the same correlation id in order', async () => {
     const created = await subscribe(JOURNEY_ID);
     expect(created.headers['x-correlation-id']).toBe(JOURNEY_ID);
+    const retryJob = await app
+      .get<Queue>(getQueueToken(CHARGE_RETRIES_QUEUE))
+      .getJob(retryJobId(created.body.latestCharge.id as string, 1));
+    expect(retryJob?.data).toMatchObject({
+      correlationId: JOURNEY_ID,
+      publishDelayMs: expect.any(Number),
+    });
     await http().post('/dev/retries/run-now').expect(200);
     await vi.waitFor(
       () => {

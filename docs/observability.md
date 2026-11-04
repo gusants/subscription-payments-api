@@ -5,6 +5,7 @@ How to follow one payment from the first request to the gateway webhook that con
 ## Correlation id
 
 - **Birth:** the `x-correlation-id` request header is reused when it has 8 to 128 characters from `A-Z a-z 0-9 . _ -`; otherwise a `cor_<ulid>` is generated.
+- **Trust:** a well-formed id sent by a client is accepted as is and, on a request that creates a charge, stored in `charges.correlation_id`; every later log line about that charge carries it. This is by design (it lets a client follow its own payment) and the format rule keeps it log-safe, but it is not authentication: a client can choose, or reuse, any valid id, so two payments may share one. Treat it as a search key, never as proof of who made the request.
 - **In memory:** an `AsyncLocalStorage` context (`src/shared/correlation/`). Pino stamps `correlationId` on every line written within it.
 - **In the database:** `charges.correlation_id`, written when the charge is created. A dunning reissue inherits the id of the charge it replaces; a renewal starts a new one.
 - **In jobs:** the retry job data carries `correlationId` (`src/modules/billing-queue/job-context.ts`). The worker runs the job within that id.
@@ -148,12 +149,14 @@ The ids change on every run; use the ones printed by your run. `down -v` also dr
 
 Start from whatever you have.
 
-**From a correlation id** (a client sent `x-correlation-id`, or a response carried one):
+**From a correlation id** (a client sent `x-correlation-id`, or you have the one a response returned):
 
 ```bash
 docker compose logs --no-color --no-log-prefix api \
-  | jq -R -c --arg cid "$CID" 'fromjson? | select(.correlationId == $cid)'
+  | jq -R -c --arg cid "$CID" 'fromjson? | select(.correlationId == $cid or .requestCorrelationId == $cid)'
 ```
+
+For a request that creates the charge (`POST /subscriptions`, a renewal), that id is the payment's id and the filter follows it to settlement. A manual `POST /charges/{id}/retry` and a gateway webhook are different: their work is logged under the correlation id stored on the charge, while the lines around that work (the `request completed` line among them) keep the request's id. The id from their response therefore finds the request line plus one bridge line that carries it as `requestCorrelationId` (`Manual retry of charge … requested`, or `webhook.received`); that line's `correlationId` is the payment's id. Filter again by it to see what the retry or webhook did.
 
 **From a charge id:** find the correlation id stored on the charge, then filter by it. Lines with no `chargeId` (for example `Promoted N delayed charge retries`) only match by correlation id.
 
