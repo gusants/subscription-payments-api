@@ -1,19 +1,27 @@
 import {
   BillingQueue,
+  RETRY_SCHEDULING,
   type ChargeRetryRequest,
+  type RetryScheduling,
 } from '../billing-queue.port.js';
 
 export class RecordingBillingQueue extends BillingQueue {
   private readonly scheduledByJobId = new Map<string, ChargeRetryRequest>();
   failure: Error | null = null;
 
-  scheduleRetry(request: ChargeRetryRequest): Promise<void> {
+  scheduleRetry(request: ChargeRetryRequest): Promise<RetryScheduling> {
     if (this.failure) return Promise.reject(this.failure);
     const jobId = `${request.chargeId}:${request.attempt}`;
-    if (!this.scheduledByJobId.has(jobId)) {
+    const existing = this.scheduledByJobId.get(jobId);
+    if (!existing) {
       this.scheduledByJobId.set(jobId, request);
+      return Promise.resolve(RETRY_SCHEDULING.enqueued);
     }
-    return Promise.resolve();
+    if (request.delayMs === 0 && existing.delayMs > 0) {
+      existing.delayMs = 0;
+      return Promise.resolve(RETRY_SCHEDULING.promoted);
+    }
+    return Promise.resolve(RETRY_SCHEDULING.alreadyScheduled);
   }
 
   promoteDelayedRetries(): Promise<number> {

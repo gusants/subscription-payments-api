@@ -219,6 +219,35 @@ describe('ChargeDunning', () => {
       ]);
     });
 
+    it('logs a retry once when the same settlement is followed up twice', async () => {
+      const charge = await seedFailedCharge(0);
+      const subscription = (await subscriptions.findById('sub_1'))!;
+      const recorded = recordPaymentEvents();
+
+      await dunning.afterSettlement({ charge, subscription });
+      await dunning.afterSettlement({ charge, subscription });
+
+      expect(eventNames(recorded)).toEqual(['charge.retry.scheduled']);
+    });
+
+    it('logs a retry run now when it moves a retry already scheduled for later', async () => {
+      const charge = await seedFailedCharge(0);
+      const subscription = (await subscriptions.findById('sub_1'))!;
+      await dunning.afterSettlement({ charge, subscription });
+      const recorded = recordPaymentEvents();
+
+      await dunning.requestRetryNow(charge);
+      await dunning.requestRetryNow(charge);
+
+      expect(recorded).toEqual([
+        expect.objectContaining({
+          event: 'charge.retry.scheduled',
+          attempt: 1,
+          delayMs: 0,
+        }),
+      ]);
+    });
+
     it('logs no scheduled retry when the queue refuses it', async () => {
       const charge = await seedFailedCharge(0);
       const subscription = (await subscriptions.findById('sub_1'))!;

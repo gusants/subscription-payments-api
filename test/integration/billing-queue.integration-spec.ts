@@ -11,6 +11,15 @@ import {
 import { BullMqBillingQueue } from '../../src/modules/billing-queue/bullmq-billing-queue.js';
 import type { ChargeRetryJobData } from '../../src/modules/billing-queue/bullmq-billing-queue.js';
 import { retryJobId } from '../../src/modules/billing-queue/domain/retry-job-id.js';
+import { ChargeDunning } from '../../src/modules/charges/charge-dunning.js';
+import type { Charge } from '../../src/modules/charges/charge.js';
+import type { BillingRepository } from '../../src/modules/charges/billing.repository.js';
+import {
+  eventNames,
+  recordPaymentEvents,
+} from '../../src/modules/charges/testing/record-payment-events.js';
+import type { Subscription } from '../../src/modules/subscriptions/subscription.js';
+import { FixedClock } from '../../src/shared/clock/testing/fixed-clock.js';
 import { createRedisConnection } from '../../src/shared/redis/create-redis-connection.js';
 
 const FAR_FUTURE_MS = 60 * 60 * 1000;
@@ -45,7 +54,7 @@ describe('BullMqBillingQueue (integration)', () => {
   });
 
   it('stores a delayed job under the deterministic colon-separated id', async () => {
-    await billingQueue.scheduleRetry({
+    const scheduling = await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
       correlationId: 'cor_test_journey',
@@ -54,11 +63,13 @@ describe('BullMqBillingQueue (integration)', () => {
 
     const job = await queue.getJob(retryJobId('ch_01abc', 1));
 
+    expect(scheduling).toBe('enqueued');
     expect(job?.id).toBe('retry:ch_01abc:1');
     expect(job?.data).toEqual({
       chargeId: 'ch_01abc',
       attempt: 1,
       correlationId: 'cor_test_journey',
+      publicationId: expect.any(String),
     });
     expect(await job?.getState()).toBe('delayed');
     expect(await queue.getDelayedCount()).toBe(1);
@@ -97,13 +108,15 @@ describe('BullMqBillingQueue (integration)', () => {
       correlationId: 'cor_test_journey',
     };
 
-    await Promise.all([
+    const concurrent = await Promise.all([
       billingQueue.scheduleRetry(request),
       billingQueue.scheduleRetry(request),
     ]);
-    await billingQueue.scheduleRetry(request);
+    const again = await billingQueue.scheduleRetry(request);
 
     expect(await queue.getJobCountByTypes('delayed', 'waiting')).toBe(1);
+    expect(concurrent.toSorted()).toEqual(['already_scheduled', 'enqueued']);
+    expect(again).toBe('already_scheduled');
   });
 
   it('keeps one job per charge and attempt whatever correlation id each request carries', async () => {
@@ -123,6 +136,7 @@ describe('BullMqBillingQueue (integration)', () => {
       chargeId: 'ch_01abc',
       attempt: 2,
       correlationId: 'cor_first_request',
+      publicationId: expect.any(String),
     });
   });
 
@@ -170,6 +184,7 @@ describe('BullMqBillingQueue (integration)', () => {
         chargeId: 'ch_01abc',
         attempt: 3,
         correlationId: 'cor_test_journey',
+        publicationId: expect.any(String),
       },
     });
   });
@@ -182,16 +197,19 @@ describe('BullMqBillingQueue (integration)', () => {
       delayMs: FAR_FUTURE_MS,
     });
 
-    await billingQueue.scheduleRetry({
+    const runNow = {
       chargeId: 'ch_01abc',
       attempt: 1,
       correlationId: 'cor_test_journey',
       delayMs: 0,
-    });
+    };
+    const promoted = await billingQueue.scheduleRetry(runNow);
+    const repeated = await billingQueue.scheduleRetry(runNow);
 
     const job = await queue.getJob(retryJobId('ch_01abc', 1));
     expect(await job?.getState()).toBe('waiting');
     expect(await queue.getJobCountByTypes('delayed', 'waiting')).toBe(1);
+    expect([promoted, repeated]).toEqual(['promoted', 'already_scheduled']);
   });
 
   it('gives retry jobs technical attempts with exponential backoff', async () => {
@@ -273,7 +291,7 @@ describe('BullMqBillingQueue (integration)', () => {
       Promise.reject(new Error('gateway unavailable')),
     );
 
-    await billingQueue.scheduleRetry({
+    const scheduling = await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
       correlationId: 'cor_test_journey',
@@ -281,6 +299,7 @@ describe('BullMqBillingQueue (integration)', () => {
     });
 
     const job = await queue.getJob('retry:ch_01abc:1');
+    expect(scheduling).toBe('rerun');
     expect(await job?.getState()).toBe('waiting');
     expect(job?.attemptsMade).toBe(0);
     expect(await queue.getFailedCount()).toBe(0);
@@ -295,7 +314,7 @@ describe('BullMqBillingQueue (integration)', () => {
     });
     await runWorkerUntil('completed', () => Promise.resolve());
 
-    await billingQueue.scheduleRetry({
+    const scheduling = await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
       correlationId: 'cor_test_journey',
@@ -303,6 +322,7 @@ describe('BullMqBillingQueue (integration)', () => {
     });
 
     const job = await queue.getJob('retry:ch_01abc:1');
+    expect(scheduling).toBe('enqueued');
     expect(await job?.getState()).toBe('waiting');
     expect(await queue.getJobCountByTypes('completed', 'waiting')).toBe(1);
   });
@@ -316,7 +336,7 @@ describe('BullMqBillingQueue (integration)', () => {
     });
     const before = await queue.getJob('retry:ch_01abc:1');
 
-    await billingQueue.scheduleRetry({
+    const scheduling = await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
       correlationId: 'cor_test_journey',
@@ -324,8 +344,49 @@ describe('BullMqBillingQueue (integration)', () => {
     });
 
     const after = await queue.getJob('retry:ch_01abc:1');
+    expect(scheduling).toBe('already_scheduled');
     expect(after?.timestamp).toBe(before?.timestamp);
     expect(await after?.getState()).toBe('delayed');
+  });
+
+  describe('followed up by dunning', () => {
+    const failedAt = new Date('2026-03-01T10:00:00.000Z');
+    const failedCharge = {
+      id: 'ch_01abc',
+      subscriptionId: 'sub_01abc',
+      status: 'failed',
+      retryCount: 0,
+      correlationId: 'cor_test_journey',
+      firstFailedAt: failedAt,
+    } as Charge;
+    const pastDueSubscription = {
+      id: 'sub_01abc',
+      status: 'past_due',
+    } as Subscription;
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('logs one scheduled retry when the same settlement is followed up twice', async () => {
+      const dunning = new ChargeDunning(
+        {} as BillingRepository,
+        billingQueue,
+        new FixedClock(failedAt),
+        'days',
+      );
+      const recorded = recordPaymentEvents();
+      const settlement = {
+        charge: failedCharge,
+        subscription: pastDueSubscription,
+      };
+
+      await dunning.afterSettlement(settlement);
+      await dunning.afterSettlement(settlement);
+
+      expect(eventNames(recorded)).toEqual(['charge.retry.scheduled']);
+      expect(await queue.getDelayedCount()).toBe(1);
+    });
   });
 
   describe('with Redis down', () => {

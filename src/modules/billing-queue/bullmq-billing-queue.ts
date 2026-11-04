@@ -1,8 +1,14 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
+import { randomUUID } from 'node:crypto';
 import { withTimeout } from '../../shared/async/with-timeout.js';
-import { BillingQueue, type ChargeRetryRequest } from './billing-queue.port.js';
+import {
+  BillingQueue,
+  RETRY_SCHEDULING,
+  type ChargeRetryRequest,
+  type RetryScheduling,
+} from './billing-queue.port.js';
 import { CHARGE_RETRIES_QUEUE } from './billing-queue.constants.js';
 import {
   CHARGE_RETRY_JOB_OPTIONS,
@@ -17,6 +23,7 @@ export const CHARGE_RETRY_JOB_NAME = 'charge-retry';
 export interface ChargeRetryJobData extends JobContext {
   chargeId: string;
   attempt: number;
+  publicationId?: string;
 }
 
 async function promoteIfStillDelayed(job: Job): Promise<boolean> {
@@ -28,11 +35,12 @@ async function promoteIfStillDelayed(job: Job): Promise<boolean> {
   }
 }
 
-async function rerunIfStillFailed(job: Job): Promise<void> {
+async function rerunIfStillFailed(job: Job): Promise<boolean> {
   try {
     await job.retry('failed', { resetAttemptsMade: true });
+    return true;
   } catch {
-    return;
+    return false;
   }
 }
 
@@ -50,9 +58,12 @@ export class BullMqBillingQueue extends BillingQueue {
     attempt,
     delayMs,
     correlationId,
-  }: ChargeRetryRequest): Promise<void> {
+  }: ChargeRetryRequest): Promise<RetryScheduling> {
     return withTimeout(
-      this.enqueue({ chargeId, attempt, correlationId }, delayMs),
+      this.enqueue(
+        { chargeId, attempt, correlationId, publicationId: randomUUID() },
+        delayMs,
+      ),
       ENQUEUE_TIMEOUT_MS,
     );
   }
@@ -63,12 +74,12 @@ export class BullMqBillingQueue extends BillingQueue {
     return promotions.filter(Boolean).length;
   }
 
-  private async enqueue(
+  private enqueue(
     data: ChargeRetryJobData,
     delayMs: number,
-  ): Promise<void> {
+  ): Promise<RetryScheduling> {
     const jobId = retryJobId(data.chargeId, data.attempt);
-    await tracePublish(
+    return tracePublish(
       {
         queueName: CHARGE_RETRIES_QUEUE,
         jobName: CHARGE_RETRY_JOB_NAME,
@@ -87,7 +98,7 @@ export class BullMqBillingQueue extends BillingQueue {
     jobId: string,
     data: ChargeRetryJobData,
     delayMs: number,
-  ): Promise<void> {
+  ): Promise<RetryScheduling> {
     await this.discardCompletedJob(jobId);
     const job = await this.chargeRetries.add(CHARGE_RETRY_JOB_NAME, data, {
       ...CHARGE_RETRY_JOB_OPTIONS,
@@ -95,10 +106,26 @@ export class BullMqBillingQueue extends BillingQueue {
       delay: delayMs,
     });
     if (await job.isFailed()) {
-      await rerunIfStillFailed(job);
-    } else if (delayMs === 0 && (await job.isDelayed())) {
-      await job.promote();
+      return (await rerunIfStillFailed(job))
+        ? RETRY_SCHEDULING.rerun
+        : RETRY_SCHEDULING.alreadyScheduled;
     }
+    if (delayMs === 0 && (await job.isDelayed())) {
+      return (await promoteIfStillDelayed(job))
+        ? RETRY_SCHEDULING.promoted
+        : RETRY_SCHEDULING.alreadyScheduled;
+    }
+    return (await this.wasStoredBy(data, jobId))
+      ? RETRY_SCHEDULING.enqueued
+      : RETRY_SCHEDULING.alreadyScheduled;
+  }
+
+  private async wasStoredBy(
+    { publicationId }: ChargeRetryJobData,
+    jobId: string,
+  ): Promise<boolean> {
+    const stored = await this.chargeRetries.getJob(jobId);
+    return stored === undefined || stored.data.publicationId === publicationId;
   }
 
   private async discardCompletedJob(jobId: string): Promise<void> {
