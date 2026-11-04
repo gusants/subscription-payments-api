@@ -34,6 +34,7 @@ export class WebhookEventProcessor {
             type: payload.type,
             gatewayChargeId: charge.id,
             failureReason: charge.failureReason,
+            paidAt: charge.paidAt ? new Date(charge.paidAt) : undefined,
             occurredAt: new Date(payload.createdAt),
           },
           target,

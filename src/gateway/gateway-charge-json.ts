@@ -27,16 +27,18 @@ export const gatewayChargeJsonSchema = z.object({
   failureReason: z.enum(GATEWAY_FAILURE_REASONS).optional(),
   createdAt: z.iso.datetime(),
   expiresAt: z.iso.datetime().optional(),
+  paidAt: z.iso.datetime().optional(),
   paymentInstructions: paymentInstructionsSchema.optional(),
 });
 
 export type GatewayChargeJson = z.infer<typeof gatewayChargeJsonSchema>;
 
 export function toGatewayChargeJson(charge: GatewayCharge): GatewayChargeJson {
-  const { createdAt, expiresAt, ...rest } = charge;
+  const { createdAt, expiresAt, paidAt, ...rest } = charge;
   return {
     ...rest,
     createdAt: createdAt.toISOString(),
     ...(expiresAt && { expiresAt: expiresAt.toISOString() }),
+    ...(paidAt && { paidAt: paidAt.toISOString() }),
   };
 }

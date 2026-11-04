@@ -80,6 +80,7 @@ export class FakeGatewaySimulator {
         );
       }
       found.status = status;
+      if (status === 'paid') found.paidAt = at.toISOString();
       return {
         charge: toGatewayCharge(found),
         events: appendChargeEvents(data, [found], at),

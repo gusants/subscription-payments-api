@@ -158,6 +158,26 @@ describe('decideWebhookEffect', () => {
   });
 
   describe('charge.paid on a pending charge', () => {
+    it('settles it paid at the instant the gateway reports the payment', () => {
+      const paidAt = new Date('2026-03-01T11:58:00.000Z');
+
+      const decision = decideWebhookEffect({
+        event: {
+          type: 'charge.paid',
+          gatewayChargeId: EVENT_GATEWAY_CHARGE,
+          paidAt,
+          occurredAt,
+        },
+        target: target('pending'),
+        now,
+        attemptId: 'pa_1',
+      });
+
+      expect(decision).toMatchObject({
+        settlement: { charge: { paidAt } },
+      });
+    });
+
     it.each([
       ['incomplete', 'active'],
       ['past_due', 'active'],

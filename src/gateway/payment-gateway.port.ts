@@ -39,6 +39,7 @@ export interface GatewayCharge {
   failureReason?: GatewayFailureReason;
   createdAt: Date;
   expiresAt?: Date;
+  paidAt?: Date;
   paymentInstructions?: PaymentInstructions;
 }
 

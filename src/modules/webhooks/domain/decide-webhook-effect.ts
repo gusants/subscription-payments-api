@@ -26,6 +26,7 @@ export interface WebhookChargeEvent {
   type: GatewayEventType;
   gatewayChargeId: string;
   failureReason?: GatewayFailureReason;
+  paidAt?: Date;
   occurredAt: Date;
 }
 
@@ -103,7 +104,7 @@ export function decideWebhookEffect({
         fromAnyOf: chargeStatusesAllowedToTransitionTo(to),
         to,
         gatewayChargeId: event.gatewayChargeId,
-        paidAt: to === 'paid' ? event.occurredAt : null,
+        paidAt: to === 'paid' ? (event.paidAt ?? event.occurredAt) : null,
       },
       attempt: outcome && {
         id: attemptId,

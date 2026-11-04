@@ -158,13 +158,16 @@ export class FakeGatewayAdapter extends PaymentGateway {
       createdAt,
     };
     switch (input.method) {
-      case 'card':
+      case 'card': {
+        const outcome = decideOutcome(input.cardToken, attempt);
         return {
           ...common,
           method: 'card',
           cardToken: input.cardToken,
-          ...decideOutcome(input.cardToken, attempt),
+          ...outcome,
+          ...(outcome.status === 'paid' && { paidAt: createdAt }),
         };
+      }
       case 'pix':
         return {
           ...common,

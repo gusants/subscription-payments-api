@@ -260,7 +260,10 @@ export class ChargeProcessor {
         fromAnyOf: ['pending'],
         to: outcome.chargeStatus,
         gatewayChargeId: gatewayCharge.id,
-        paidAt: outcome.chargeStatus === 'paid' ? this.clock.now() : null,
+        paidAt:
+          outcome.chargeStatus === 'paid'
+            ? (gatewayCharge.paidAt ?? this.clock.now())
+            : null,
       },
       attempt: {
         id: generateId(ID_PREFIXES.paymentAttempt),

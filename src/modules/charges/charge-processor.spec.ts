@@ -187,6 +187,24 @@ describe('ChargeProcessor', () => {
       );
     });
 
+    it('stores the payment instant reported by the gateway', async () => {
+      const { target } = await seed();
+      const paidAt = new Date('2026-01-31T10:30:07.000Z');
+      gateway.respondWith({ status: 'paid', paidAt });
+
+      await processor.process(target);
+
+      expect(storedCharge().paidAt).toEqual(paidAt);
+    });
+
+    it('falls back to the clock when the gateway reports no payment instant', async () => {
+      const { target } = await seed();
+
+      await processor.process(target);
+
+      expect(storedCharge().paidAt).toEqual(periodStart);
+    });
+
     it('sends the persisted attempt key as the idempotency key', async () => {
       const { target } = await seed();
 

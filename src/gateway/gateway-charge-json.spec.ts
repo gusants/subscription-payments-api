@@ -22,6 +22,15 @@ describe('toGatewayChargeJson', () => {
     });
   });
 
+  it('serializes the payment instant of a paid charge', () => {
+    const paidAt = new Date('2026-01-31T10:30:05.000Z');
+
+    const json = toGatewayChargeJson({ ...card, paidAt });
+
+    expect(json.paidAt).toBe('2026-01-31T10:30:05.000Z');
+    expect(gatewayChargeJsonSchema.parse(json)).toEqual(json);
+  });
+
   it('keeps the expiry and the payment instructions of a pending pix', () => {
     const pix: GatewayCharge = {
       ...card,

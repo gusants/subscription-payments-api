@@ -12,6 +12,7 @@ export function toGatewayCharge(stored: StoredGatewayCharge): GatewayCharge {
     ...(stored.failureReason && { failureReason: stored.failureReason }),
     createdAt: new Date(stored.createdAt),
     ...(stored.expiresAt && { expiresAt: new Date(stored.expiresAt) }),
+    ...(stored.paidAt && { paidAt: new Date(stored.paidAt) }),
     ...(stored.paymentInstructions && {
       paymentInstructions: stored.paymentInstructions,
     }),

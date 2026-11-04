@@ -152,6 +152,17 @@ describe('WebhookEventProcessor', () => {
     ]);
   });
 
+  it('stores the payment instant carried by the gateway charge instead of the event time', async () => {
+    await seed();
+    const paidAt = new Date('2026-03-01T11:20:00.000Z');
+
+    await processor.process(
+      event('charge.paid', { paidAt: paidAt.toISOString() }),
+    );
+
+    expect(chargeNow().paidAt).toEqual(paidAt);
+  });
+
   it('reactivates a past_due subscription when its renewal is paid', async () => {
     await seed('past_due');
 

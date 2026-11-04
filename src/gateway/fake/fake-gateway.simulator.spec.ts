@@ -71,7 +71,7 @@ describe('FakeGatewaySimulator', () => {
 
         const paid = await simulator.pay('ch_1');
 
-        expect(paid).toEqual({ ...created, status: 'paid' });
+        expect(paid).toEqual({ ...created, status: 'paid', paidAt: start });
         expect(await gateway.getCharge(created.id)).toEqual(paid);
       },
     );

@@ -29,6 +29,7 @@ export interface StoredGatewayCharge {
   failureReason?: GatewayFailureReason;
   createdAt: string;
   expiresAt?: string;
+  paidAt?: string;
   paymentInstructions?: PaymentInstructions;
 }
 

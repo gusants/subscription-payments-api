@@ -84,7 +84,14 @@ describe('FakeGatewayAdapter', () => {
         method: 'card',
         status: 'paid',
         createdAt: now,
+        paidAt: now,
       });
+    });
+
+    it('does not set paidAt on a declined charge', async () => {
+      const result = await gateway.createCharge(charge('tok_expired_card'));
+
+      expect(result.paidAt).toBeUndefined();
     });
 
     it.each([
