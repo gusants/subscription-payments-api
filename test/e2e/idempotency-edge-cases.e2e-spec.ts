@@ -4,10 +4,10 @@ import { request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import { INestApplication } from '@nestjs/common';
 import { Test, type TestingModuleBuilder } from '@nestjs/testing';
-import { Redis } from 'ioredis';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from '../../src/app.module.js';
+import { createAppRedisClient } from '../../src/shared/redis/app-redis-client.js';
 import { REDIS_CLIENT } from '../../src/shared/redis/redis.constants.js';
 import { PrismaService } from '../../src/shared/database/prisma.service.js';
 import { createTestApp } from '../support/create-test-app.js';
@@ -147,19 +147,19 @@ describe('Idempotency-Key edge cases (e2e)', () => {
   });
 
   describe('with Redis unreachable', () => {
-    const BOUND_MS = 20_000;
+    const BOUND_MS = 5000;
 
     beforeEach(async () => {
       const deadPort = await freePort();
       await bootstrap((builder) =>
         builder.overrideProvider(REDIS_CLIENT).useFactory({
-          factory: () => new Redis({ host: '127.0.0.1', port: deadPort }),
+          factory: () =>
+            createAppRedisClient({ host: '127.0.0.1', port: deadPort }),
         }),
       );
     }, 60_000);
 
-    // TODO: unskip once the Redis client fails fast (maxRetriesPerRequest/commandTimeout); today the 503 arrives only after ~73s
-    it.skip('Idempotency-Key present — store cannot be reached — answers 503 in bounded time without running the handler', async () => {
+    it('Idempotency-Key present — store cannot be reached — answers 503 in bounded time without running the handler', async () => {
       const input = await subscriptionInput();
       const startedAt = Date.now();
 

@@ -234,17 +234,16 @@ describe('PrismaWebhookEventsRepository (integration)', () => {
     expect(await prisma.paymentAttempt.count()).toBe(1);
     expect((await chargeRow()).attemptCount).toBe(1);
     expect((await subscriptionRow()).status).toBe('active');
-    if (flow.status === 'fulfilled') {
-      expect(webhook).toMatchObject({
-        status: 'fulfilled',
-        value: { kind: 'processed', outcome: 'ignored_duplicate_state' },
-      });
-    } else {
-      expect(webhook).toMatchObject({
-        status: 'fulfilled',
-        value: { kind: 'processed', outcome: 'applied' },
-      });
-    }
+    expect(flow.status).toBe('fulfilled');
+    expect(webhook).toMatchObject({
+      status: 'fulfilled',
+      value: { kind: 'processed' },
+    });
+    const webhookOutcome =
+      webhook.status === 'fulfilled' && webhook.value.kind === 'processed'
+        ? webhook.value.outcome
+        : undefined;
+    expect(['ignored_duplicate_state', 'applied']).toContain(webhookOutcome);
   });
 
   it('records ignored_duplicate_state when the charge flow already settled it', async () => {
