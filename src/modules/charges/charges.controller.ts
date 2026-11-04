@@ -38,11 +38,23 @@ export class ChargesController {
 
   @Post('charges/:id/retry')
   @HttpCode(HttpStatus.OK)
-  @ZodResponse({ status: HttpStatus.OK, type: ChargeRetryResponseDto })
+  @ZodResponse({
+    status: HttpStatus.OK,
+    description:
+      'The attempt ran. A failed charge is retried as a new attempt; a pending charge past its attempt lease is reconciled with the gateway. charge.status is paid or failed once the gateway decided, and stays pending when the gateway is unavailable, its outcome is unknown or it has not decided yet; retry again later',
+    type: ChargeRetryResponseDto,
+  })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, type: ErrorResponseDto })
-  @ApiResponse({ status: HttpStatus.CONFLICT, type: ErrorResponseDto })
+  @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description:
+      'The charge cannot be retried: it is paid, its subscription is canceled, it was modified concurrently, or it is pending with an attempt still in flight within the lease (CHARGE_ATTEMPT_LEASE_SECONDS)',
+    type: ErrorResponseDto,
+  })
   @ApiResponse({
     status: HttpStatus.UNPROCESSABLE_ENTITY,
+    description:
+      'The subscription has no card token or the customer has no gateway customer',
     type: ErrorResponseDto,
   })
   async retry(@Param('id') id: string): Promise<ChargeRetryResponseDto> {

@@ -832,7 +832,7 @@
                 }
               }
             },
-            "description": ""
+            "description": "The attempt ran. A failed charge is retried as a new attempt; a pending charge past its attempt lease is reconciled with the gateway. charge.status is paid or failed once the gateway decided, and stays pending when the gateway is unavailable, its outcome is unknown or it has not decided yet; retry again later"
           },
           "404": {
             "content": {
@@ -852,7 +852,7 @@
                 }
               }
             },
-            "description": ""
+            "description": "The charge cannot be retried: it is paid, its subscription is canceled, it was modified concurrently, or it is pending with an attempt still in flight within the lease (CHARGE_ATTEMPT_LEASE_SECONDS)"
           },
           "422": {
             "content": {
@@ -862,7 +862,7 @@
                 }
               }
             },
-            "description": ""
+            "description": "The subscription has no card token or the customer has no gateway customer"
           }
         },
         "tags": ["charges"]
