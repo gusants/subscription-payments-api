@@ -1,9 +1,13 @@
+import { readFile } from 'node:fs/promises';
 import {
   sign,
+  toGatewayChargeJson,
   SIGNATURE_HEADER,
   type GatewayChargeJson,
   type GatewayWebhookPayload,
 } from '../../src/gateway/index.js';
+import { toGatewayCharge } from '../../src/gateway/fake/fake-gateway-charge.mapper.js';
+import type { StoredGatewayCharge } from '../../src/gateway/fake/fake-gateway.store.js';
 
 export const WEBHOOK_PATH = '/webhooks/gateway';
 
@@ -43,4 +47,34 @@ export function signedHeaders(
     'content-type': 'application/json',
     [SIGNATURE_HEADER]: sign(rawBody, secret, timestamp),
   };
+}
+
+interface StoredEvent {
+  id: string;
+  type: GatewayWebhookPayload['type'];
+  chargeId: string;
+  occurredAt: string;
+}
+
+interface GatewayFile {
+  charges: StoredGatewayCharge[];
+  events: StoredEvent[];
+}
+
+export async function storedWebhookPayloads(): Promise<
+  GatewayWebhookPayload[]
+> {
+  const { charges, events }: GatewayFile = JSON.parse(
+    await readFile(process.env['FAKE_GATEWAY_DATA_FILE']!, 'utf8'),
+  );
+  return events.map(({ id, type, chargeId, occurredAt }) => ({
+    id,
+    type,
+    createdAt: occurredAt,
+    data: {
+      charge: toGatewayChargeJson(
+        toGatewayCharge(charges.find((charge) => charge.id === chargeId)!),
+      ),
+    },
+  }));
 }

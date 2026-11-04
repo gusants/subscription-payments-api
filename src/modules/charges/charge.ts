@@ -72,6 +72,10 @@ export interface ChargeOutcomeRecord {
   subscription: { id: string; change: StatusChange | null };
 }
 
+export type ChargeSettlementRecord = Omit<ChargeOutcomeRecord, 'attempt'> & {
+  attempt: NewPaymentAttempt | null;
+};
+
 export interface RecordedOutcome {
   subscription: Subscription;
   charge: Charge;

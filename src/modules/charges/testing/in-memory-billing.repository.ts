@@ -6,7 +6,7 @@ import type { ChargeStatus } from '../charge-status.js';
 import type {
   AttachedGatewayCharge,
   Charge,
-  ChargeOutcomeRecord,
+  ChargeSettlementRecord,
   GatewayAttempt,
   NewCharge,
   PaymentAttempt,
@@ -94,7 +94,7 @@ export class InMemoryBillingRepository extends BillingRepository {
     charge,
     attempt,
     subscription,
-  }: ChargeOutcomeRecord): Promise<RecordedOutcome> {
+  }: ChargeSettlementRecord): Promise<RecordedOutcome> {
     const found = this.stored.get(charge.id);
     if (!found || !charge.fromAnyOf.includes(found.status)) {
       throw new ConflictError(`Charge ${charge.id} was modified concurrently`);
@@ -104,11 +104,11 @@ export class InMemoryBillingRepository extends BillingRepository {
       status: charge.to,
       gatewayChargeId: charge.gatewayChargeId,
       paidAt: charge.paidAt,
-      attemptCount: found.attemptCount + 1,
+      attemptCount: found.attemptCount + (attempt ? 1 : 0),
       updatedAt: new Date(),
     };
     this.stored.set(settled.id, settled);
-    this.recorded.push({ ...attempt, createdAt: new Date() });
+    if (attempt) this.recorded.push({ ...attempt, createdAt: new Date() });
     const changed = subscription.change
       ? await this.subscriptions.changeStatus(
           subscription.id,

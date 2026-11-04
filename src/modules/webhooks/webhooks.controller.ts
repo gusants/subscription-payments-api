@@ -13,10 +13,13 @@ import { ErrorResponseDto } from '../../shared/errors/error-response.js';
 import { GatewayWebhookDto } from './dto/gateway-webhook.dto.js';
 import { WebhookReceivedResponseDto } from './dto/webhook-received-response.dto.js';
 import { GatewaySignatureGuard } from './gateway-signature.guard.js';
+import { WebhookEventProcessor } from './webhook-event.processor.js';
 
 @ApiTags('webhooks')
 @Controller('webhooks')
 export class WebhooksController {
+  constructor(private readonly processor: WebhookEventProcessor) {}
+
   @Post('gateway')
   @HttpCode(HttpStatus.OK)
   @UseGuards(GatewaySignatureGuard)
@@ -28,7 +31,8 @@ export class WebhooksController {
   })
   @ZodResponse({
     status: HttpStatus.OK,
-    description: 'The event was received',
+    description:
+      'The event was received. Also the answer for a duplicated event id, an unknown charge and a transition the charge state machine rejects; the outcome is recorded in webhook_events',
     type: WebhookReceivedResponseDto,
   })
   @ApiResponse({
@@ -43,7 +47,10 @@ export class WebhooksController {
       'The signature header is missing, invalid or out of the allowed window',
     type: ErrorResponseDto,
   })
-  receive(@Body() _event: GatewayWebhookDto): WebhookReceivedResponseDto {
+  async receive(
+    @Body() event: GatewayWebhookDto,
+  ): Promise<WebhookReceivedResponseDto> {
+    await this.processor.process(event);
     return { received: true };
   }
 }

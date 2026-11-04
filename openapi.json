@@ -1991,7 +1991,7 @@
                 }
               }
             },
-            "description": "The event was received"
+            "description": "The event was received. Also the answer for a duplicated event id, an unknown charge and a transition the charge state machine rejects; the outcome is recorded in webhook_events"
           },
           "400": {
             "content": {

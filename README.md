@@ -85,6 +85,19 @@ Every gateway charge status change (card paid or failed on creation, pix or bole
 - Signature: header `x-gateway-signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>." + raw body>` with `GATEWAY_WEBHOOK_SECRET`. The HMAC is computed over the raw request bytes (the app boots with `rawBody: true`, shared by `main.ts` and the e2e apps through `APP_OPTIONS`), never over re-serialized JSON, and compared in constant time.
 - Anti-replay: `t` more than 5 minutes in the past or in the future is rejected.
 - Missing, malformed or mismatched signature, or a `t` outside the window: `401` in the standard error body. The check runs before the payload is validated; a valid signature over a body that is not a gateway event is `400`.
+- Idempotency: processing is synchronous, in one database transaction per event. It inserts the event into `webhook_events` (unique `gateway_event_id`, `ON CONFLICT DO NOTHING`), locks the charge and its subscription (`SELECT ... FOR UPDATE`, same order as the charge flow), applies the effect with guarded updates and stores `outcome` and `processed_at`. A repeated event id is a no-op that answers `200`; parallel copies apply once.
+- The charge is resolved by `data.charge.externalRef` (our charge id). Outcomes recorded in `webhook_events.outcome`, always with `200`:
+
+| Event | Charge state | Outcome and effect |
+|---|---|---|
+| any | unknown charge | `ignored_unknown_charge` |
+| `charge.paid` | `pending` | `applied`: charge `paid` (paid_at = event time), succeeded attempt, subscription `incomplete`/`past_due` to `active` |
+| `charge.paid` | `paid` with the same gateway charge, or `pending` with that gateway charge already recorded as an attempt | `ignored_duplicate_state` |
+| `charge.failed` | `pending` | `applied`: charge `failed`, declined attempt with the reason, subscription to `past_due` |
+| `charge.failed` | `failed` with the same gateway charge, or `pending` with that gateway charge already recorded as an attempt | `ignored_duplicate_state` |
+| `charge.expired` | `pending` | `applied`: charge `expired`; subscription `incomplete` (first charge, never paid) to `canceled` with `canceled_at`, `active` (renewal) to `past_due`; no attempt |
+| `charge.expired` | `expired` with the same gateway charge | `ignored_duplicate_state` |
+| any | any other state (for example `expired` after `paid`, `paid` after `expired`) | `rejected_out_of_order`, logged at WARN, no effect |
 
 ## Charge attempts and retries
 

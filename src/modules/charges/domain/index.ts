@@ -12,3 +12,4 @@ export {
 export { InvalidChargeTransitionError } from './invalid-charge-transition.error.js';
 export { subscriptionStatusAfterCharge } from './subscription-status-after-charge.js';
 export { nextGatewayAttempt } from './gateway-attempt.js';
+export { subscriptionStatusAfterExpiry } from './subscription-status-after-expiry.js';

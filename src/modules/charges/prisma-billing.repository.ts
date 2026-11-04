@@ -12,6 +12,7 @@ import type {
   AttachedGatewayCharge,
   Charge,
   ChargeOutcomeRecord,
+  ChargeSettlementRecord,
   GatewayAttempt,
   NewCharge,
   RecordedOutcome,
@@ -81,44 +82,8 @@ export class PrismaBillingRepository extends BillingRepository {
     return count === 0 ? null : this.findChargeOrThrow(id);
   }
 
-  recordChargeOutcome({
-    charge,
-    attempt,
-    subscription,
-  }: ChargeOutcomeRecord): Promise<RecordedOutcome> {
-    return this.prisma.$transaction(async (tx) => {
-      const { count } = await tx.charge.updateMany({
-        where: { id: charge.id, status: { in: [...charge.fromAnyOf] } },
-        data: {
-          status: charge.to,
-          gatewayChargeId: charge.gatewayChargeId,
-          paidAt: charge.paidAt,
-          attemptCount: { increment: 1 },
-        },
-      });
-      if (count === 0) {
-        throw new ConflictError(
-          `Charge ${charge.id} was modified concurrently`,
-        );
-      }
-      await tx.paymentAttempt.create({ data: attempt });
-      const changed = subscription.change
-        ? await this.changeSubscription(
-            tx,
-            subscription.id,
-            subscription.change,
-          )
-        : null;
-      return {
-        subscriptionChangeApplied: changed === null || changed.count > 0,
-        subscription: await tx.subscription.findUniqueOrThrow({
-          where: { id: subscription.id },
-        }),
-        charge: toCharge(
-          await tx.charge.findUniqueOrThrow({ where: { id: charge.id } }),
-        ),
-      };
-    });
+  recordChargeOutcome(record: ChargeOutcomeRecord): Promise<RecordedOutcome> {
+    return this.prisma.$transaction((tx) => applyChargeOutcome(tx, record));
   }
 
   private async findChargeOrThrow(id: string): Promise<Charge> {
@@ -126,15 +91,46 @@ export class PrismaBillingRepository extends BillingRepository {
       await this.prisma.charge.findUniqueOrThrow({ where: { id } }),
     );
   }
+}
 
-  private changeSubscription(
-    tx: Prisma.TransactionClient,
-    id: string,
-    { fromAnyOf, to, canceledAt }: StatusChange,
-  ): Prisma.PrismaPromise<Prisma.BatchPayload> {
-    return tx.subscription.updateMany({
-      where: { id, status: { in: [...fromAnyOf] } },
-      data: { status: to, ...(canceledAt && { canceledAt }) },
-    });
+function changeSubscription(
+  tx: Prisma.TransactionClient,
+  id: string,
+  { fromAnyOf, to, canceledAt }: StatusChange,
+): Prisma.PrismaPromise<Prisma.BatchPayload> {
+  return tx.subscription.updateMany({
+    where: { id, status: { in: [...fromAnyOf] } },
+    data: { status: to, ...(canceledAt && { canceledAt }) },
+  });
+}
+
+export async function applyChargeOutcome(
+  tx: Prisma.TransactionClient,
+  { charge, attempt, subscription }: ChargeSettlementRecord,
+): Promise<RecordedOutcome> {
+  const { count } = await tx.charge.updateMany({
+    where: { id: charge.id, status: { in: [...charge.fromAnyOf] } },
+    data: {
+      status: charge.to,
+      gatewayChargeId: charge.gatewayChargeId,
+      paidAt: charge.paidAt,
+      ...(attempt && { attemptCount: { increment: 1 } }),
+    },
+  });
+  if (count === 0) {
+    throw new ConflictError(`Charge ${charge.id} was modified concurrently`);
   }
+  if (attempt) await tx.paymentAttempt.create({ data: attempt });
+  const changed = subscription.change
+    ? await changeSubscription(tx, subscription.id, subscription.change)
+    : null;
+  return {
+    subscriptionChangeApplied: changed === null || changed.count > 0,
+    subscription: await tx.subscription.findUniqueOrThrow({
+      where: { id: subscription.id },
+    }),
+    charge: toCharge(
+      await tx.charge.findUniqueOrThrow({ where: { id: charge.id } }),
+    ),
+  };
 }
