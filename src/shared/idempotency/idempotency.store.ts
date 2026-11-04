@@ -15,6 +15,7 @@ export abstract class IdempotencyStore {
     lockToken: string,
     fingerprint: string,
     response: StoredResponse,
-  ): Promise<void>;
-  abstract release(key: string, lockToken: string): Promise<void>;
+  ): Promise<boolean>;
+  abstract release(key: string, lockToken: string): Promise<boolean>;
+  abstract extendLock(key: string, lockToken: string): Promise<boolean>;
 }

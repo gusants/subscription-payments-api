@@ -183,9 +183,10 @@ describe('ChargeProcessor', () => {
         return created;
       });
 
-      await expect(processor.process(target)).rejects.toBeInstanceOf(
-        ConflictError,
-      );
+      const rejection = processor.process(target);
+
+      await expect(rejection).rejects.toBeInstanceOf(ConflictError);
+      await expect(rejection).rejects.toMatchObject({ transient: true });
     });
 
     it('stores the payment instant reported by the gateway', async () => {
@@ -545,8 +546,25 @@ describe('ChargeProcessor', () => {
 
       await expect(
         processor.retry({ ...charge, status: 'failed' }),
-      ).rejects.toBeInstanceOf(ConflictError);
+      ).rejects.toMatchObject({
+        name: 'ConflictError',
+        transient: true,
+      });
       expect(gateway.chargesRequested).toEqual([]);
+    });
+
+    it('marks the missing gateway customer as transient', async () => {
+      const { charge, target } = await seed();
+      vi.spyOn(customers, 'findById').mockResolvedValue({
+        ...target.customer,
+        gatewayCustomerId: null,
+      });
+
+      await expect(processor.reconcile(charge)).rejects.toMatchObject({
+        name: 'UnprocessableError',
+        message: 'Customer cus_1 has no gateway customer',
+        transient: true,
+      });
     });
   });
 
@@ -627,9 +645,10 @@ describe('ChargeProcessor', () => {
       const stranded = await seedStranded();
       clock.set(withinLease);
 
-      await expect(processor.reconcile(stranded)).rejects.toThrow(
-        'Charge ch_1 has an attempt in flight',
-      );
+      await expect(processor.reconcile(stranded)).rejects.toMatchObject({
+        message: 'Charge ch_1 has an attempt in flight',
+        transient: true,
+      });
       expect(gateway.chargesRequested).toHaveLength(1);
     });
 

@@ -28,6 +28,15 @@ if cjson.decode(current).lockToken ~= ARGV[1] then return 0 end
 return redis.call('DEL', KEYS[1])
 `;
 
+const EXTEND_LOCK_SCRIPT = `
+local current = redis.call('GET', KEYS[1])
+if not current then return 0 end
+if cjson.decode(current).lockToken ~= ARGV[1] then return 0 end
+return redis.call('PEXPIRE', KEYS[1], ARGV[2])
+`;
+
+const MILLISECONDS_PER_SECOND = 1000;
+
 const storedRecordSchema = z.discriminatedUnion('state', [
   z.object({
     state: z.literal('in_progress'),
@@ -79,13 +88,13 @@ export class RedisIdempotencyStore extends IdempotencyStore {
     lockToken: string,
     fingerprint: string,
     response: StoredResponse,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const completed = JSON.stringify({
       state: 'completed',
       fingerprint,
       response,
     });
-    await this.redis.eval(
+    const applied = await this.redis.eval(
       COMPLETE_SCRIPT,
       1,
       key,
@@ -93,10 +102,22 @@ export class RedisIdempotencyStore extends IdempotencyStore {
       completed,
       this.ttls.completedSeconds,
     );
+    return applied === 1;
   }
 
-  async release(key: string, lockToken: string): Promise<void> {
-    await this.redis.eval(RELEASE_SCRIPT, 1, key, lockToken);
+  async release(key: string, lockToken: string): Promise<boolean> {
+    return (await this.redis.eval(RELEASE_SCRIPT, 1, key, lockToken)) === 1;
+  }
+
+  async extendLock(key: string, lockToken: string): Promise<boolean> {
+    const extended = await this.redis.eval(
+      EXTEND_LOCK_SCRIPT,
+      1,
+      key,
+      lockToken,
+      this.ttls.lockSeconds * MILLISECONDS_PER_SECOND,
+    );
+    return extended === 1;
   }
 }
 

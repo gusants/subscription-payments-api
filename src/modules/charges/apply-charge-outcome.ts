@@ -30,7 +30,9 @@ async function currentStateOfIdenticalSettlement(
     current?.status === expected.to &&
     current.gatewayChargeId === expected.gatewayChargeId;
   if (!current) {
-    throw new ConflictError(`Charge ${expected.id} was modified concurrently`);
+    throw new ConflictError(`Charge ${expected.id} was modified concurrently`, {
+      transient: true,
+    });
   }
   if (!settledIdentically) {
     throw new ChargeSettlementConflictError(

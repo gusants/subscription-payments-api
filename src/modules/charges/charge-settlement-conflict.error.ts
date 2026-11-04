@@ -7,6 +7,6 @@ export class ChargeSettlementConflictError extends ConflictError {
     readonly currentStatus: ChargeStatus,
     readonly currentGatewayChargeId: string | null,
   ) {
-    super(`Charge ${chargeId} was modified concurrently`);
+    super(`Charge ${chargeId} was modified concurrently`, { transient: true });
   }
 }

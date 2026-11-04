@@ -101,7 +101,9 @@ export class ChargeProcessor {
       nextGatewayAttempt(charge, this.clock.now()),
     );
     if (!pending) {
-      throw new ConflictError(`Charge ${charge.id} was modified concurrently`);
+      throw new ConflictError(`Charge ${charge.id} was modified concurrently`, {
+        transient: true,
+      });
     }
     return this.process({ ...target, charge: pending });
   }
@@ -118,7 +120,9 @@ export class ChargeProcessor {
       now,
     );
     if (!leased) {
-      throw new ConflictError(`Charge ${charge.id} has an attempt in flight`);
+      throw new ConflictError(`Charge ${charge.id} has an attempt in flight`, {
+        transient: true,
+      });
     }
     return this.reconcileLeased({ ...target, charge: leased });
   }
@@ -151,6 +155,7 @@ export class ChargeProcessor {
     if (!customer?.gatewayCustomerId) {
       throw new UnprocessableError(
         `Customer ${found.subscription.customerId} has no gateway customer`,
+        { transient: true },
       );
     }
     return {

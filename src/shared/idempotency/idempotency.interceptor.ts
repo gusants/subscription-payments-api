@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
   Logger,
   NestInterceptor,
@@ -12,12 +13,14 @@ import type { Request, Response } from 'express';
 import { from, lastValueFrom, type Observable } from 'rxjs';
 import {
   ConflictError,
+  DomainError,
   ServiceUnavailableError,
   toErrorResponse,
   UnprocessableError,
 } from '../errors/index.js';
 import {
   IDEMPOTENCY_KEY_HEADER,
+  IDEMPOTENCY_LOCK_HEARTBEAT_MS,
   IDEMPOTENT_REPLAYED_HEADER,
 } from './idempotency.constants.js';
 import {
@@ -25,6 +28,7 @@ import {
   fingerprintRequest,
   readIdempotencyKey,
 } from './idempotency-key.js';
+import { startLockHeartbeat } from './lock-heartbeat.js';
 import { IDEMPOTENT_METADATA } from './idempotent.decorator.js';
 import {
   type AcquireResult,
@@ -33,11 +37,25 @@ import {
   type StoredResponse,
 } from './idempotency.store.js';
 
+const SETTLE_ATTEMPTS = 3;
+const SETTLE_RETRY_BASE_DELAY_MS = 50;
+
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 const STORED_ERROR_STATUSES: ReadonlySet<number> = new Set([
   HttpStatus.NOT_FOUND,
   HttpStatus.CONFLICT,
   HttpStatus.UNPROCESSABLE_ENTITY,
 ]);
+
+function isStorable(error: unknown, statusCode: number): boolean {
+  const transient = error instanceof DomainError && error.transient;
+  return !transient && STORED_ERROR_STATUSES.has(statusCode);
+}
 
 type Claim = { storeKey: string; fingerprint: string; lockToken: string };
 
@@ -48,6 +66,8 @@ export class IdempotencyInterceptor implements NestInterceptor {
   constructor(
     private readonly store: IdempotencyStore,
     private readonly reflector: Reflector,
+    @Inject(IDEMPOTENCY_LOCK_HEARTBEAT_MS)
+    private readonly heartbeatMs: number,
   ) {}
 
   async intercept(
@@ -133,7 +153,9 @@ export class IdempotencyInterceptor implements NestInterceptor {
   ): Promise<unknown> {
     let body: unknown;
     try {
-      body = await lastValueFrom(next.handle(), { defaultValue: undefined });
+      body = await this.withLockHeartbeat(claim, () =>
+        lastValueFrom(next.handle(), { defaultValue: undefined }),
+      );
     } catch (error) {
       await this.settleFailure(claim, error);
       throw error;
@@ -142,22 +164,45 @@ export class IdempotencyInterceptor implements NestInterceptor {
     return body;
   }
 
+  private async withLockHeartbeat<T>(
+    claim: Claim,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const stopHeartbeat = startLockHeartbeat({
+      intervalMs: this.heartbeatMs,
+      extend: () => this.store.extendLock(claim.storeKey, claim.lockToken),
+      onLost: () =>
+        this.logger.error(
+          `Idempotency lock ${claim.storeKey} was lost while the handler was running; the same key may run again`,
+        ),
+      onFailure: (error) =>
+        this.logger.warn(
+          `Could not extend idempotency lock ${claim.storeKey}: ${messageOf(error)}`,
+        ),
+    });
+    try {
+      return await operation();
+    } finally {
+      stopHeartbeat();
+    }
+  }
+
   private async settleFailure(claim: Claim, error: unknown): Promise<void> {
     const errorResponse = toErrorResponse(error);
-    if (STORED_ERROR_STATUSES.has(errorResponse.statusCode)) {
+    if (isStorable(error, errorResponse.statusCode)) {
       await this.complete(claim, {
         statusCode: errorResponse.statusCode,
         body: errorResponse,
       });
       return;
     }
-    await this.guarded(claim, () =>
+    await this.settle(claim, 'release', () =>
       this.store.release(claim.storeKey, claim.lockToken),
     );
   }
 
-  private async complete(claim: Claim, stored: StoredResponse): Promise<void> {
-    await this.guarded(claim, () =>
+  private complete(claim: Claim, stored: StoredResponse): Promise<void> {
+    return this.settle(claim, 'complete', () =>
       this.store.complete(
         claim.storeKey,
         claim.lockToken,
@@ -167,17 +212,29 @@ export class IdempotencyInterceptor implements NestInterceptor {
     );
   }
 
-  private async guarded(
+  private async settle(
     claim: Claim,
-    operation: () => Promise<void>,
+    action: 'complete' | 'release',
+    operation: () => Promise<boolean>,
   ): Promise<void> {
-    try {
-      await operation();
-    } catch (error) {
-      this.logger.error(
-        `Could not settle idempotency record ${claim.storeKey}; it expires with the lock TTL`,
-        error instanceof Error ? error.stack : String(error),
-      );
+    for (let attempt = 1; attempt <= SETTLE_ATTEMPTS; attempt += 1) {
+      try {
+        if (!(await operation())) {
+          this.logger.error(
+            `Idempotency lock ${claim.storeKey} was lost before it could be ${action}d`,
+          );
+        }
+        return;
+      } catch (error) {
+        if (attempt === SETTLE_ATTEMPTS) {
+          this.logger.error(
+            `Could not ${action} idempotency record ${claim.storeKey} after ${attempt} attempts; it expires with the lock TTL`,
+            error instanceof Error ? error.stack : String(error),
+          );
+          return;
+        }
+        await delay(SETTLE_RETRY_BASE_DELAY_MS * attempt);
+      }
     }
   }
 }

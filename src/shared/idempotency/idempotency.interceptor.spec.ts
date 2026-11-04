@@ -11,14 +11,18 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { createZodDto, ZodResponse } from 'nestjs-zod';
 import { z } from 'zod';
+import { Logger } from '@nestjs/common';
 import { ConflictError } from '../errors/conflict.error.js';
 import { NotFoundError } from '../errors/not-found.error.js';
 import { UnprocessableError } from '../errors/unprocessable.error.js';
 import { HttpModule } from '../http/http.module.js';
+import { IDEMPOTENCY_LOCK_HEARTBEAT_MS } from './idempotency.constants.js';
 import { IdempotencyInterceptor } from './idempotency.interceptor.js';
 import { IdempotencyStore } from './idempotency.store.js';
 import { Idempotent } from './idempotent.decorator.js';
 import { InMemoryIdempotencyStore } from './testing/in-memory-idempotency.store.js';
+
+const HEARTBEAT_MS = 15;
 
 class WidgetBody extends createZodDto(z.object({ name: z.string().min(1) })) {}
 class WidgetResponse extends createZodDto(
@@ -49,6 +53,12 @@ class WidgetsController {
     if (id === 'missing') throw new NotFoundError('Widget missing not found');
     if (id === 'busy') throw new ConflictError('Widget is busy');
     if (id === 'rejected') throw new UnprocessableError('Widget is rejected');
+    if (id === 'flaky') {
+      throw new ConflictError('Widget is flaky', { transient: true });
+    }
+    if (id === 'unready') {
+      throw new UnprocessableError('Widget is not ready', { transient: true });
+    }
     if (id === 'boom') throw new Error('database exploded');
     if (id === 'slow') {
       probe.started?.();
@@ -75,6 +85,7 @@ describe('IdempotencyInterceptor', () => {
     @Module({
       providers: [
         { provide: IdempotencyStore, useValue: store },
+        { provide: IDEMPOTENCY_LOCK_HEARTBEAT_MS, useValue: HEARTBEAT_MS },
         { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
       ],
     })
@@ -89,7 +100,13 @@ describe('IdempotencyInterceptor', () => {
     return nest;
   }
 
+  let errorLog: ReturnType<typeof vi.spyOn>;
+
   beforeEach(async () => {
+    errorLog = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     store = new InMemoryIdempotencyStore();
     probe.executions = 0;
     app = await createApp();
@@ -97,6 +114,7 @@ describe('IdempotencyInterceptor', () => {
 
   afterEach(async () => {
     await app.close();
+    vi.restoreAllMocks();
   });
 
   const post = (path: string, key?: string) => {
@@ -272,5 +290,102 @@ describe('IdempotencyInterceptor', () => {
     store.failingOperations.add('release');
 
     await post('/widgets/boom/act', 'k1').send({}).expect(500);
+  });
+
+  describe.each([
+    ['a transient conflict', 'flaky', 409],
+    ['a transient unprocessable', 'unready', 422],
+  ])('%s', (_name, id, statusCode) => {
+    it('answers the error but releases the key instead of storing it', async () => {
+      const first = await post(`/widgets/${id}/act`, 'k1')
+        .send({})
+        .expect(statusCode);
+      expect(store.entries.size).toBe(0);
+
+      const second = await post(`/widgets/${id}/act`, 'k1')
+        .send({})
+        .expect(statusCode);
+
+      expect(second.body).toEqual(first.body);
+      expect(second.headers['idempotent-replayed']).toBeUndefined();
+      expect(probe.executions).toBe(2);
+    });
+  });
+
+  describe('lock heartbeat', () => {
+    const SLOW_HANDLER_MS = 150;
+
+    const runSlowRequest = async (
+      whileRunning: () => void | Promise<void> = () => undefined,
+    ) => {
+      const started = new Promise<void>((resolve) => {
+        probe.started = resolve;
+      });
+      const pending = post('/widgets/slow/act', 'k1')
+        .send({})
+        .then((response) => response);
+      await started;
+      await whileRunning();
+      await new Promise((resolve) => setTimeout(resolve, SLOW_HANDLER_MS));
+      probe.release?.();
+      return pending;
+    };
+
+    it('extends the lock while the handler runs and stops once it finished', async () => {
+      let extensionsAtFinish = 0;
+
+      const response = await runSlowRequest();
+      extensionsAtFinish = store.extensions;
+      await new Promise((resolve) => setTimeout(resolve, HEARTBEAT_MS * 4));
+
+      expect(response.status).toBe(200);
+      expect(extensionsAtFinish).toBeGreaterThanOrEqual(3);
+      expect(store.extensions).toBe(extensionsAtFinish);
+      expect(errorLog).not.toHaveBeenCalled();
+    });
+
+    it('logs an error naming the key when the lock is lost while the handler runs, and when completing it', async () => {
+      const response = await runSlowRequest(() => {
+        store.entries.clear();
+      });
+
+      expect(response.status).toBe(200);
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining('idempotency:POST:/widgets/slow/act:k1'),
+      );
+      expect(errorLog).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps heartbeating after a failed extension and does not fail the request', async () => {
+      store.failTimes('extendLock', 2);
+
+      const response = await runSlowRequest();
+
+      expect(response.status).toBe(200);
+      expect(store.extensions).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('settling the record', () => {
+    it('retries a failing complete and stores the response without logging an error', async () => {
+      store.failTimes('complete', 2);
+
+      await post('/widgets', 'k1').send({ name: 'a' }).expect(201);
+      const replay = await post('/widgets', 'k1').send({ name: 'a' });
+
+      expect(replay.headers['idempotent-replayed']).toBe('true');
+      expect(errorLog).not.toHaveBeenCalled();
+    });
+
+    it('logs an error naming the key once complete keeps failing', async () => {
+      store.failingOperations.add('complete');
+
+      await post('/widgets', 'k1').send({ name: 'a' }).expect(201);
+
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.stringContaining('idempotency:POST:/widgets:k1'),
+        expect.any(String),
+      );
+    });
   });
 });

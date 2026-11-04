@@ -98,7 +98,9 @@ export class InMemoryBillingRepository extends BillingRepository {
   }: ChargeSettlementRecord): Promise<RecordedOutcome> {
     const found = this.stored.get(charge.id);
     if (!found) {
-      throw new ConflictError(`Charge ${charge.id} was modified concurrently`);
+      throw new ConflictError(`Charge ${charge.id} was modified concurrently`, {
+        transient: true,
+      });
     }
     if (!charge.fromAnyOf.includes(found.status)) {
       return this.currentStateOfIdenticalSettlement(
