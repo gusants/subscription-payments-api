@@ -88,7 +88,11 @@ export class BullMqBillingQueue extends BillingQueue {
       (traceCarrier) =>
         this.publish(
           jobId,
-          { ...data, ...(traceCarrier && { traceCarrier }) },
+          {
+            ...data,
+            ...(traceCarrier && { traceCarrier }),
+            ...(delayMs > 0 && { publishDelayMs: delayMs }),
+          },
           delayMs,
         ),
     );

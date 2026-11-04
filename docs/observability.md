@@ -68,22 +68,22 @@ docker compose logs --no-color --no-log-prefix api \
 Output, unchanged:
 
 ```json
-{"time":"2026-11-04T14:58:13Z","event":"charge.created","trace_id":"dcfde1fc02fdad67a7aa84f34d0db351","msg":"Charge ch_01m6kh2n92ef85z3v9ztpm7npv created for subscription sub_01m6kh2n917bj03ys2arb16zdd (first_period)"}
-{"time":"2026-11-04T14:58:13Z","event":"charge.attempt.failed","trace_id":"dcfde1fc02fdad67a7aa84f34d0db351","msg":"Charge ch_01m6kh2n92ef85z3v9ztpm7npv attempt failed: insufficient_funds"}
-{"time":"2026-11-04T14:58:13Z","event":"subscription.status_changed","trace_id":"dcfde1fc02fdad67a7aa84f34d0db351","msg":"Subscription sub_01m6kh2n917bj03ys2arb16zdd moved from incomplete to past_due after charge ch_01m6kh2n92ef85z3v9ztpm7npv failed"}
-{"time":"2026-11-04T14:58:13Z","event":"charge.retry.scheduled","trace_id":"dcfde1fc02fdad67a7aa84f34d0db351","msg":"Retry 1 of charge ch_01m6kh2n92ef85z3v9ztpm7npv scheduled for 2026-11-04T14:59:13.426Z"}
-{"time":"2026-11-04T14:58:13Z","event":"webhook.received","trace_id":"285aa572c88f2351dab2e474c381d1a3","msg":"Webhook event evt_01m6kh2n9c7cmzv44w6j50382c (charge.failed) received for charge ch_01m6kh2n92ef85z3v9ztpm7npv"}
-{"time":"2026-11-04T14:58:16Z","event":"charge.paid","trace_id":"dcfde1fc02fdad67a7aa84f34d0db351","msg":"Charge ch_01m6kh2n92ef85z3v9ztpm7npv paid"}
-{"time":"2026-11-04T14:58:16Z","event":"subscription.status_changed","trace_id":"dcfde1fc02fdad67a7aa84f34d0db351","msg":"Subscription sub_01m6kh2n917bj03ys2arb16zdd moved from past_due to active after charge ch_01m6kh2n92ef85z3v9ztpm7npv paid"}
-{"time":"2026-11-04T14:58:17Z","event":"webhook.received","trace_id":"8428fb1a391e9aa50e37c5665cb504d7","msg":"Webhook event evt_01m6kh2raqmwyb332zefxp1s7g (charge.paid) received for charge ch_01m6kh2n92ef85z3v9ztpm7npv"}
+{"time":"2026-11-04T15:25:08Z","event":"charge.created","trace_id":"75563a9af0bf8952e91316d99cd7c565","msg":"Charge ch_01m6kjky4vkqghfvhc1s3y5j4p created for subscription sub_01m6kjky4tn4f47kvc5jwjw38n (first_period)"}
+{"time":"2026-11-04T15:25:08Z","event":"charge.attempt.failed","trace_id":"75563a9af0bf8952e91316d99cd7c565","msg":"Charge ch_01m6kjky4vkqghfvhc1s3y5j4p attempt failed: insufficient_funds"}
+{"time":"2026-11-04T15:25:08Z","event":"subscription.status_changed","trace_id":"75563a9af0bf8952e91316d99cd7c565","msg":"Subscription sub_01m6kjky4tn4f47kvc5jwjw38n moved from incomplete to past_due after charge ch_01m6kjky4vkqghfvhc1s3y5j4p failed"}
+{"time":"2026-11-04T15:25:08Z","event":"charge.retry.scheduled","trace_id":"75563a9af0bf8952e91316d99cd7c565","msg":"Retry 1 of charge ch_01m6kjky4vkqghfvhc1s3y5j4p scheduled for 2026-11-04T15:26:08.137Z"}
+{"time":"2026-11-04T15:25:08Z","event":"webhook.received","trace_id":"c69823fa0ed9992b1cd407a9e29c29e1","msg":"Webhook event evt_01m6kjky547v2ehbb841ybn5ft (charge.failed) received for charge ch_01m6kjky4vkqghfvhc1s3y5j4p"}
+{"time":"2026-11-04T15:25:11Z","event":"charge.paid","trace_id":"0f38adecd01dcf5730ffb7dffaeaf234","msg":"Charge ch_01m6kjky4vkqghfvhc1s3y5j4p paid"}
+{"time":"2026-11-04T15:25:11Z","event":"subscription.status_changed","trace_id":"0f38adecd01dcf5730ffb7dffaeaf234","msg":"Subscription sub_01m6kjky4tn4f47kvc5jwjw38n moved from past_due to active after charge ch_01m6kjky4vkqghfvhc1s3y5j4p paid"}
+{"time":"2026-11-04T15:25:11Z","event":"webhook.received","trace_id":"f29a1b828e188d54b4a46190106fb655","msg":"Webhook event evt_01m6kjm15c078fmcaghgf1emr8 (charge.paid) received for charge ch_01m6kjky4vkqghfvhc1s3y5j4p"}
 ```
 
 Reading the journey:
 
-- The charge flow records the decline, the subscription moves to `past_due` and the retry is enqueued, all in the `POST /subscriptions` trace.
-- `charge.failed` from the gateway arrives after that and is logged as `webhook.received` in its own trace (`285aa572…`). Its outcome is `ignored_duplicate_state`, so no second `charge.attempt.failed` appears.
-- The retry worker settles the charge in the subscription trace (`dcfde1fc…`), with `source` `charge_flow`, `retryCount` 1 and `attemptCount` 2. The subscription returns to `active`.
-- `charge.paid` from the gateway arrives in its own trace (`8428fb1a…`) and is also `ignored_duplicate_state`.
+- The charge flow records the decline, the subscription moves to `past_due` and the retry is enqueued, all in the `POST /subscriptions` trace (`75563a9a…`).
+- `charge.failed` from the gateway arrives after that and is logged as `webhook.received` in its own trace (`c69823fa…`). Its outcome is `ignored_duplicate_state`, so no second `charge.attempt.failed` appears.
+- The retry worker settles the charge with `source` `charge_flow`, `retryCount` 1 and `attemptCount` 2, and the subscription returns to `active`. The retry was published with a delay, so the worker runs it in a trace of its own (`0f38adec…`) linked to the publish span; the correlation id is what keeps these lines in the filter.
+- `charge.paid` from the gateway arrives in its own trace (`f29a1b82…`) and is also `ignored_duplicate_state`.
 
 The request logs (`request completed`) and the `Promoted 1 delayed charge retries` line carry the same `correlationId` but are not payment events; they are included by the same filter when the `event` condition is dropped.
 
@@ -92,27 +92,34 @@ The request logs (`request completed`) and the `Promoted 1 delayed charge retrie
 Service name: `subscription-payments-api` (`OTEL_SERVICE_NAME`). Query the Jaeger v2 API for the run window:
 
 ```bash
-curl -s "http://localhost:16686/api/v3/traces?query.service_name=subscription-payments-api&query.start_time_min=2026-11-04T14:50:00Z&query.start_time_max=2026-11-04T16:00:00Z" \
-  | jq -r '.result.resourceSpans[].scopeSpans[].spans[] | select(.traceId == "dcfde1fc02fdad67a7aa84f34d0db351") | .name' | sort | uniq -c
+curl -s "http://localhost:16686/api/v3/traces?query.service_name=subscription-payments-api&query.start_time_min=2026-11-04T15:00:00Z&query.start_time_max=2026-11-04T16:00:00Z" \
+  | jq -r '.result.resourceSpans[].scopeSpans[].spans[] | select(.traceId == "75563a9af0bf8952e91316d99cd7c565") | .name' | sort | uniq -c
 ```
 
 Fetch one trace by id with `GET http://localhost:16686/api/v3/traces/<trace_id>`. The UI is at `http://localhost:16686/trace/<trace_id>`.
 
-Trace `dcfde1fc02fdad67a7aa84f34d0db351` (the `trace_id` of `charge.created`, `charge.paid` and the subscription events above), 40 spans, root `POST /subscriptions`. Express middleware layers are omitted:
+Trace `75563a9af0bf8952e91316d99cd7c565` (the `trace_id` of `charge.created` and the first subscription event above), 26 spans, root `POST /subscriptions`. Express middleware layers are omitted:
 
 ```text
-POST /subscriptions                          http server    49 ms
-└─ request handler - /subscriptions          express         48 ms
+POST /subscriptions                          http server    47 ms
+└─ request handler - /subscriptions          express         46 ms
    ├─ pg.query  (5 SELECT, 4 UPDATE, 3 INSERT, 2 BEGIN, 2 COMMIT)
-   └─ publish charge-retries                 producer         4 ms
-      ├─ zscore, evalsha, hgetall            ioredis client
-      └─ process charge-retries              consumer        24 ms   app.correlation_id=walkthrough-tok-fail-0001
-         └─ pg.query  (8 SELECT, 3 UPDATE, 1 INSERT, 1 BEGIN, 1 COMMIT)
+   └─ publish charge-retries                 producer         4 ms   span 3bb1efb16b93b624
+      └─ zscore, evalsha, hgetall x2         ioredis client
 ```
 
-- The worker's `process charge-retries` span is a child of the `publish charge-retries` span from the request that scheduled the retry, so it is in the same trace, even though it ran about 3 s later.
-- The two gateway webhooks are separate roots (`POST /webhooks/gateway`, traces `285aa572…` and `8428fb1a…`), not children of the request that created the charge. Join them to the payment through `correlationId` and `chargeId` in the logs.
-- The `run-now` request is another root (`9a75887a…`).
+Trace `0f38adecd01dcf5730ffb7dffaeaf234` (the `trace_id` of `charge.paid` and the return to `active`), 15 spans, started about 3 s later by the worker:
+
+```text
+process charge-retries                       consumer        26 ms   app.correlation_id=walkthrough-tok-fail-0001
+│                                                                    link → 75563a9a…/3bb1efb16b93b624 (publish charge-retries)
+└─ pg.query  (8 SELECT, 3 UPDATE, 1 INSERT, 1 BEGIN, 1 COMMIT)
+```
+
+- A retry published with a delay (every dunning retry: D+1, D+3, D+7, or minutes in compose) is processed in a new trace whose `process charge-retries` root carries a span link to the `publish charge-retries` span that scheduled it. Keeping it as a child would stretch the request trace over days. Jaeger shows the link under the span's references; follow it to the request that scheduled the retry. A job published without delay (a manual `POST /charges/{id}/retry`) stays a child of its publish span, in the same trace, and so do its technical re-runs after a failure.
+- `run-now` promotes the job but does not change how it is traced: the job keeps the delay it was published with (`publishDelayMs` in the job data).
+- The two gateway webhooks are separate roots (`POST /webhooks/gateway`, traces `c69823fa…` and `f29a1b82…`), not children of the request that created the charge. Join them to the payment through `correlationId` and `chargeId` in the logs.
+- The `run-now` request is another root (`7b90b276…`).
 
 TODO: add Jaeger screenshot. Start the stack (see [Reproduce](#reproduce)), open `http://localhost:16686`, select service `subscription-payments-api`, open the `POST /subscriptions` trace of the run, save it as `docs/images/jaeger-trace.png`, and embed it here as `![Jaeger trace](images/jaeger-trace.png)`.
 
@@ -162,4 +169,5 @@ docker compose exec -T postgres sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGR
 
 - Traces exist only with `OTEL_ENABLED=true`; logs carry `correlationId` regardless.
 - Retry jobs are traced by hand; BullMQ polling and recurring sweeps are not traced as part of a payment, and each sweep starts its own trace.
+- A dunning retry is not in the trace of the request that scheduled it: it has its own trace, linked to the publish span. Join the two by the link or by `correlationId`.
 - `docker compose logs` shows only what the container still holds. Use the log store of your environment for older runs.

@@ -72,7 +72,7 @@ describe('job tracing with tracing on', () => {
     });
   });
 
-  it('processes the job as a child of the span that published it', async () => {
+  it('processes a job published without delay as a child of the span that published it', async () => {
     const traceCarrier = await publishWithinRequest();
     const job = {
       id: RETRY_JOB.jobId,
@@ -107,6 +107,86 @@ describe('job tracing with tracing on', () => {
       spanId: processing.spanContext().spanId,
     });
   });
+
+  it('processes a retry published with a delay in a trace of its own, linked to the publish span', async () => {
+    const traceCarrier = await publishWithinRequest();
+    const job = {
+      id: RETRY_JOB.jobId,
+      name: RETRY_JOB.jobName,
+      queueName: RETRY_JOB.queueName,
+      data: {
+        correlationId: 'cor_job_journey',
+        traceCarrier,
+        publishDelayMs: 24 * 60 * 60 * 1000,
+      },
+    };
+
+    await processWithinJobContext(job, () => Promise.resolve());
+
+    const publish = finishedSpan('publish charge-retries');
+    const processing = finishedSpan('process charge-retries');
+    expect(processing.parentSpanContext).toBeUndefined();
+    expect(processing.spanContext().traceId).not.toBe(
+      publish.spanContext().traceId,
+    );
+    expect(processing.links.map(({ context }) => context)).toEqual([
+      expect.objectContaining({
+        traceId: publish.spanContext().traceId,
+        spanId: publish.spanContext().spanId,
+      }),
+    ]);
+    expect(processing.attributes['app.correlation_id']).toBe('cor_job_journey');
+  });
+
+  it.each([
+    ['no delay', 0],
+    ['a delay that is not a number', '86400000'],
+  ])(
+    'keeps a retry published with %s in the trace that published it',
+    async (_label, publishDelayMs) => {
+      const traceCarrier = await publishWithinRequest();
+      const job = {
+        id: RETRY_JOB.jobId,
+        name: RETRY_JOB.jobName,
+        queueName: RETRY_JOB.queueName,
+        data: {
+          correlationId: 'cor_job_journey',
+          traceCarrier,
+          publishDelayMs,
+        },
+      };
+
+      await processWithinJobContext(job as never, () => Promise.resolve());
+
+      const publish = finishedSpan('publish charge-retries');
+      const processing = finishedSpan('process charge-retries');
+      expect(processing.parentSpanContext?.spanId).toBe(
+        publish.spanContext().spanId,
+      );
+      expect(processing.links).toEqual([]);
+    },
+  );
+
+  it.each([
+    ['no carrier', undefined],
+    ['an unreadable traceparent', { traceparent: 'not-a-trace' }],
+  ])(
+    'starts an unlinked trace for a delayed job with %s',
+    async (_label, traceCarrier) => {
+      const job = {
+        id: RETRY_JOB.jobId,
+        name: RETRY_JOB.jobName,
+        queueName: RETRY_JOB.queueName,
+        data: { traceCarrier, publishDelayMs: 1000 } as never,
+      };
+
+      await processWithinJobContext(job, () => Promise.resolve());
+
+      const processing = finishedSpan('process charge-retries');
+      expect(processing.parentSpanContext).toBeUndefined();
+      expect(processing.links).toEqual([]);
+    },
+  );
 
   it.each([
     ['a job enqueued before tracing', undefined],

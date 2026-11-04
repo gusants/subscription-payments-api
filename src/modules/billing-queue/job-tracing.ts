@@ -6,6 +6,8 @@ import {
   SpanStatusCode,
   trace,
   type Attributes,
+  type Context,
+  type Link,
   type Span,
 } from '@opentelemetry/api';
 import type { TraceCarrier } from './job-context.js';
@@ -13,6 +15,11 @@ import type { TraceCarrier } from './job-context.js';
 export const JOB_TRACER_NAME = 'subscription-payments-api/billing-queue';
 
 const tracer = trace.getTracer(JOB_TRACER_NAME);
+
+export interface JobPublication {
+  traceCarrier: unknown;
+  delayed: boolean;
+}
 
 export interface JobIdentity {
   queueName: string;
@@ -72,21 +79,33 @@ export function tracePublish<T>(
   );
 }
 
-export function traceProcessing<T>(
-  job: JobIdentity,
-  traceCarrier: unknown,
-  process: () => Promise<T>,
-): Promise<T> {
-  const publisherContext = isTraceCarrier(traceCarrier)
+function publisherContextOf(traceCarrier: unknown): Context {
+  return isTraceCarrier(traceCarrier)
     ? propagation.extract(ROOT_CONTEXT, traceCarrier)
     : ROOT_CONTEXT;
+}
+
+function linksTo(publisherContext: Context): Link[] {
+  const publisher = trace.getSpanContext(publisherContext);
+  return publisher && trace.isSpanContextValid(publisher)
+    ? [{ context: publisher }]
+    : [];
+}
+
+export function traceProcessing<T>(
+  job: JobIdentity,
+  { traceCarrier, delayed }: JobPublication,
+  process: () => Promise<T>,
+): Promise<T> {
+  const publisherContext = publisherContextOf(traceCarrier);
   return tracer.startActiveSpan(
     `process ${job.queueName}`,
     {
       kind: SpanKind.CONSUMER,
       attributes: messagingAttributes('process', job),
+      links: delayed ? linksTo(publisherContext) : [],
     },
-    publisherContext,
+    delayed ? ROOT_CONTEXT : publisherContext,
     (span) => endSpanAfter(span, process),
   );
 }

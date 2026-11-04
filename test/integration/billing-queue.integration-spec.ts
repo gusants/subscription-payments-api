@@ -70,6 +70,7 @@ describe('BullMqBillingQueue (integration)', () => {
       attempt: 1,
       correlationId: 'cor_test_journey',
       publicationId: expect.any(String),
+      publishDelayMs: FAR_FUTURE_MS,
     });
     expect(await job?.getState()).toBe('delayed');
     expect(await queue.getDelayedCount()).toBe(1);
