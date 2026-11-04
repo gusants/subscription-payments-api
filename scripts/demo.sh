@@ -52,9 +52,11 @@ call POST /subscriptions "{\"customerId\":\"$customer_id\",\"planId\":\"$plan_id
 subscription_id="$(jq -r '.id' <<<"$RESPONSE_BODY")"
 jq '{subscription: .id, status, charge: .latestCharge.status, failureReason: .latestCharge.failureReason}' <<<"$RESPONSE_BODY"
 
-step "3. The subscription is past_due and the retry is scheduled for the next day"
+step "3. The subscription is past_due; the first retry is scheduled for D+1 (1 minute with RETRY_INTERVAL_UNIT=minutes)"
 call GET "/subscriptions/$subscription_id"
-jq '{status, currentPeriodEnd}' <<<"$RESPONSE_BODY"
+jq '{subscription: .id, status}' <<<"$RESPONSE_BODY"
+call GET "/customers/$customer_id/charges"
+jq '.data[0] | {charge: .id, status, attemptCount, attempts: [.attempts[] | {result, failureReason}]}' <<<"$RESPONSE_BODY"
 
 step "4. Fire the scheduled retry now (dev route)"
 request POST /dev/retries/run-now
