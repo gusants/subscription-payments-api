@@ -206,6 +206,85 @@ describe('BullMqBillingQueue (integration)', () => {
     expect(await queue.getFailedCount()).toBe(1);
   });
 
+  async function runWorkerUntil(
+    state: 'failed' | 'completed',
+    processor: () => Promise<void>,
+  ): Promise<void> {
+    const worker = new Worker<ChargeRetryJobData>(queueName, processor, {
+      connection,
+      prefix: 'bull-test',
+    });
+    workers.push(worker);
+    await vi.waitFor(
+      async () => {
+        const job = await queue.getJob('retry:ch_01abc:1');
+        expect(await job?.getState()).toBe(state);
+      },
+      { timeout: 10_000 },
+    );
+    await worker.close();
+  }
+
+  it('re-runs a failed job when the same retry is scheduled again, with its attempts reset', async () => {
+    await queue.add(
+      'charge-retry',
+      { chargeId: 'ch_01abc', attempt: 1 },
+      { jobId: 'retry:ch_01abc:1', attempts: 1 },
+    );
+    await runWorkerUntil('failed', () =>
+      Promise.reject(new Error('gateway unavailable')),
+    );
+
+    await billingQueue.scheduleRetry({
+      chargeId: 'ch_01abc',
+      attempt: 1,
+      delayMs: FAR_FUTURE_MS,
+    });
+
+    const job = await queue.getJob('retry:ch_01abc:1');
+    expect(await job?.getState()).toBe('waiting');
+    expect(job?.attemptsMade).toBe(0);
+    expect(await queue.getFailedCount()).toBe(0);
+  });
+
+  it('runs a completed retry again when the charge still needs that attempt', async () => {
+    await billingQueue.scheduleRetry({
+      chargeId: 'ch_01abc',
+      attempt: 1,
+      delayMs: 0,
+    });
+    await runWorkerUntil('completed', () => Promise.resolve());
+
+    await billingQueue.scheduleRetry({
+      chargeId: 'ch_01abc',
+      attempt: 1,
+      delayMs: 0,
+    });
+
+    const job = await queue.getJob('retry:ch_01abc:1');
+    expect(await job?.getState()).toBe('waiting');
+    expect(await queue.getJobCountByTypes('completed', 'waiting')).toBe(1);
+  });
+
+  it('leaves a retry that is already waiting or delayed untouched', async () => {
+    await billingQueue.scheduleRetry({
+      chargeId: 'ch_01abc',
+      attempt: 1,
+      delayMs: FAR_FUTURE_MS,
+    });
+    const before = await queue.getJob('retry:ch_01abc:1');
+
+    await billingQueue.scheduleRetry({
+      chargeId: 'ch_01abc',
+      attempt: 1,
+      delayMs: FAR_FUTURE_MS,
+    });
+
+    const after = await queue.getJob('retry:ch_01abc:1');
+    expect(after?.timestamp).toBe(before?.timestamp);
+    expect(await after?.getState()).toBe('delayed');
+  });
+
   describe('with Redis down', () => {
     const UNREACHABLE_PORT = 1;
     let downConnection: Redis;

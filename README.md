@@ -177,7 +177,7 @@ Every gateway attempt carries the idempotency key `<chargeId>:<attemptNumber>`, 
 
 `POST /charges/{id}/retry` answers:
 
-- `202` for a `failed` charge: the next dunning retry was queued to run now, with the same deterministic job id as the scheduled one (a job already scheduled for later is promoted, never duplicated), and the body is the charge as it is at that moment, still `failed`. The worker settles it asynchronously; read the result in the customer charge history. A replay with the same `Idempotency-Key` answers `202` too.
+- `202` for a `failed` charge: the next dunning retry was queued to run now, with the same deterministic job id as the scheduled one (a job already scheduled for later is promoted, never duplicated; a job that already `failed` after exhausting its technical attempts, or `completed` without the charge advancing, is run again with its attempts reset), and the body is the charge as it is at that moment, still `failed`. The worker settles it asynchronously; read the result in the customer charge history. A replay with the same `Idempotency-Key` answers `202` too.
 - `200` for a `pending` charge past its attempt lease, reconciled inline (below): `charge.status` is `paid` or `failed` once the gateway decided, and stays `pending` when the gateway is unavailable, its outcome is unknown (timeout) or it has not decided yet; the charge keeps its attempt key.
 - `409` when the charge is paid, expired or uncollectible, its subscription is canceled, it already used its 3 dunning retries, or it is `pending` with an attempt still in flight, that is, started less than `CHARGE_ATTEMPT_LEASE_SECONDS` (default 30) ago.
 - `503` when the retry queue is unreachable; nothing was queued and the same `Idempotency-Key` can be sent again.

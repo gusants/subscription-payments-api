@@ -26,6 +26,14 @@ async function promoteIfStillDelayed(job: Job): Promise<boolean> {
   }
 }
 
+async function rerunIfStillFailed(job: Job): Promise<void> {
+  try {
+    await job.retry('failed', { resetAttemptsMade: true });
+  } catch {
+    return;
+  }
+}
+
 @Injectable()
 export class BullMqBillingQueue extends BillingQueue {
   constructor(
@@ -57,15 +65,22 @@ export class BullMqBillingQueue extends BillingQueue {
     attempt: number,
     delayMs: number,
   ): Promise<void> {
+    const jobId = retryJobId(chargeId, attempt);
+    await this.discardCompletedJob(jobId);
     const job = await this.chargeRetries.add(
       CHARGE_RETRY_JOB_NAME,
       { chargeId, attempt },
-      {
-        ...CHARGE_RETRY_JOB_OPTIONS,
-        jobId: retryJobId(chargeId, attempt),
-        delay: delayMs,
-      },
+      { ...CHARGE_RETRY_JOB_OPTIONS, jobId, delay: delayMs },
     );
-    if (delayMs === 0 && (await job.isDelayed())) await job.promote();
+    if (await job.isFailed()) {
+      await rerunIfStillFailed(job);
+    } else if (delayMs === 0 && (await job.isDelayed())) {
+      await job.promote();
+    }
+  }
+
+  private async discardCompletedJob(jobId: string): Promise<void> {
+    const existing = await this.chargeRetries.getJob(jobId);
+    if (existing && (await existing.isCompleted())) await existing.remove();
   }
 }
