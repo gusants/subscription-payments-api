@@ -1,5 +1,5 @@
 import { Controller, Get, HttpStatus, Query } from '@nestjs/common';
-import { ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import { ErrorResponseDto } from '../../shared/errors/error-response.js';
 import { requestedPeriod } from './domain/index.js';
@@ -14,6 +14,11 @@ export class MetricsController {
   constructor(private readonly metrics: MetricsService) {}
 
   @Get('overview')
+  @ApiOperation({
+    summary: 'Revenue and subscription health overview',
+    description:
+      'Current state, not filtered by from/to: monthlyRecurringRevenueCents, activeSubscriptions, pastDueSubscriptions and subscriptionsByStatus. Bounded by from/to: revenueByMonth and the payment-failure cancellations inside delinquencyRate. Without from/to the period is the current UTC calendar month. The figures are read in one RepeatableRead transaction.',
+  })
   @ZodResponse({ status: HttpStatus.OK, type: MetricsOverviewResponseDto })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, type: ErrorResponseDto })
   async overview(

@@ -217,4 +217,32 @@ describe('PrismaMetricsRepository (integration)', () => {
       { month: '2026-11', revenueCents: 2500 },
     ]);
   });
+
+  it('leaves out charges paid after their subscription was canceled, which are refund-due', async () => {
+    const { id: planId } = await createPlan('monthly', 1990);
+    const canceledAt = new Date('2026-11-10T12:00:00.000Z');
+    const { id: subscriptionId } = await createSubscription(
+      planId,
+      'canceled',
+      { reason: 'customer_request', at: canceledAt },
+    );
+    await createCharge(
+      subscriptionId,
+      'paid',
+      new Date('2026-11-10T11:00:00.000Z'),
+      1990,
+    );
+    await createCharge(
+      subscriptionId,
+      'paid',
+      new Date('2026-11-10T13:00:00.000Z'),
+      4990,
+    );
+
+    const { paidRevenueByMonth } = await repository.loadSnapshot(period);
+
+    expect(paidRevenueByMonth).toEqual([
+      { month: '2026-11', revenueCents: 1990 },
+    ]);
+  });
 });

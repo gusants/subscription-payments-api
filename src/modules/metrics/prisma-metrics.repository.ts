@@ -1,12 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../shared/database/prisma.service.js';
-import type {
-  ActivePlanGroup,
-  MetricsSnapshot,
-  MonthlyRevenue,
-  Period,
-  SubscriptionStatusCount,
-} from './domain/index.js';
+import { Prisma } from '../../generated/prisma/client.js';
+import type { MetricsSnapshot, Period } from './domain/index.js';
 import { MetricsRepository } from './metrics.repository.js';
 
 interface RevenueRow {
@@ -22,37 +17,48 @@ export class PrismaMetricsRepository extends MetricsRepository {
 
   async loadSnapshot(period: Period): Promise<MetricsSnapshot> {
     const [
-      statusCounts,
-      activePlans,
+      statusGroups,
+      activePlanRows,
       paymentFailedCancellations,
-      paidRevenueByMonth,
-    ] = await Promise.all([
-      this.countByStatus(),
-      this.activePlanGroups(),
-      this.countPaymentFailedCancellations(period),
-      this.paidRevenueByMonth(period),
-    ]);
+      revenueRows,
+    ] = await this.prisma.$transaction(
+      [
+        this.countByStatus(),
+        this.activePlanGroups(),
+        this.countPaymentFailedCancellations(period),
+        this.paidRevenueByMonth(period),
+      ],
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
     return {
-      statusCounts,
-      activePlans,
+      statusCounts: statusGroups.map(({ status, _count }) => ({
+        status,
+        count: _count._all,
+      })),
+      activePlans: activePlanRows
+        .map(({ interval, amountCents, _count }) => ({
+          interval,
+          amountCents,
+          subscriptions: _count.subscriptions,
+        }))
+        .filter(({ subscriptions }) => subscriptions > 0),
       paymentFailedCancellations,
-      paidRevenueByMonth,
+      paidRevenueByMonth: revenueRows.map(({ month, revenue_cents }) => ({
+        month,
+        revenueCents: Number(revenue_cents),
+      })),
     };
   }
 
-  private async countByStatus(): Promise<SubscriptionStatusCount[]> {
-    const groups = await this.prisma.subscription.groupBy({
+  private countByStatus() {
+    return this.prisma.subscription.groupBy({
       by: ['status'],
       _count: { _all: true },
     });
-    return groups.map(({ status, _count }) => ({
-      status,
-      count: _count._all,
-    }));
   }
 
-  private async activePlanGroups(): Promise<ActivePlanGroup[]> {
-    const plans = await this.prisma.plan.findMany({
+  private activePlanGroups() {
+    return this.prisma.plan.findMany({
       select: {
         interval: true,
         amountCents: true,
@@ -61,19 +67,9 @@ export class PrismaMetricsRepository extends MetricsRepository {
         },
       },
     });
-    return plans
-      .map(({ interval, amountCents, _count }) => ({
-        interval,
-        amountCents,
-        subscriptions: _count.subscriptions,
-      }))
-      .filter(({ subscriptions }) => subscriptions > 0);
   }
 
-  private countPaymentFailedCancellations({
-    from,
-    to,
-  }: Period): Promise<number> {
+  private countPaymentFailedCancellations({ from, to }: Period) {
     return this.prisma.subscription.count({
       where: {
         status: 'canceled',
@@ -83,23 +79,18 @@ export class PrismaMetricsRepository extends MetricsRepository {
     });
   }
 
-  private async paidRevenueByMonth({
-    from,
-    to,
-  }: Period): Promise<MonthlyRevenue[]> {
-    const rows = await this.prisma.$queryRaw<RevenueRow[]>`
+  private paidRevenueByMonth({ from, to }: Period) {
+    return this.prisma.$queryRaw<RevenueRow[]>`
       SELECT
-        to_char(paid_at AT TIME ZONE 'UTC', 'YYYY-MM') AS month,
-        SUM(amount_cents)::bigint AS revenue_cents
-      FROM charges
-      WHERE status = 'paid'
-        AND paid_at >= ${from}::timestamptz
-        AND paid_at <= ${to}::timestamptz
+        to_char(c.paid_at AT TIME ZONE 'UTC', 'YYYY-MM') AS month,
+        SUM(c.amount_cents)::bigint AS revenue_cents
+      FROM charges c
+      JOIN subscriptions s ON s.id = c.subscription_id
+      WHERE c.status = 'paid'
+        AND c.paid_at >= ${from}::timestamptz
+        AND c.paid_at <= ${to}::timestamptz
+        AND NOT (s.status = 'canceled' AND c.paid_at > s.canceled_at)
       GROUP BY 1
       ORDER BY 1`;
-    return rows.map(({ month, revenue_cents }) => ({
-      month,
-      revenueCents: Number(revenue_cents),
-    }));
   }
 }

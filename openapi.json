@@ -1096,32 +1096,38 @@
         "additionalProperties": false,
         "properties": {
           "activeSubscriptions": {
+            "description": "Current state, not filtered by the period",
             "maximum": 9007199254740991,
             "minimum": 0,
             "type": "integer"
           },
           "delinquencyRate": {
+            "description": "(pastDue + canceledForPaymentFailure) / (active + pastDue + canceledForPaymentFailure). Mixes current counts with cancellations for payment failure whose canceled_at falls inside the period. Null when the denominator is 0",
             "maximum": 1,
             "minimum": 0,
             "nullable": true,
             "type": "number"
           },
           "from": {
+            "description": "Start of the requested period; bounds only the two period-scoped fields",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
             "type": "string"
           },
           "monthlyRecurringRevenueCents": {
+            "description": "Current state, not filtered by the period: active subscriptions priced at each plan current amount, yearly plans divided by 12",
             "maximum": 9007199254740991,
             "minimum": 0,
             "type": "integer"
           },
           "pastDueSubscriptions": {
+            "description": "Current state, not filtered by the period",
             "maximum": 9007199254740991,
             "minimum": 0,
             "type": "integer"
           },
           "revenueByMonth": {
+            "description": "Period-scoped: paid charges grouped by UTC month of paid_at inside the period. Charges paid after their subscription was canceled are excluded because the money is refund-due",
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -1142,6 +1148,7 @@
           },
           "subscriptionsByStatus": {
             "additionalProperties": false,
+            "description": "Current state, not filtered by the period",
             "properties": {
               "active": {
                 "maximum": 9007199254740991,
@@ -1168,6 +1175,7 @@
             "type": "object"
           },
           "to": {
+            "description": "End of the requested period; bounds only the two period-scoped fields",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
             "type": "string"
@@ -2162,6 +2170,7 @@
     },
     "/metrics/overview": {
       "get": {
+        "description": "Current state, not filtered by from/to: monthlyRecurringRevenueCents, activeSubscriptions, pastDueSubscriptions and subscriptionsByStatus. Bounded by from/to: revenueByMonth and the payment-failure cancellations inside delinquencyRate. Without from/to the period is the current UTC calendar month. The figures are read in one RepeatableRead transaction.",
         "operationId": "MetricsController_overview",
         "parameters": [
           {
@@ -2225,6 +2234,7 @@
             "description": ""
           }
         },
+        "summary": "Revenue and subscription health overview",
         "tags": ["metrics"]
       }
     },

@@ -287,19 +287,29 @@ Logs are JSON through Pino. Pino redacts `authorization`, `cookie`, `x-gateway-s
 
 `GET /metrics/overview?from=YYYY-MM-DD&to=YYYY-MM-DD` (or ISO datetimes; both or neither; at most 366 days). Without parameters the period is the current UTC calendar month.
 
+Only two figures respect `from` and `to`; everything else is the state at the moment of the request:
+
+| Field | Scope |
+| --- | --- |
+| `monthlyRecurringRevenueCents` | Current state |
+| `activeSubscriptions`, `pastDueSubscriptions` | Current state |
+| `subscriptionsByStatus` | Current state |
+| `revenueByMonth` | Period: paid charges by `paid_at` |
+| payment-failure cancellations inside `delinquencyRate` | Period: by `canceled_at` |
+
+The four queries run in one `RepeatableRead` transaction, so the figures come from the same snapshot of the database.
+
 - **MRR** (`monthlyRecurringRevenueCents`): the sum over plans of `amountCents` × active subscriptions for monthly plans, plus the yearly total ÷ 12, rounded once. It uses each plan's current `amountCents`, not the amount each subscription was billed at.
-- **`activeSubscriptions`, `pastDueSubscriptions`**: current counts by status; not filtered by the period.
 - **Delinquency rate** (`delinquencyRate`), a fraction between 0 and 1:
 
   ```
   delinquencyRate = (pastDue + canceledForPaymentFailure) / (active + pastDue + canceledForPaymentFailure)
   ```
 
-  `canceledForPaymentFailure` counts subscriptions with `status = canceled`, `cancel_reason = payment_failed` and `canceled_at` inside the period. The rate is `null` when the denominator is 0.
-- **`revenueByMonth`**: the sum of `amount_cents` of `paid` charges by `paid_at` month (UTC), inside the period.
-- **`subscriptionsByStatus`**: current counts for every status.
+  `pastDue` and `active` are current counts; `canceledForPaymentFailure` counts subscriptions with `status = canceled`, `cancel_reason = payment_failed` and `canceled_at` inside the period. The rate mixes the two scopes on purpose and is `null` when the denominator is 0.
+- **`revenueByMonth`**: the sum of `amount_cents` of `paid` charges by `paid_at` month (UTC), inside the period. It is effective revenue: a charge paid after its subscription was canceled is left out, because that money is refund-due (see [Webhooks](#webhooks)). A `requires_refund` webhook never marks a charge `paid`, so it is not counted either.
 
-The formula is implemented in `src/modules/metrics/domain/delinquency-rate.ts`.
+The formula is implemented in `src/modules/metrics/domain/delinquency-rate.ts`. The same wording is in the field descriptions of `openapi.json`.
 
 ## Correlation id
 
@@ -387,4 +397,4 @@ TODO: record the demo GIF and save it as `docs/demo.gif`. The file does not exis
 - Only the fake gateway exists; it stores data in a local file and delivers webhooks with a timer.
 - Cancellation is immediate; there is no cancel-at-period-end.
 - Metrics are computed on request from the tables; there is no pre-aggregation.
-- `activeSubscriptions` and `pastDueSubscriptions` are current counts, while the cancellations in the delinquency rate are bounded by the requested period.
+- `monthlyRecurringRevenueCents`, `activeSubscriptions`, `pastDueSubscriptions` and `subscriptionsByStatus` are current counts, while the cancellations in the delinquency rate and `revenueByMonth` are bounded by the requested period. There is no point-in-time history: asking for a past period does not reconstruct the past MRR.
