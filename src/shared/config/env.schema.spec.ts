@@ -41,6 +41,22 @@ describe('validateEnv', () => {
     },
   );
 
+  it.each([
+    ['true', true],
+    ['false', false],
+  ])('parses FAKE_GATEWAY_ROUTES_ENABLED=%s', (raw, expected) => {
+    expect(
+      validateEnv({ ...validEnv, FAKE_GATEWAY_ROUTES_ENABLED: raw })
+        .FAKE_GATEWAY_ROUTES_ENABLED,
+    ).toBe(expected);
+  });
+
+  it('rejects an invalid FAKE_GATEWAY_ROUTES_ENABLED', () => {
+    expect(() =>
+      validateEnv({ ...validEnv, FAKE_GATEWAY_ROUTES_ENABLED: 'maybe' }),
+    ).toThrow(/FAKE_GATEWAY_ROUTES_ENABLED/);
+  });
+
   it('rejects a missing database url', () => {
     expect(() => validateEnv({ REDIS_HOST: 'localhost' })).toThrow(
       /DATABASE_URL/,

@@ -20,6 +20,25 @@ describe('isFakeGatewayControllerEnabled', () => {
     ).toBe(false);
   });
 
+  it('is enabled in production when the flag is explicitly true', () => {
+    expect(
+      isFakeGatewayControllerEnabled({
+        NODE_ENV: 'production',
+        PAYMENT_GATEWAY: 'fake',
+        FAKE_GATEWAY_ROUTES_ENABLED: 'true',
+      }),
+    ).toBe(true);
+  });
+
+  it('is disabled outside production when the flag is explicitly false', () => {
+    expect(
+      isFakeGatewayControllerEnabled({
+        NODE_ENV: 'development',
+        FAKE_GATEWAY_ROUTES_ENABLED: 'false',
+      }),
+    ).toBe(false);
+  });
+
   it('is disabled in production even when the gateway is left at its default', () => {
     expect(isFakeGatewayControllerEnabled({ NODE_ENV: 'production' })).toBe(
       false,

@@ -158,6 +158,34 @@ describe('Fake gateway reset (e2e)', () => {
       await production.close();
     });
 
+    it('serves the route in production when the flag is explicitly true', async () => {
+      const production = await createGatewayApp({
+        NODE_ENV: 'production',
+        PAYMENT_GATEWAY: 'fake',
+        FAKE_GATEWAY_ROUTES_ENABLED: 'true',
+      });
+
+      await request(production.getHttpServer())
+        .post('/fake-gateway/reset')
+        .expect(204);
+
+      await production.close();
+    });
+
+    it('answers 404 when the flag is explicitly false in development', async () => {
+      const development = await createGatewayApp({
+        NODE_ENV: 'development',
+        PAYMENT_GATEWAY: 'fake',
+        FAKE_GATEWAY_ROUTES_ENABLED: 'false',
+      });
+
+      await request(development.getHttpServer())
+        .post('/fake-gateway/reset')
+        .expect(404);
+
+      await development.close();
+    });
+
     it('serves the route when NODE_ENV is not production', async () => {
       const development = await createGatewayApp({
         NODE_ENV: 'development',

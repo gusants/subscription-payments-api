@@ -13,6 +13,7 @@ services:
       REDIS_PORT: 6379
       PAYMENT_GATEWAY: ${PAYMENT_GATEWAY:-fake}
       FAKE_GATEWAY_DATA_FILE: /app/data/fake-gateway.json
+      FAKE_GATEWAY_ROUTES_ENABLED: "true"
     volumes:
       - fake-gateway-data:/app/data
     ports:
