@@ -1,30 +1,38 @@
 name: subscription-payments-api
 
+x-app-environment: &app-environment
+  NODE_ENV: production
+  PORT: 3000
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: postgresql://${POSTGRES_USER:-payments}:${POSTGRES_PASSWORD:-payments}@postgres:5432/${POSTGRES_DB:-payments}?schema=public
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  PAYMENT_GATEWAY: ${PAYMENT_GATEWAY:-fake}
+  FAKE_GATEWAY_DATA_FILE: /app/data/fake-gateway.json
+  FAKE_GATEWAY_WEBHOOK_URL: http://localhost:3000/webhooks/gateway
+  FAKE_GATEWAY_ROUTES_ENABLED: ${FAKE_GATEWAY_ROUTES_ENABLED:-true}
+  BULL_BOARD_ENABLED: ${BULL_BOARD_ENABLED:-true}
+  DEV_ROUTES_ENABLED: ${DEV_ROUTES_ENABLED:-true}
+  WORKERS_ENABLED: ${WORKERS_ENABLED:-true}
+  RETRY_INTERVAL_UNIT: ${RETRY_INTERVAL_UNIT:-days}
+  ALLOW_ACCELERATED_RETRIES: "true"
+  GATEWAY_WEBHOOK_SECRET: ${GATEWAY_WEBHOOK_SECRET:-dev-only-gateway-webhook-secret-change-me}
+  # Tracing stays off unless OTEL_ENABLED=true; the endpoint only answers with
+  # the observability profile up (OTEL_ENABLED=true docker compose --profile observability up).
+  OTEL_ENABLED: ${OTEL_ENABLED:-false}
+  OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-subscription-payments-api}
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+
 services:
   api:
     build: .
     restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      PAYMENT_GATEWAY: ${PAYMENT_GATEWAY:-fake}
-      FAKE_GATEWAY_DATA_FILE: /app/data/fake-gateway.json
-      FAKE_GATEWAY_ROUTES_ENABLED: "true"
-      BULL_BOARD_ENABLED: "true"
-      DEV_ROUTES_ENABLED: "true"
-      WORKERS_ENABLED: "true"
-      RETRY_INTERVAL_UNIT: minutes
-      ALLOW_ACCELERATED_RETRIES: "true"
-      GATEWAY_WEBHOOK_SECRET: ${GATEWAY_WEBHOOK_SECRET:-dev-only-gateway-webhook-secret-change-me}
-      # Tracing stays off unless OTEL_ENABLED=true; the endpoint only answers with
-      # the observability profile up (OTEL_ENABLED=true docker compose --profile observability up).
-      OTEL_ENABLED: ${OTEL_ENABLED:-false}
-      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-subscription-payments-api}
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    # Every other variable of .env (LLM_*, RENEWAL_*, RECONCILIATION_*, IDEMPOTENCY_*, ...) reaches the container
+    # from this file; the entries under environment win, which keeps the service hosts pointing at compose.
+    env_file:
+      - path: .env
+        required: false
+    environment: *app-environment
     volumes:
       - fake-gateway-data:/app/data
     ports:
@@ -37,6 +45,18 @@ services:
       jaeger:
         condition: service_started
         required: false
+
+  seed:
+    # One-shot: docker compose run --rm seed. Waits for the API (which applies the migrations), then loads the demo data.
+    build: .
+    profiles: [tools]
+    command: ["node", "dist/tools/seed.js"]
+    environment:
+      <<: *app-environment
+      SEED_ALLOW_REMOTE: "true"
+    depends_on:
+      api:
+        condition: service_healthy
 
   jaeger:
     # Jaeger v2 all-in-one: OTLP receivers on 4317 (gRPC) and 4318 (HTTP), UI and query API on 16686.
@@ -51,15 +71,15 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-payments}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-payments}
+      POSTGRES_DB: ${POSTGRES_DB:-payments}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-payments} -d ${POSTGRES_DB:-payments}"]
       interval: 5s
       timeout: 5s
       retries: 10
