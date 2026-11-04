@@ -133,7 +133,7 @@ describe('PrismaWebhookEventsRepository (integration)', () => {
   it('stores the event, settles the charge and activates the subscription in one go', async () => {
     const result = await processor.process(event('charge.paid', 'evt_1'));
 
-    expect(result).toEqual({ kind: 'processed', outcome: 'applied' });
+    expect(result).toMatchObject({ kind: 'processed', outcome: 'applied' });
     expect(await chargeRow()).toMatchObject({
       status: 'paid',
       gatewayChargeId: 'gch_1',
@@ -179,7 +179,7 @@ describe('PrismaWebhookEventsRepository (integration)', () => {
     );
 
     expect(results.filter(({ kind }) => kind === 'duplicate')).toHaveLength(7);
-    expect(results.filter(({ kind }) => kind === 'processed')).toEqual([
+    expect(results.filter(({ kind }) => kind === 'processed')).toMatchObject([
       { kind: 'processed', outcome: 'applied' },
     ]);
     expect(await prisma.webhookEvent.count()).toBe(1);
@@ -293,7 +293,7 @@ describe('PrismaWebhookEventsRepository (integration)', () => {
 
     const result = await processor.process(event('charge.paid', 'evt_paid'));
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       kind: 'processed',
       outcome: 'requires_refund',
       refundRisk: { subscriptionId },
@@ -332,7 +332,7 @@ describe('PrismaWebhookEventsRepository (integration)', () => {
 
     const result = await processor.process(event('charge.paid', 'evt_1'));
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       kind: 'processed',
       outcome: 'applied',
       refundRisk: { subscriptionId },

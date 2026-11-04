@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from '../../src/app.module.js';
+import { BillingQueueModule } from '../../src/modules/billing-queue/billing-queue.module.js';
 import { GatewayModule } from '../../src/gateway/gateway.module.js';
 import { ClockModule } from '../../src/shared/clock/clock.module.js';
 import { AppConfigModule } from '../../src/shared/config/app-config.module.js';
@@ -145,6 +146,7 @@ describe('Fake gateway reset (e2e)', () => {
           ClockModule,
           DatabaseModule,
           GatewayModule.register(env),
+          BillingQueueModule.register(env),
         ],
       }).compile();
       const gatewayApp = createTestApp<App>(moduleRef);

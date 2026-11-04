@@ -1,11 +1,17 @@
 import { ChargeRetriesProcessor } from './charge-retries.processor.js';
+import { ChargeRetriesWorker } from './charge-retries.worker.js';
+import { BillingQueueConnection } from '../billing-queue-connection.js';
 import { BillingWorkersModule } from './billing-workers.module.js';
 
 describe('BillingWorkersModule', () => {
   it('registers the retry processor by default', () => {
     const { providers } = BillingWorkersModule.register({});
 
-    expect(providers).toEqual([ChargeRetriesProcessor]);
+    expect(providers).toEqual([
+      BillingQueueConnection,
+      ChargeRetriesProcessor,
+      ChargeRetriesWorker,
+    ]);
   });
 
   it('registers nothing when WORKERS_ENABLED is false', () => {
