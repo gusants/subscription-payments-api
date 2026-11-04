@@ -9,6 +9,7 @@ import { Clock } from '../../src/shared/clock/index.js';
 import { FixedClock } from '../../src/shared/clock/testing/fixed-clock.js';
 import { PrismaService } from '../../src/shared/database/prisma.service.js';
 import { setupSwagger } from '../../src/shared/http/setup-swagger.js';
+import { createTestApp } from '../support/create-test-app.js';
 
 interface GatewayFile {
   charges: { externalRef: string; status: string }[];
@@ -26,7 +27,7 @@ describe('Fake gateway simulator routes (e2e)', () => {
       .overrideProvider(Clock)
       .useValue(clock)
       .compile();
-    app = moduleRef.createNestApplication();
+    app = createTestApp(moduleRef);
     setupSwagger(app);
     await app.init();
     prisma = app.get(PrismaService);

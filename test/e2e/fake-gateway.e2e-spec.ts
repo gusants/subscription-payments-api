@@ -10,6 +10,7 @@ import { AppConfigModule } from '../../src/shared/config/app-config.module.js';
 import { DatabaseModule } from '../../src/shared/database/database.module.js';
 import { PrismaService } from '../../src/shared/database/prisma.service.js';
 import { setupSwagger } from '../../src/shared/http/setup-swagger.js';
+import { createTestApp } from '../support/create-test-app.js';
 
 interface GatewayData {
   customers: unknown[];
@@ -29,7 +30,7 @@ describe('Fake gateway reset (e2e)', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleRef.createNestApplication();
+    app = createTestApp(moduleRef);
     setupSwagger(app);
     await app.init();
     prisma = app.get(PrismaService);
@@ -146,7 +147,7 @@ describe('Fake gateway reset (e2e)', () => {
           GatewayModule.register(env),
         ],
       }).compile();
-      const gatewayApp = moduleRef.createNestApplication();
+      const gatewayApp = createTestApp<App>(moduleRef);
       await gatewayApp.init();
       return gatewayApp;
     }

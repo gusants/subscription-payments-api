@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from '../../src/app.module.js';
+import { createTestApp } from '../support/create-test-app.js';
 
 describe('GET /health (e2e)', () => {
   let app: INestApplication<App>;
@@ -11,7 +12,7 @@ describe('GET /health (e2e)', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleRef.createNestApplication();
+    app = createTestApp(moduleRef);
     await app.init();
   });
 

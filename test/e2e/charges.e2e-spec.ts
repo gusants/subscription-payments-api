@@ -8,6 +8,7 @@ import { Clock } from '../../src/shared/clock/index.js';
 import { FixedClock } from '../../src/shared/clock/testing/fixed-clock.js';
 import { PrismaService } from '../../src/shared/database/prisma.service.js';
 import { setupSwagger } from '../../src/shared/http/setup-swagger.js';
+import { createTestApp } from '../support/create-test-app.js';
 
 describe('Charges (e2e)', () => {
   let app: INestApplication<App>;
@@ -20,7 +21,7 @@ describe('Charges (e2e)', () => {
       .overrideProvider(Clock)
       .useValue(new FixedClock(new Date('2026-01-31T10:30:00.000Z')))
       .compile();
-    app = moduleRef.createNestApplication();
+    app = createTestApp(moduleRef);
     setupSwagger(app);
     await app.init();
     prisma = app.get(PrismaService);

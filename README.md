@@ -78,6 +78,14 @@ Dev routes (same gating as `reset`). `{id}` is our charge id (`ch_...`) and they
 
 Every gateway charge status change (card paid or failed on creation, pix or boleto paid or expired) appends an event `evt_<ulid>` to the fake store and delivers it with `POST` to `FAKE_GATEWAY_WEBHOOK_URL` (default `http://localhost:$PORT/webhooks/gateway`) after `FAKE_GATEWAY_WEBHOOK_DELAY_MS` (default 500). The body is `{ id, type, createdAt, data: { charge } }` with `type` `charge.paid`, `charge.failed` or `charge.expired`, signed in `x-gateway-signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">` with `GATEWAY_WEBHOOK_SECRET` (required, at least 32 characters; the Docker demo and `.env.example` ship a dev value). A failed delivery (non-2xx or network error) is resent up to 3 times with 1s, 2s and 4s backoff, then given up. With probability `FAKE_GATEWAY_DUPLICATE_WEBHOOK_RATE` (0 to 1, default 0) the same event is sent a second time. `FAKE_GATEWAY_WEBHOOK_DISPATCH_ENABLED=false` appends the events but delivers nothing; the test setup turns it off.
 
+## Webhooks
+
+`POST /webhooks/gateway` receives the gateway events (internal endpoint, tag `webhooks` in Swagger) and answers `200 { "received": true }`.
+
+- Signature: header `x-gateway-signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>." + raw body>` with `GATEWAY_WEBHOOK_SECRET`. The HMAC is computed over the raw request bytes (the app boots with `rawBody: true`, shared by `main.ts` and the e2e apps through `APP_OPTIONS`), never over re-serialized JSON, and compared in constant time.
+- Anti-replay: `t` more than 5 minutes in the past or in the future is rejected.
+- Missing, malformed or mismatched signature, or a `t` outside the window: `401` in the standard error body. The check runs before the payload is validated; a valid signature over a body that is not a gateway event is `400`.
+
 ## Charge attempts and retries
 
 Every gateway attempt carries the idempotency key `<chargeId>:<attemptNumber>`, persisted before the gateway is called, so re-sending an attempt never charges twice.

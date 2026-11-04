@@ -12,6 +12,7 @@ import {
   type GatewayWebhookPayload,
 } from '../../src/gateway/index.js';
 import { PrismaService } from '../../src/shared/database/prisma.service.js';
+import { createTestApp } from '../support/create-test-app.js';
 
 interface Delivery {
   rawBody: string;
@@ -66,7 +67,7 @@ describe('Fake gateway webhook delivery (e2e)', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleRef.createNestApplication();
+    app = createTestApp(moduleRef);
     await app.init();
     prisma = app.get(PrismaService);
   });

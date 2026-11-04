@@ -738,6 +738,117 @@
         ],
         "type": "object"
       },
+      "GatewayWebhookDto": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "type": "string"
+          },
+          "data": {
+            "properties": {
+              "charge": {
+                "properties": {
+                  "amountCents": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  },
+                  "createdAt": {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "type": "string"
+                  },
+                  "customerId": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "type": "string"
+                  },
+                  "externalRef": {
+                    "type": "string"
+                  },
+                  "failureReason": {
+                    "enum": [
+                      "insufficient_funds",
+                      "expired_card",
+                      "invalid_token"
+                    ],
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "method": {
+                    "enum": ["card", "pix", "boleto"],
+                    "type": "string"
+                  },
+                  "paymentInstructions": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "copyPaste": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "enum": ["pix"],
+                            "type": "string"
+                          }
+                        },
+                        "required": ["type", "copyPaste"],
+                        "type": "object"
+                      },
+                      {
+                        "properties": {
+                          "barcode": {
+                            "type": "string"
+                          },
+                          "digitableLine": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "enum": ["boleto"],
+                            "type": "string"
+                          }
+                        },
+                        "required": ["type", "digitableLine"],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "status": {
+                    "enum": ["pending", "paid", "failed", "expired"],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "customerId",
+                  "externalRef",
+                  "amountCents",
+                  "method",
+                  "status",
+                  "createdAt"
+                ],
+                "type": "object"
+              }
+            },
+            "required": ["charge"],
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "enum": ["charge.paid", "charge.failed", "charge.expired"],
+            "type": "string"
+          }
+        },
+        "required": ["id", "type", "createdAt", "data"],
+        "type": "object"
+      },
       "PlanListResponseDto_Output": {
         "additionalProperties": false,
         "properties": {
@@ -937,6 +1048,17 @@
           "createdAt",
           "updatedAt"
         ],
+        "type": "object"
+      },
+      "WebhookReceivedResponseDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "received": {
+            "enum": [true],
+            "type": "boolean"
+          }
+        },
+        "required": ["received"],
         "type": "object"
       }
     }
@@ -1834,6 +1956,65 @@
           }
         },
         "tags": ["subscriptions"]
+      }
+    },
+    "/webhooks/gateway": {
+      "post": {
+        "operationId": "WebhooksController_receive",
+        "parameters": [
+          {
+            "description": "Internal endpoint called by the payment gateway. Format t=<unix seconds>,v1=<hex HMAC-SHA256 of \"<t>.\" + raw body>. Rejected with 401 when missing, malformed, mismatched or when t is more than 5 minutes away from the server clock",
+            "in": "header",
+            "name": "x-gateway-signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GatewayWebhookDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookReceivedResponseDto_Output"
+                }
+              }
+            },
+            "description": "The event was received"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": "The signature is valid but the payload is not a gateway event"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            },
+            "description": "The signature header is missing, invalid or out of the allowed window"
+          }
+        },
+        "tags": ["webhooks"]
       }
     }
   },

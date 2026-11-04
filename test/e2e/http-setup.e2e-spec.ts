@@ -4,6 +4,7 @@ import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from '../../src/app.module.js';
 import { setupSwagger } from '../../src/shared/http/setup-swagger.js';
+import { createTestApp } from '../support/create-test-app.js';
 
 describe('HTTP setup (e2e)', () => {
   let app: INestApplication<App>;
@@ -12,7 +13,7 @@ describe('HTTP setup (e2e)', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleRef.createNestApplication();
+    app = createTestApp(moduleRef);
     setupSwagger(app);
     await app.init();
   });

@@ -5,6 +5,7 @@ import { App } from 'supertest/types.js';
 import { AppModule } from '../../src/app.module.js';
 import { PrismaService } from '../../src/shared/database/prisma.service.js';
 import { setupSwagger } from '../../src/shared/http/setup-swagger.js';
+import { createTestApp } from '../support/create-test-app.js';
 
 describe('Plans (e2e)', () => {
   let app: INestApplication<App>;
@@ -14,7 +15,7 @@ describe('Plans (e2e)', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleRef.createNestApplication();
+    app = createTestApp(moduleRef);
     setupSwagger(app);
     await app.init();
     prisma = app.get(PrismaService);
