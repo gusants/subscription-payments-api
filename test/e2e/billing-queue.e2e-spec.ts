@@ -5,6 +5,7 @@ import type { Queue } from 'bullmq';
 import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { BILLING_QUEUE_NAMES } from '../../src/modules/billing-queue/billing-queue.constants.js';
+import { BillingQueue } from '../../src/modules/billing-queue/billing-queue.port.js';
 import { BillingQueueModule } from '../../src/modules/billing-queue/billing-queue.module.js';
 import { BillingWorkersModule } from '../../src/modules/billing-queue/processors/billing-workers.module.js';
 import { AppConfigModule } from '../../src/shared/config/app-config.module.js';
@@ -51,6 +52,20 @@ describe('Billing queues (e2e)', () => {
       removeOnComplete: { count: 1000, age: 86400 },
       removeOnFail: false,
     });
+  });
+
+  it('exposes the BillingQueue port that enqueues into charge-retries', async () => {
+    const app = await start({ WORKERS_ENABLED: 'false' });
+    const chargeId = `ch_e2e_${Date.now()}`;
+
+    await app
+      .get(BillingQueue)
+      .scheduleRetry({ chargeId, attempt: 1, delayMs: 3_600_000 });
+
+    const queue = app.get<Queue>(getQueueToken('charge-retries'));
+    const job = await queue.getJob(`retry:${chargeId}:1`);
+    expect(await job?.getState()).toBe('delayed');
+    await job?.remove();
   });
 
   describe('Bull Board', () => {

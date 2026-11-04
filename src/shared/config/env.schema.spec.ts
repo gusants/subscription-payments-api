@@ -22,6 +22,7 @@ describe('validateEnv', () => {
       FAKE_GATEWAY_PIX_EXPIRATION_SECONDS: 1800,
       FAKE_GATEWAY_BOLETO_EXPIRATION_SECONDS: 259200,
       FAKE_GATEWAY_EXPIRATION_SWEEP_INTERVAL_MS: 5000,
+      RETRY_INTERVAL_UNIT: 'days',
       WORKERS_ENABLED: true,
       CHARGE_ATTEMPT_LEASE_SECONDS: 30,
       IDEMPOTENCY_TTL_SECONDS: 86400,
@@ -74,6 +75,19 @@ describe('validateEnv', () => {
     expect(
       validateEnv({ ...validEnv, WORKERS_ENABLED: raw }).WORKERS_ENABLED,
     ).toBe(expected);
+  });
+
+  it.each(['days', 'minutes'])('accepts RETRY_INTERVAL_UNIT=%s', (unit) => {
+    expect(
+      validateEnv({ ...validEnv, RETRY_INTERVAL_UNIT: unit })
+        .RETRY_INTERVAL_UNIT,
+    ).toBe(unit);
+  });
+
+  it('rejects an invalid RETRY_INTERVAL_UNIT', () => {
+    expect(() =>
+      validateEnv({ ...validEnv, RETRY_INTERVAL_UNIT: 'hours' }),
+    ).toThrow(/RETRY_INTERVAL_UNIT/);
   });
 
   it('leaves BULL_BOARD_ENABLED undefined when unset', () => {

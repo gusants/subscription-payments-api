@@ -62,6 +62,7 @@ BullMQ queues `charge-retries`, `subscription-renewals` and `charge-reconciliati
 Jobs keep the last 1000 completed (or 24h, whichever bound is hit first). Failed jobs are never removed: a job that exhausts its technical attempts stays in the failed set, which plays the dead-letter role and is visible in Bull Board.
 
 - `WORKERS_ENABLED` (default true): when false the process only enqueues. `pnpm start:worker` (`pnpm start:worker:prod` after a build) boots the same modules as an application context, with no HTTP server and workers forced on, so workers can run in their own process: run the API with `WORKERS_ENABLED=false` and the worker separately. Mind the single-process fake gateway store (see Payment gateway): with the fake gateway the workers must stay in the API process.
+- `RETRY_INTERVAL_UNIT` (`days` default, or `minutes`; the Docker demo uses `minutes`): unit of the dunning calendar. Retries fall on D+1, D+3 and D+7, each measured from the original failure (not chained from the previous retry); after the third retry the charge is exhausted. Retry jobs get the deterministic id `retry:{chargeId}:{attempt}`, so scheduling the same retry twice yields one job.
 - `BULL_BOARD_ENABLED`: Bull Board is served at `/queues` (not in Swagger or `openapi.json`). Defaults to true outside `NODE_ENV=production` and false in production unless set; the Docker demo sets it to true.
 
 ## Payment gateway

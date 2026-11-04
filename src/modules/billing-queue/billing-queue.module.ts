@@ -14,6 +14,8 @@ import {
   BULL_BOARD_ROUTE,
 } from './billing-queue.constants.js';
 import { BILLING_DEFAULT_JOB_OPTIONS } from './billing-queue.options.js';
+import { BillingQueue } from './billing-queue.port.js';
+import { BullMqBillingQueue } from './bullmq-billing-queue.js';
 import { BillingWorkersModule } from './processors/billing-workers.module.js';
 
 @Module({})
@@ -50,6 +52,8 @@ export class BillingQueueModule {
           : []),
         ...(areBillingWorkersEnabled(env) ? [BillingWorkersModule] : []),
       ],
+      providers: [{ provide: BillingQueue, useClass: BullMqBillingQueue }],
+      exports: [BillingQueue],
     };
   }
 }
