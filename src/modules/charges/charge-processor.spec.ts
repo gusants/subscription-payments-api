@@ -1057,6 +1057,23 @@ describe('ChargeProcessor', () => {
         expect(billing.charges()).toHaveLength(2);
       });
 
+      it('rejects reissuing an expired ancestor once its successor expired too', async () => {
+        const expired = await expireRenewal();
+        const successor = await processor.reissue(expired, 1);
+        const held = gateway.chargesProcessed.get(`${successor.charge.id}:1`)!;
+        gateway.chargesProcessed.set(`${successor.charge.id}:1`, {
+          ...held,
+          status: 'expired',
+        });
+        clock.set(new Date(afterLease.getTime() + 2 * TEST_ATTEMPT_LEASE_MS));
+        await processor.reconcile(successor.charge);
+
+        await expect(processor.reissue(expired, 1)).rejects.toBeInstanceOf(
+          ConflictError,
+        );
+        expect(billing.charges()).toHaveLength(2);
+      });
+
       it('rejects reissuing for a canceled subscription before creating anything', async () => {
         const expired = await expireRenewal();
         await subscriptions.changeStatus('sub_1', {

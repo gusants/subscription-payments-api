@@ -15,7 +15,11 @@ export abstract class ChargesRepository {
     subscriptionId: string,
     periodStart: Date,
   ): Promise<Charge | null>;
-  abstract findStalePendingCardCharges(
+  abstract findNewestByPeriod(
+    subscriptionId: string,
+    periodStart: Date,
+  ): Promise<Charge | null>;
+  abstract findStalePendingCharges(
     attemptStartedBefore: Date,
     limit: number,
   ): Promise<Charge[]>;

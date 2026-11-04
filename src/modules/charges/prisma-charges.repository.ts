@@ -51,17 +51,43 @@ export class PrismaChargesRepository extends ChargesRepository {
     return found && toCharge(found);
   }
 
-  async findStalePendingCardCharges(
+  async findNewestByPeriod(
+    subscriptionId: string,
+    periodStart: Date,
+  ): Promise<Charge | null> {
+    const found = await this.prisma.charge.findFirst({
+      where: { subscriptionId, periodStart },
+      orderBy: [{ retryCount: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+    });
+    return found && toCharge(found);
+  }
+
+  async findStalePendingCharges(
     attemptStartedBefore: Date,
     limit: number,
   ): Promise<Charge[]> {
     const found = await this.prisma.charge.findMany({
       where: {
         status: 'pending',
-        method: 'card',
-        OR: [
-          { attemptStartedAt: { lt: attemptStartedBefore } },
-          { attemptStartedAt: null, createdAt: { lt: attemptStartedBefore } },
+        AND: [
+          { OR: [{ method: 'card' }, { gatewayChargeId: null }] },
+          {
+            OR: [
+              { attemptStartedAt: { lt: attemptStartedBefore } },
+              {
+                attemptStartedAt: null,
+                createdAt: { lt: attemptStartedBefore },
+              },
+            ],
+          },
+          {
+            subscription: {
+              OR: [
+                { paymentMethod: { not: 'card' } },
+                { cardToken: { not: null } },
+              ],
+            },
+          },
         ],
       },
       orderBy: [
@@ -92,12 +118,16 @@ export class PrismaChargesRepository extends ChargesRepository {
        AND c.first_failed_at < cutoff.failed_before
       WHERE c.status IN ('failed', 'expired')
         AND s.status <> 'canceled'
+        AND (s.payment_method <> 'card' OR COALESCE(s.card_token, '') <> '')
         AND NOT EXISTS (
-          SELECT 1 FROM charges live
-          WHERE live.subscription_id = c.subscription_id
-            AND live.period_start = c.period_start
-            AND live.status <> 'expired'
-            AND live.id <> c.id
+          SELECT 1 FROM charges sibling
+          WHERE sibling.subscription_id = c.subscription_id
+            AND sibling.period_start = c.period_start
+            AND sibling.id <> c.id
+            AND (
+              sibling.status <> 'expired'
+              OR sibling.retry_count > c.retry_count
+            )
         )
       ORDER BY c.first_failed_at ASC, c.id ASC
       LIMIT ${limit}`;

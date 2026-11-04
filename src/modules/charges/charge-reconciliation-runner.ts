@@ -36,7 +36,7 @@ export class ChargeReconciliationRunner {
 
   async run(): Promise<ReconciliationSummary> {
     const now = this.clock.now();
-    const stale = await this.charges.findStalePendingCardCharges(
+    const stale = await this.charges.findStalePendingCharges(
       staleAttemptCutoff(now, this.staleAfterMs),
       this.batchSize,
     );

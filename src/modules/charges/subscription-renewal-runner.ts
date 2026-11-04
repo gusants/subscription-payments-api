@@ -8,6 +8,7 @@ import { RenewalsRepository } from './renewals.repository.js';
 export interface RenewalRunSummary {
   found: number;
   renewed: number;
+  awaitingReconciliation: number;
   alreadyGenerated: number;
   failed: number;
 }
@@ -28,6 +29,7 @@ export class SubscriptionRenewalRunner {
     const summary: RenewalRunSummary = {
       found: due.length,
       renewed: 0,
+      awaitingReconciliation: 0,
       alreadyGenerated: 0,
       failed: 0,
     };
@@ -40,11 +42,19 @@ export class SubscriptionRenewalRunner {
 
   private async renew(
     candidate: RenewalCandidate,
-  ): Promise<'renewed' | 'alreadyGenerated' | 'failed'> {
+  ): Promise<
+    'renewed' | 'awaitingReconciliation' | 'alreadyGenerated' | 'failed'
+  > {
     const { subscription } = candidate;
     try {
       const processed = await this.processor.renew(candidate);
       if (!processed) return 'alreadyGenerated';
+      if (processed.technicalFailure) {
+        this.logger.warn(
+          `Subscription ${subscription.id} renewal charge ${processed.charge.id} did not reach the gateway (${processed.technicalFailure.message}); left pending for reconciliation`,
+        );
+        return 'awaitingReconciliation';
+      }
       this.logger.log(
         `Subscription ${subscription.id} renewed with charge ${processed.charge.id} (${processed.charge.status})`,
       );

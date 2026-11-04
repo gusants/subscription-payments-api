@@ -83,6 +83,7 @@ describe('PrismaChargesRepository recovery queries (integration)', () => {
       retryCount?: number;
       firstFailedAt?: Date | null;
       periodStart?: Date;
+      gatewayChargeId?: string;
     } = {},
   ) {
     const id = generateId(ID_PREFIXES.charge);
@@ -93,6 +94,7 @@ describe('PrismaChargesRepository recovery queries (integration)', () => {
         amountCents: 1990,
         method: overrides.method ?? 'card',
         status: overrides.status ?? 'pending',
+        gatewayChargeId: overrides.gatewayChargeId ?? null,
         attemptStartedAt: overrides.attemptStartedAt ?? null,
         createdAt: overrides.createdAt ?? before(10 * day),
         retryCount: overrides.retryCount ?? 0,
@@ -105,10 +107,10 @@ describe('PrismaChargesRepository recovery queries (integration)', () => {
     return id;
   }
 
-  describe('findStalePendingCardCharges', () => {
+  describe('findStalePendingCharges', () => {
     const cutoff = before(5 * minute);
     const ids = async (limit = 10) =>
-      (await repository.findStalePendingCardCharges(cutoff, limit)).map(
+      (await repository.findStalePendingCharges(cutoff, limit)).map(
         ({ id }) => id,
       );
 
@@ -149,7 +151,34 @@ describe('PrismaChargesRepository recovery queries (integration)', () => {
         periodStart: before(70 * day),
       });
       const pix = await seedSubscription('incomplete', 'pix');
-      await seedCharge(pix.id, { method: 'pix', attemptStartedAt: old });
+      await seedCharge(pix.id, {
+        method: 'pix',
+        attemptStartedAt: old,
+        gatewayChargeId: 'gch_awaiting_payment',
+      });
+
+      expect(await ids()).toEqual([]);
+    });
+
+    it('returns a pix or boleto charge that never reached the gateway', async () => {
+      const pix = await seedSubscription('active', 'pix');
+      const unsent = await seedCharge(pix.id, {
+        method: 'pix',
+        attemptStartedAt: before(10 * minute),
+      });
+
+      expect(await ids()).toEqual([unsent]);
+    });
+
+    it('skips a card charge whose subscription has no card token', async () => {
+      const { id: subscriptionId } = await seedSubscription();
+      await prisma.subscription.update({
+        where: { id: subscriptionId },
+        data: { cardToken: null },
+      });
+      await seedCharge(subscriptionId, {
+        attemptStartedAt: before(10 * minute),
+      });
 
       expect(await ids()).toEqual([]);
     });
@@ -280,6 +309,43 @@ describe('PrismaChargesRepository recovery queries (integration)', () => {
       expect(ids).not.toContain(superseded);
     });
 
+    it('returns only the newest member of an expired chain of the same period', async () => {
+      const { id: subscriptionId } = await seedSubscription('active', 'boleto');
+      const ancestor = await seedCharge(subscriptionId, {
+        status: 'expired',
+        method: 'boleto',
+        retryCount: 0,
+        firstFailedAt: before(5 * day),
+        createdAt: before(5 * day),
+      });
+      const newest = await seedCharge(subscriptionId, {
+        status: 'expired',
+        method: 'boleto',
+        retryCount: 1,
+        firstFailedAt: before(5 * day),
+        createdAt: before(4 * day),
+      });
+
+      const ids = await overdueIds();
+
+      expect(ids).toContain(newest);
+      expect(ids).not.toContain(ancestor);
+    });
+
+    it('skips a card charge whose subscription has no card token', async () => {
+      const { id: subscriptionId } = await seedSubscription();
+      await prisma.subscription.update({
+        where: { id: subscriptionId },
+        data: { cardToken: null },
+      });
+      await seedCharge(subscriptionId, {
+        status: 'failed',
+        firstFailedAt: before(10 * day),
+      });
+
+      expect(await overdueIds()).toEqual([]);
+    });
+
     it('bounds the batch and returns the oldest failures first', async () => {
       const { id: subscriptionId } = await seedSubscription();
       await seedCharge(subscriptionId, {
@@ -293,6 +359,46 @@ describe('PrismaChargesRepository recovery queries (integration)', () => {
       });
 
       expect(await overdueIds(1)).toEqual([oldest]);
+    });
+  });
+
+  describe('findNewestByPeriod', () => {
+    it('returns the charge with the most retries, then the latest created', async () => {
+      const { id: subscriptionId } = await seedSubscription('active', 'pix');
+      const periodStart = before(30 * day);
+      await seedCharge(subscriptionId, {
+        status: 'expired',
+        method: 'pix',
+        retryCount: 0,
+        periodStart,
+      });
+      const newest = await seedCharge(subscriptionId, {
+        status: 'expired',
+        method: 'pix',
+        retryCount: 2,
+        periodStart,
+      });
+      await seedCharge(subscriptionId, {
+        status: 'expired',
+        method: 'pix',
+        retryCount: 1,
+        periodStart,
+      });
+
+      const found = await repository.findNewestByPeriod(
+        subscriptionId,
+        periodStart,
+      );
+
+      expect(found?.id).toBe(newest);
+    });
+
+    it('returns null for a period without charges', async () => {
+      const { id: subscriptionId } = await seedSubscription();
+
+      expect(
+        await repository.findNewestByPeriod(subscriptionId, before(day)),
+      ).toBeNull();
     });
   });
 });

@@ -103,6 +103,7 @@ describe('SubscriptionRenewalRunner', () => {
     expect(summary).toEqual({
       found: 1,
       renewed: 1,
+      awaitingReconciliation: 0,
       alreadyGenerated: 0,
       failed: 0,
     });
@@ -140,6 +141,7 @@ describe('SubscriptionRenewalRunner', () => {
     expect(second).toEqual({
       found: 1,
       renewed: 0,
+      awaitingReconciliation: 0,
       alreadyGenerated: 1,
       failed: 0,
     });
@@ -220,7 +222,19 @@ describe('SubscriptionRenewalRunner', () => {
 
     const summary = await runner.run();
 
-    expect(summary.renewed).toBe(1);
+    expect(summary).toMatchObject({
+      renewed: 0,
+      awaitingReconciliation: 1,
+      failed: 0,
+    });
     expect(billing.charges().at(-1)?.status).toBe('pending');
+  });
+
+  it('counts a pix renewal that reached the gateway as renewed', async () => {
+    await seedSubscription('sub_1', {}, 'pix');
+
+    const summary = await runner.run();
+
+    expect(summary).toMatchObject({ renewed: 1, awaitingReconciliation: 0 });
   });
 });

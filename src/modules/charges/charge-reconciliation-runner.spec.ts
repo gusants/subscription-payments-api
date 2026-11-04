@@ -1,4 +1,8 @@
 import { Logger } from '@nestjs/common';
+import {
+  GatewayOutcomeUnknownError,
+  GatewayUnavailableError,
+} from '../../gateway/index.js';
 import { StubPaymentGateway } from '../../gateway/testing/stub-payment-gateway.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import { RecordingBillingQueue } from '../billing-queue/testing/recording-billing-queue.js';
@@ -70,6 +74,7 @@ describe('ChargeReconciliationRunner', () => {
       method?: 'card' | 'pix';
       subscriptionStatus?: Subscription['status'];
       customerId?: string;
+      cardToken?: string | null;
     } = {},
   ) {
     const method = overrides.method ?? 'card';
@@ -80,7 +85,12 @@ describe('ChargeReconciliationRunner', () => {
         planId: 'plan_1',
         paymentMethod: method,
         status: 'incomplete',
-        cardToken: method === 'card' ? 'tok_success' : null,
+        cardToken:
+          overrides.cardToken !== undefined
+            ? overrides.cardToken
+            : method === 'card'
+              ? 'tok_success'
+              : null,
         billingAnchor: startedAt,
         currentPeriodStart: startedAt,
         currentPeriodEnd: periodEnd,
@@ -126,9 +136,52 @@ describe('ChargeReconciliationRunner', () => {
       expect(billing.charges()[0]?.status).toBe('pending');
     });
 
-    it('leaves pix charges awaiting payment alone', async () => {
+    it('leaves pix charges awaiting payment at the gateway alone', async () => {
       await seedCharge('ch_1', { method: 'pix' });
+      await billing.attachGatewayCharge('ch_1', {
+        gatewayChargeId: 'gch_1',
+        expiresAt: new Date(startedAt.getTime() + dayMs),
+        paymentInstructions: null,
+      });
       clock.set(new Date(startedAt.getTime() + dayMs));
+
+      expect((await runner.run()).stalePending).toBe(0);
+    });
+
+    it('sends a pix charge that never reached the gateway', async () => {
+      await seedCharge('ch_1', { method: 'pix' });
+      clock.set(new Date(startedAt.getTime() + staleAfterMs + 1));
+
+      const summary = await runner.run();
+
+      expect(summary).toMatchObject({ stalePending: 1, checked: 1, failed: 0 });
+      expect(gateway.chargesRequested).toHaveLength(1);
+      expect(billing.charges()[0]).toMatchObject({
+        status: 'pending',
+        gatewayChargeId: expect.any(String),
+      });
+    });
+
+    it('adopts the gateway charge of a pix whose response was lost instead of sending it again', async () => {
+      await seedCharge('ch_1', { method: 'pix' });
+      gateway.failChargeCreationWith(new GatewayOutcomeUnknownError('lost'), {
+        times: 1,
+        afterProcessing: true,
+      });
+      clock.set(new Date(startedAt.getTime() + staleAfterMs + 1));
+      await runner.run();
+      gateway.failChargeCreationWith(new GatewayUnavailableError('down'));
+      clock.set(new Date(startedAt.getTime() + 3 * staleAfterMs));
+
+      await runner.run();
+
+      expect(gateway.chargesRequested).toHaveLength(1);
+      expect(billing.charges()[0]?.gatewayChargeId).toEqual(expect.any(String));
+    });
+
+    it('skips a card charge whose subscription has no card token', async () => {
+      await seedCharge('ch_1', { cardToken: null });
+      clock.set(new Date(startedAt.getTime() + staleAfterMs + 1));
 
       expect((await runner.run()).stalePending).toBe(0);
     });

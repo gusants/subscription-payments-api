@@ -131,6 +131,13 @@ export class ChargeProcessor {
     retryNumber: number,
   ): Promise<ProcessedCharge> {
     const target = await this.resolveTarget(expired);
+    const newest = await this.charges.findNewestByPeriod(
+      expired.subscriptionId,
+      expired.periodStart,
+    );
+    if (newest && newest.retryCount >= retryNumber) {
+      return this.resumeReissued(target, newest, retryNumber);
+    }
     const created = await this.billing.createPeriodCharge(
       newRetryCharge(
         expired,
@@ -144,12 +151,7 @@ export class ChargeProcessor {
       expired.subscriptionId,
       expired.periodStart,
     );
-    if (live?.status === 'pending' && live.retryCount === retryNumber) {
-      return this.reconcileLeased({ ...target, charge: live });
-    }
-    throw new ConflictError(
-      `Period of charge ${expired.id} already has a live charge`,
-    );
+    return this.resumeReissued(target, live, retryNumber);
   }
 
   async renew(candidate: RenewalCandidate): Promise<ProcessedCharge | null> {
@@ -189,6 +191,19 @@ export class ChargeProcessor {
       });
     }
     return this.reconcileLeased({ ...target, charge: leased });
+  }
+
+  private async resumeReissued(
+    target: AttemptTarget,
+    reissued: Charge | null,
+    retryNumber: number,
+  ): Promise<ProcessedCharge> {
+    if (reissued?.status === 'pending' && reissued.retryCount === retryNumber) {
+      return this.reconcileLeased({ ...target, charge: reissued });
+    }
+    throw new ConflictError(
+      `Period of charge ${target.charge.id} already has a charge past retry ${retryNumber - 1}`,
+    );
   }
 
   private async reconcileLeased(

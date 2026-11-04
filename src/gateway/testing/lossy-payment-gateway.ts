@@ -6,9 +6,11 @@ import {
   type GatewayCustomer,
 } from '../payment-gateway.port.js';
 import { GatewayOutcomeUnknownError } from '../gateway-outcome-unknown.error.js';
+import { GatewayUnavailableError } from '../gateway-unavailable.error.js';
 
 export class LossyPaymentGateway extends PaymentGateway {
   private responsesToLose = 0;
+  private unavailable = false;
   private afterCharge: () => Promise<void> = () => Promise.resolve();
 
   constructor(private readonly inner: PaymentGateway) {
@@ -17,6 +19,10 @@ export class LossyPaymentGateway extends PaymentGateway {
 
   loseNextResponse(): void {
     this.responsesToLose += 1;
+  }
+
+  setUnavailable(unavailable: boolean): void {
+    this.unavailable = unavailable;
   }
 
   runAfterCharge(hook: () => Promise<void>): void {
@@ -28,6 +34,7 @@ export class LossyPaymentGateway extends PaymentGateway {
   }
 
   async createCharge(input: CreateGatewayCharge): Promise<GatewayCharge> {
+    if (this.unavailable) throw new GatewayUnavailableError('gateway down');
     const charge = await this.inner.createCharge(input);
     await this.afterCharge();
     if (this.responsesToLose > 0) {

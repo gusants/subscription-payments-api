@@ -1,5 +1,6 @@
 import type { DunningFollowUpCutoff } from '../domain/dunning-recovery.js';
 import type { PageWindow } from '../../customers/customer.js';
+import type { Subscription } from '../../subscriptions/subscription.js';
 import type { InMemorySubscriptionsRepository } from '../../subscriptions/testing/in-memory-subscriptions.repository.js';
 import type {
   Charge,
@@ -9,6 +10,11 @@ import type {
 } from '../charge.js';
 import { ChargesRepository } from '../charges.repository.js';
 import type { InMemoryBillingRepository } from './in-memory-billing.repository.js';
+
+const hasPaymentCredentials = ({
+  paymentMethod,
+  cardToken,
+}: Subscription): boolean => paymentMethod !== 'card' || !!cardToken;
 
 const newestFirst = (a: Charge, b: Charge): number =>
   b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id);
@@ -47,20 +53,46 @@ export class InMemoryChargesRepository extends ChargesRepository {
     return Promise.resolve(live ?? null);
   }
 
-  findStalePendingCardCharges(
-    attemptStartedBefore: Date,
-    limit: number,
-  ): Promise<Charge[]> {
-    const stale = this.billing
+  findNewestByPeriod(
+    subscriptionId: string,
+    periodStart: Date,
+  ): Promise<Charge | null> {
+    const [newest] = this.billing
       .charges()
       .filter(
         (charge) =>
-          charge.status === 'pending' &&
-          charge.method === 'card' &&
-          (charge.attemptStartedAt ?? charge.createdAt) < attemptStartedBefore,
+          charge.subscriptionId === subscriptionId &&
+          charge.periodStart.getTime() === periodStart.getTime(),
       )
-      .slice(0, limit);
-    return Promise.resolve(stale);
+      .sort(
+        (a, b) =>
+          b.retryCount - a.retryCount ||
+          b.createdAt.getTime() - a.createdAt.getTime() ||
+          b.id.localeCompare(a.id),
+      );
+    return Promise.resolve(newest ?? null);
+  }
+
+  async findStalePendingCharges(
+    attemptStartedBefore: Date,
+    limit: number,
+  ): Promise<Charge[]> {
+    const stale: Charge[] = [];
+    for (const charge of this.billing.charges()) {
+      const subscription = await this.subscriptions.findById(
+        charge.subscriptionId,
+      );
+      if (
+        charge.status === 'pending' &&
+        (charge.method === 'card' || charge.gatewayChargeId === null) &&
+        (charge.attemptStartedAt ?? charge.createdAt) < attemptStartedBefore &&
+        subscription &&
+        hasPaymentCredentials(subscription)
+      ) {
+        stale.push(charge);
+      }
+    }
+    return stale.slice(0, limit);
   }
 
   async findOverdueDunningFollowUps(
@@ -73,14 +105,13 @@ export class InMemoryChargesRepository extends ChargesRepository {
       const cutoff = cutoffs.find(
         ({ retryCount }) => retryCount === charge.retryCount,
       );
-      const supersededByLiveCharge =
-        charge.status === 'expired' &&
-        all.some(
-          (other) =>
-            other.subscriptionId === charge.subscriptionId &&
-            other.periodStart.getTime() === charge.periodStart.getTime() &&
-            other.status !== 'expired',
-        );
+      const supersededInPeriod = all.some(
+        (other) =>
+          other.id !== charge.id &&
+          other.subscriptionId === charge.subscriptionId &&
+          other.periodStart.getTime() === charge.periodStart.getTime() &&
+          (other.status !== 'expired' || other.retryCount > charge.retryCount),
+      );
       const subscription = await this.subscriptions.findById(
         charge.subscriptionId,
       );
@@ -89,9 +120,10 @@ export class InMemoryChargesRepository extends ChargesRepository {
         charge.firstFailedAt &&
         charge.firstFailedAt < cutoff.failedBefore &&
         (charge.status === 'failed' || charge.status === 'expired') &&
-        !supersededByLiveCharge &&
+        !supersededInPeriod &&
         subscription &&
-        subscription.status !== 'canceled'
+        subscription.status !== 'canceled' &&
+        hasPaymentCredentials(subscription)
       ) {
         overdue.push({ charge, subscription });
       }
