@@ -305,6 +305,7 @@ describe('SubscriptionsService', () => {
               fromAnyOf: ['incomplete'],
               to: 'canceled',
               canceledAt: startedAt,
+              cancelReason: 'customer_request',
             },
           );
           return original(input);

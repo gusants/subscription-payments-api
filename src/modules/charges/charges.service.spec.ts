@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { statusChangeTo } from '../subscriptions/testing/status-change-to.js';
 import { StubPaymentGateway } from '../../gateway/testing/stub-payment-gateway.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import {
@@ -131,10 +132,10 @@ describe('ChargesService', () => {
       });
     }
     if (subscriptionStatus !== 'past_due') {
-      await subscriptions.changeStatus(subscriptionId, {
-        fromAnyOf: ['past_due'],
-        to: subscriptionStatus,
-      });
+      await subscriptions.changeStatus(
+        subscriptionId,
+        statusChangeTo('past_due', subscriptionStatus),
+      );
     }
     return { subscriptionId, chargeId };
   }

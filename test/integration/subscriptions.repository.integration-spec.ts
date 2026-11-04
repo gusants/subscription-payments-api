@@ -161,6 +161,7 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
         fromAnyOf: ['incomplete', 'active', 'past_due'],
         to: 'canceled',
         canceledAt: new Date('2026-02-10T12:00:00.000Z'),
+        cancelReason: 'customer_request',
       });
 
       expect(changed).toMatchObject({ status: 'canceled' });
@@ -191,6 +192,7 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
         fromAnyOf: ['active'],
         to: 'canceled',
         canceledAt: new Date(),
+        cancelReason: 'customer_request',
       });
 
       expect(changed).toBeNull();
@@ -212,6 +214,7 @@ describe('PrismaSubscriptionsRepository (integration)', () => {
         fromAnyOf: ['incomplete'],
         to: 'canceled',
         canceledAt: new Date(),
+        cancelReason: 'customer_request',
       } as const;
 
       const results = await Promise.all([

@@ -39,9 +39,20 @@ export interface BillingPeriod {
   end: Date;
 }
 
-export interface StatusChange {
+interface StatusChangeBase {
   fromAnyOf: readonly SubscriptionStatus[];
-  to: SubscriptionStatus;
-  canceledAt?: Date;
-  cancelReason?: CancelReason;
 }
+
+export interface CancelingStatusChange extends StatusChangeBase {
+  to: 'canceled';
+  canceledAt: Date;
+  cancelReason: CancelReason;
+}
+
+export interface NonCancelingStatusChange extends StatusChangeBase {
+  to: Exclude<SubscriptionStatus, 'canceled'>;
+  canceledAt?: undefined;
+  cancelReason?: undefined;
+}
+
+export type StatusChange = CancelingStatusChange | NonCancelingStatusChange;

@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { statusChangeTo } from '../subscriptions/testing/status-change-to.js';
 import type {
   GatewayChargeJson,
   GatewayWebhookPayload,
@@ -91,10 +92,10 @@ describe('WebhookEventProcessor', () => {
       },
     );
     if (subscriptionStatus !== 'incomplete') {
-      await subscriptions.changeStatus('sub_1', {
-        fromAnyOf: ['incomplete'],
-        to: subscriptionStatus,
-      });
+      await subscriptions.changeStatus(
+        'sub_1',
+        statusChangeTo('incomplete', subscriptionStatus),
+      );
     }
   }
 

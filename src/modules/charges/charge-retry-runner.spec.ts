@@ -163,6 +163,8 @@ describe('ChargeRetryRunner', () => {
     await subscriptions.changeStatus('sub_1', {
       fromAnyOf: ['past_due'],
       to: 'canceled',
+      canceledAt: new Date(),
+      cancelReason: 'customer_request',
     });
 
     await expect(

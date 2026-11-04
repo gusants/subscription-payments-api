@@ -349,6 +349,7 @@ describe('ChargeProcessor', () => {
         fromAnyOf: ['incomplete'],
         to: 'canceled',
         canceledAt: periodStart,
+        cancelReason: 'customer_request',
       });
 
       const processed = await processor.process(target);
@@ -499,6 +500,8 @@ describe('ChargeProcessor', () => {
       await subscriptions.changeStatus('sub_1', {
         fromAnyOf: ['past_due'],
         to: 'canceled',
+        canceledAt: new Date(),
+        cancelReason: 'customer_request',
       });
 
       await expect(processor.retry(failed, 1)).rejects.toBeInstanceOf(
@@ -1094,6 +1097,8 @@ describe('ChargeProcessor', () => {
         await subscriptions.changeStatus('sub_1', {
           fromAnyOf: ['past_due'],
           to: 'canceled',
+          canceledAt: new Date(),
+          cancelReason: 'customer_request',
         });
 
         await expect(processor.reissue(expired, 1)).rejects.toBeInstanceOf(
@@ -1119,6 +1124,7 @@ describe('ChargeProcessor', () => {
         fromAnyOf: ['incomplete'],
         to: 'canceled',
         canceledAt: periodStart,
+        cancelReason: 'customer_request',
       });
       clock.set(afterLease);
       return storedCharge();

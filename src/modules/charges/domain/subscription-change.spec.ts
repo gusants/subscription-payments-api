@@ -32,4 +32,12 @@ describe('subscriptionChange', () => {
       subscriptionChange({ status: 'canceled' }, 'active', now),
     ).toBeNull();
   });
+
+  it('does not compile a cancellation without a reason', () => {
+    const cancelWithoutReason = () =>
+      // @ts-expect-error a cancellation must say why
+      subscriptionChange({ status: 'active' }, 'canceled', now);
+
+    expect(cancelWithoutReason).toThrow(TypeError);
+  });
 });

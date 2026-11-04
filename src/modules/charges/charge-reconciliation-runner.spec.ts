@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { statusChangeTo } from '../subscriptions/testing/status-change-to.js';
 import {
   GatewayOutcomeUnknownError,
   GatewayUnavailableError,
@@ -112,10 +113,10 @@ describe('ChargeReconciliationRunner', () => {
       },
     );
     if (overrides.subscriptionStatus) {
-      await subscriptions.changeStatus(`sub_${id}`, {
-        fromAnyOf: ['incomplete'],
-        to: overrides.subscriptionStatus,
-      });
+      await subscriptions.changeStatus(
+        `sub_${id}`,
+        statusChangeTo('incomplete', overrides.subscriptionStatus),
+      );
     }
   }
 
@@ -332,6 +333,8 @@ describe('ChargeReconciliationRunner', () => {
       await subscriptions.changeStatus('sub_ch_1', {
         fromAnyOf: ['past_due'],
         to: 'canceled',
+        canceledAt: new Date(),
+        cancelReason: 'customer_request',
       });
       clock.set(new Date(startedAt.getTime() + 2 * dayMs));
 
