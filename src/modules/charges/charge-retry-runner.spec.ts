@@ -8,6 +8,8 @@ import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import { RecordingBillingQueue } from '../billing-queue/testing/recording-billing-queue.js';
 import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
+import { runWithCorrelationId } from '../../shared/correlation/index.js';
+import { correlationIdsSeenBy } from '../../shared/correlation/testing/correlation-ids-seen-by.js';
 import { ChargeRetryRunner } from './charge-retry-runner.js';
 import { buildChargeProcessor } from './testing/build-charge-processor.js';
 import { InMemoryBillingRepository } from './testing/in-memory-billing.repository.js';
@@ -69,6 +71,7 @@ describe('ChargeRetryRunner', () => {
       },
       {
         id: 'ch_1',
+        correlationId: 'cor_test_journey',
         subscriptionId: 'sub_1',
         amountCents: 1990,
         method,
@@ -305,6 +308,29 @@ describe('ChargeRetryRunner', () => {
           gateway.chargesRequested.map(({ idempotencyKey }) => idempotencyKey),
         ).size,
       ).toBe(1);
+    });
+  });
+
+  describe('correlation', () => {
+    it('retries within the correlation id of the charge', async () => {
+      await seedFailedCharge();
+      const seen = correlationIdsSeenBy(gateway, 'createCharge');
+
+      await runWithCorrelationId('cor_job_context', () =>
+        runner.run({ chargeId: 'ch_1', attempt: 1 }),
+      );
+
+      expect(seen).toEqual(['cor_test_journey']);
+    });
+
+    it('carries the correlation id of the expired charge to its reissue', async () => {
+      await seedFailedCharge('pix');
+
+      await runner.run({ chargeId: 'ch_1', attempt: 1 });
+
+      expect(
+        billing.charges().map(({ correlationId }) => correlationId),
+      ).toEqual(['cor_test_journey', 'cor_test_journey']);
     });
   });
 });

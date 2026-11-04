@@ -4,6 +4,7 @@ import {
   PaymentGateway,
 } from '../../gateway/index.js';
 import { Clock } from '../../shared/clock/index.js';
+import { currentOrNewCorrelationId } from '../../shared/correlation/index.js';
 import {
   ConflictError,
   NotFoundError,
@@ -137,6 +138,7 @@ export class SubscriptionsService {
     const { subscription, charge } =
       await this.billing.createSubscriptionWithFirstCharge(newSubscription, {
         id: chargeId,
+        correlationId: currentOrNewCorrelationId(),
         subscriptionId: newSubscription.id,
         amountCents: plan.amountCents,
         method: input.paymentMethod,

@@ -16,6 +16,7 @@ import { InMemoryBillingRepository } from '../charges/testing/in-memory-billing.
 import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
 import type { PlanInterval } from '../plans/plan.js';
 import { InMemoryPlansRepository } from '../plans/testing/in-memory-plans.repository.js';
+import { runWithCorrelationId } from '../../shared/correlation/index.js';
 import { InvalidTransitionError } from './domain/index.js';
 import {
   SubscriptionsService,
@@ -554,6 +555,26 @@ describe('SubscriptionsService', () => {
       await expect(service.cancel(subscription.id)).rejects.toBeInstanceOf(
         ConflictError,
       );
+    });
+  });
+
+  describe('correlation', () => {
+    it('records the correlation id of the request on the first charge', async () => {
+      await seed();
+
+      await runWithCorrelationId('cor_request_0001', () =>
+        service.create(cardInput),
+      );
+
+      expect(billing.charges()[0]?.correlationId).toBe('cor_request_0001');
+    });
+
+    it('generates a correlation id for a charge created outside any context', async () => {
+      await seed();
+
+      await service.create(cardInput);
+
+      expect(billing.charges()[0]?.correlationId).toMatch(/^cor_/);
     });
   });
 });

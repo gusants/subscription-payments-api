@@ -9,4 +9,6 @@ export abstract class WebhookEventsRepository {
     event: IncomingWebhookEvent,
     decide: WebhookDecider,
   ): Promise<WebhookIngestion>;
+
+  abstract findChargeCorrelationId(chargeId: string): Promise<string | null>;
 }

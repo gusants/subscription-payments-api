@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DomainError } from '../../shared/errors/index.js';
-import type { Charge } from './charge.js';
+import type { Charge, ChargeWithSubscription } from './charge.js';
+import { runWithinChargeCorrelation } from './charge-correlation.js';
 import { ChargeProcessor, type ProcessedCharge } from './charge-processor.js';
 import { ChargesRepository } from './charges.repository.js';
 import { dunningRetryKind, type DunningRetryKind } from './domain/index.js';
@@ -27,6 +28,16 @@ export class ChargeRetryRunner {
       );
       return;
     }
+    await runWithinChargeCorrelation(found.charge, () =>
+      this.runFound(found, attempt),
+    );
+  }
+
+  private async runFound(
+    found: ChargeWithSubscription,
+    attempt: number,
+  ): Promise<void> {
+    const chargeId = found.charge.id;
     const kind = dunningRetryKind(found.charge, attempt);
     if (!kind) {
       this.logger.log(

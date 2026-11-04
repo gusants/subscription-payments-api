@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Clock } from '../../shared/clock/index.js';
 import type { RetryIntervalUnit } from './domain/retry-schedule.js';
 import type { Charge, ChargeWithSubscription } from './charge.js';
+import { runWithinChargeCorrelation } from './charge-correlation.js';
 import { ChargeDunning } from './charge-dunning.js';
 import {
   RECONCILIATION_BATCH_SIZE,
@@ -46,9 +47,16 @@ export class ChargeReconciliationRunner {
     );
     let checked = 0;
     for (const charge of stale) {
-      if (await this.reconcile(charge)) checked += 1;
+      const reconciled = await runWithinChargeCorrelation(charge, () =>
+        this.reconcile(charge),
+      );
+      if (reconciled) checked += 1;
     }
-    for (const found of followUps) await this.recoverFollowUp(found);
+    for (const found of followUps) {
+      await runWithinChargeCorrelation(found.charge, () =>
+        this.recoverFollowUp(found),
+      );
+    }
     return {
       stalePending: stale.length,
       checked,

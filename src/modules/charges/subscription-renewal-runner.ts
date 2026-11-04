@@ -1,5 +1,9 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Clock } from '../../shared/clock/index.js';
+import {
+  generateCorrelationId,
+  runWithCorrelationId,
+} from '../../shared/correlation/index.js';
 import type { RenewalCandidate } from './charge.js';
 import { ChargeProcessor } from './charge-processor.js';
 import { RENEWAL_BATCH_SIZE } from './renewal-batch-size.js';
@@ -34,7 +38,9 @@ export class SubscriptionRenewalRunner {
       failed: 0,
     };
     for (const candidate of due) {
-      const result = await this.renew(candidate);
+      const result = await runWithCorrelationId(generateCorrelationId(), () =>
+        this.renew(candidate),
+      );
       summary[result] += 1;
     }
     return summary;

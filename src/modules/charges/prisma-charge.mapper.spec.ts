@@ -20,6 +20,7 @@ const row = (overrides: Partial<ChargeRow> = {}): ChargeRow => ({
   paidAt: null,
   expiresAt: null,
   paymentInstructions: null,
+  correlationId: null,
   createdAt: new Date('2026-01-31T00:00:00.000Z'),
   updatedAt: new Date('2026-01-31T00:00:00.000Z'),
   ...overrides,

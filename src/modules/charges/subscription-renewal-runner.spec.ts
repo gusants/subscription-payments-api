@@ -6,6 +6,8 @@ import { InMemoryCustomersRepository } from '../customers/testing/in-memory-cust
 import type { Subscription } from '../subscriptions/subscription.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
 import type { RenewalCandidate } from './charge.js';
+import { runWithCorrelationId } from '../../shared/correlation/index.js';
+import { correlationIdsSeenBy } from '../../shared/correlation/testing/correlation-ids-seen-by.js';
 import { SubscriptionRenewalRunner } from './subscription-renewal-runner.js';
 import { buildChargeProcessor } from './testing/build-charge-processor.js';
 import { InMemoryBillingRepository } from './testing/in-memory-billing.repository.js';
@@ -77,6 +79,7 @@ describe('SubscriptionRenewalRunner', () => {
       },
       {
         id: `ch_first_${id}`,
+        correlationId: 'cor_test_journey',
         subscriptionId: id,
         amountCents: 1990,
         method,
@@ -236,5 +239,27 @@ describe('SubscriptionRenewalRunner', () => {
     const summary = await runner.run();
 
     expect(summary).toMatchObject({ renewed: 1, awaitingReconciliation: 0 });
+  });
+
+  it('renews every subscription within a fresh correlation id that its charge keeps', async () => {
+    await seedSubscription('sub_1');
+    await seedSubscription('sub_2');
+    const seen = correlationIdsSeenBy(gateway, 'createCharge');
+
+    await runWithCorrelationId('cor_run_context', () => runner.run());
+
+    const renewalIds = billing
+      .charges()
+      .filter(
+        ({ periodStart }) => periodStart.getTime() === firstPeriodEnd.getTime(),
+      )
+      .map(({ correlationId }) => correlationId);
+    expect(seen).toEqual(renewalIds);
+    expect(new Set(renewalIds).size).toBe(2);
+    expect(renewalIds).toEqual([
+      expect.stringMatching(/^cor_/),
+      expect.stringMatching(/^cor_/),
+    ]);
+    expect(renewalIds).not.toContain('cor_run_context');
   });
 });

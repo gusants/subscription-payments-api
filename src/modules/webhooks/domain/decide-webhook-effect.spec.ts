@@ -36,6 +36,7 @@ describe('decideWebhookEffect', () => {
     paidAt: null,
     expiresAt: null,
     paymentInstructions: null,
+    correlationId: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,

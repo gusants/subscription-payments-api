@@ -3,7 +3,12 @@ import type {
   Subscription,
 } from '../../subscriptions/subscription.js';
 import { computePeriodEnd } from '../../subscriptions/domain/index.js';
-import type { Charge, NewCharge, RenewalCandidate } from '../charge.js';
+import type {
+  Charge,
+  NewCharge,
+  NewChargeIdentity,
+  RenewalCandidate,
+} from '../charge.js';
 import { nextGatewayAttempt } from './gateway-attempt.js';
 
 export function nextBillingPeriod(
@@ -21,12 +26,13 @@ export function nextBillingPeriod(
 
 export function newRenewalCharge(
   { subscription, plan }: RenewalCandidate,
-  id: string,
+  { id, correlationId }: NewChargeIdentity,
   startedAt: Date,
 ): NewCharge {
   const period = nextBillingPeriod(subscription, plan.interval);
   return {
     id,
+    correlationId,
     subscriptionId: subscription.id,
     amountCents: plan.amountCents,
     method: subscription.paymentMethod,

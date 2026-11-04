@@ -9,6 +9,8 @@ import { RecordingBillingQueue } from '../billing-queue/testing/recording-billin
 import { InMemoryCustomersRepository } from '../customers/testing/in-memory-customers.repository.js';
 import type { Subscription } from '../subscriptions/subscription.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
+import { runWithCorrelationId } from '../../shared/correlation/index.js';
+import { correlationIdsSeenBy } from '../../shared/correlation/testing/correlation-ids-seen-by.js';
 import { ChargeReconciliationRunner } from './charge-reconciliation-runner.js';
 import {
   buildChargeDunning,
@@ -75,6 +77,7 @@ describe('ChargeReconciliationRunner', () => {
       subscriptionStatus?: Subscription['status'];
       customerId?: string;
       cardToken?: string | null;
+      correlationId?: string;
     } = {},
   ) {
     const method = overrides.method ?? 'card';
@@ -97,6 +100,7 @@ describe('ChargeReconciliationRunner', () => {
       },
       {
         id,
+        correlationId: overrides.correlationId ?? 'cor_test_journey',
         subscriptionId: `sub_${id}`,
         amountCents: 1990,
         method,
@@ -323,5 +327,16 @@ describe('ChargeReconciliationRunner', () => {
 
       expect((await runner.run()).dunningFollowUps).toBe(0);
     });
+  });
+
+  it('reconciles every charge within its own correlation id', async () => {
+    await seedCharge('ch_1');
+    await seedCharge('ch_2', { correlationId: 'cor_other_journey' });
+    clock.set(new Date(startedAt.getTime() + staleAfterMs + 1));
+    const seen = correlationIdsSeenBy(gateway, 'createCharge');
+
+    await runWithCorrelationId('cor_sweep_context', () => runner.run());
+
+    expect(seen).toEqual(['cor_test_journey', 'cor_other_journey']);
   });
 });

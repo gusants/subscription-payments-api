@@ -74,6 +74,7 @@ describe('PrismaRenewalsRepository (integration)', () => {
       },
       {
         id: chargeId,
+        correlationId: 'cor_test_journey',
         subscriptionId: id,
         amountCents: 1990,
         method: 'card',

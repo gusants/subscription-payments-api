@@ -30,6 +30,7 @@ export interface Charge {
   paidAt: Date | null;
   expiresAt: Date | null;
   paymentInstructions: PaymentInstructions | null;
+  correlationId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -50,7 +51,13 @@ export type NewCharge = Pick<
   | 'periodEnd'
 > &
   GatewayAttempt &
+  NewChargeIdentity &
   Partial<Pick<Charge, 'retryCount' | 'firstFailedAt'>>;
+
+export interface NewChargeIdentity {
+  id: string;
+  correlationId: string;
+}
 
 export interface PaymentAttempt {
   id: string;

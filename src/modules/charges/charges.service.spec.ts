@@ -10,6 +10,8 @@ import { InMemoryCustomersRepository } from '../customers/testing/in-memory-cust
 import type { SubscriptionStatus } from '../subscriptions/subscription-status.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
 import type { ChargeStatus } from './charge-status.js';
+import { runWithCorrelationId } from '../../shared/correlation/index.js';
+import { correlationIdsSeenBy } from '../../shared/correlation/testing/correlation-ids-seen-by.js';
 import { ChargesService } from './charges.service.js';
 import { InvalidTransitionError } from '../subscriptions/domain/index.js';
 import { InvalidChargeTransitionError } from './domain/index.js';
@@ -90,6 +92,7 @@ describe('ChargesService', () => {
       },
       {
         id: chargeId,
+        correlationId: 'cor_test_journey',
         subscriptionId,
         amountCents: 1990,
         method: 'card',
@@ -295,6 +298,7 @@ describe('ChargesService', () => {
       await expire(chargeId, subscriptionId);
       await billing.createPeriodCharge({
         id: 'ch_newer',
+        correlationId: 'cor_test_journey',
         subscriptionId,
         amountCents: 1990,
         method: 'card',
@@ -361,6 +365,32 @@ describe('ChargesService', () => {
 
       await expect(service.retry('ch_1')).rejects.toBeInstanceOf(ConflictError);
       expect(gateway.chargesRequested).toEqual([]);
+    });
+  });
+
+  describe('correlation', () => {
+    it('reconciles a pending charge within its correlation id and links the request to it', async () => {
+      await seedCustomer();
+      await seedCharge({
+        chargeStatus: 'pending',
+        subscriptionStatus: 'incomplete',
+      });
+      const log = vi
+        .spyOn(Logger.prototype, 'log')
+        .mockImplementation(() => undefined);
+      const seen = correlationIdsSeenBy(gateway, 'createCharge');
+
+      await runWithCorrelationId('cor_request_0001', () =>
+        service.retry('ch_1'),
+      );
+
+      expect(seen).toEqual(['cor_test_journey']);
+      expect(log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chargeId: 'ch_1',
+          requestCorrelationId: 'cor_request_0001',
+        }),
+      );
     });
   });
 });

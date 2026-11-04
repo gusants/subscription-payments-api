@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { GatewayWebhookPayload } from '../../gateway/index.js';
 import { Clock } from '../../shared/clock/index.js';
+import { currentCorrelationId } from '../../shared/correlation/index.js';
 import { generateId, ID_PREFIXES } from '../../shared/ids/index.js';
+import { runWithinChargeCorrelation } from '../charges/charge-correlation.js';
 import { ChargeDunning } from '../charges/charge-dunning.js';
 import { decideWebhookEffect } from './domain/decide-webhook-effect.js';
 import type { WebhookIngestion } from './webhook-event.js';
@@ -18,6 +20,33 @@ export class WebhookEventProcessor {
   ) {}
 
   async process(payload: GatewayWebhookPayload): Promise<WebhookIngestion> {
+    const requestCorrelationId = currentCorrelationId();
+    const correlationId = await this.events.findChargeCorrelationId(
+      payload.data.charge.externalRef,
+    );
+    return runWithinChargeCorrelation({ correlationId }, () => {
+      this.logReceived(payload, requestCorrelationId);
+      return this.ingest(payload);
+    });
+  }
+
+  private logReceived(
+    { id, type, data }: GatewayWebhookPayload,
+    requestCorrelationId: string | undefined,
+  ): void {
+    this.logger.log({
+      msg: `Webhook event ${id} (${type}) received for charge ${data.charge.externalRef}`,
+      gatewayEventId: id,
+      eventType: type,
+      chargeId: data.charge.externalRef,
+      gatewayChargeId: data.charge.id,
+      requestCorrelationId,
+    });
+  }
+
+  private async ingest(
+    payload: GatewayWebhookPayload,
+  ): Promise<WebhookIngestion> {
     const now = this.clock.now();
     const { charge } = payload.data;
     const ingestion = await this.events.ingest(

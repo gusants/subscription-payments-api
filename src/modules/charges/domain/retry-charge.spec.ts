@@ -21,6 +21,7 @@ describe('newRetryCharge', () => {
     paidAt: null,
     expiresAt: new Date('2026-03-02T10:00:00.000Z'),
     paymentInstructions: null,
+    correlationId: 'cor_journey',
     createdAt: new Date('2026-03-01T10:00:00.000Z'),
     updatedAt: new Date('2026-03-02T10:00:00.000Z'),
   };
@@ -28,8 +29,16 @@ describe('newRetryCharge', () => {
   it('covers the same period and amount with a fresh attempt and carries the dunning state', () => {
     const startedAt = new Date('2026-03-05T10:00:00.000Z');
 
-    expect(newRetryCharge(expired, 2, 'ch_new', startedAt)).toEqual({
+    expect(
+      newRetryCharge(
+        expired,
+        2,
+        { id: 'ch_new', correlationId: 'cor_current' },
+        startedAt,
+      ),
+    ).toEqual({
       id: 'ch_new',
+      correlationId: 'cor_journey',
       subscriptionId: 'sub_1',
       amountCents: 1990,
       method: 'pix',
@@ -41,5 +50,16 @@ describe('newRetryCharge', () => {
       gatewayAttemptKey: 'ch_new:1',
       attemptStartedAt: startedAt,
     });
+  });
+
+  it('starts from the given correlation id when the expired charge predates it', () => {
+    const reissued = newRetryCharge(
+      { ...expired, correlationId: null },
+      2,
+      { id: 'ch_new', correlationId: 'cor_current' },
+      new Date('2026-03-05T10:00:00.000Z'),
+    );
+
+    expect(reissued.correlationId).toBe('cor_current');
   });
 });

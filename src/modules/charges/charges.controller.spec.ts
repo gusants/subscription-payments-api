@@ -39,6 +39,7 @@ describe('ChargesController', () => {
       },
       {
         id: 'ch_1',
+        correlationId: 'cor_test_journey',
         subscriptionId: 'sub_1',
         amountCents: 1990,
         method: 'card',

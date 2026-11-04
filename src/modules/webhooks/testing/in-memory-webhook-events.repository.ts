@@ -48,6 +48,11 @@ export class InMemoryWebhookEventsRepository extends WebhookEventsRepository {
     return toProcessedIngestion(decision, recorded);
   }
 
+  findChargeCorrelationId(chargeId: string): Promise<string | null> {
+    const charge = this.billing.charges().find(({ id }) => id === chargeId);
+    return Promise.resolve(charge?.correlationId ?? null);
+  }
+
   events(): StoredWebhookEvent[] {
     return [...this.stored.values()];
   }

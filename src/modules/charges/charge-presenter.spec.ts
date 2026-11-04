@@ -78,6 +78,7 @@ describe('toChargeHistoryItemResponse', () => {
       paidAt: null,
       expiresAt: null,
       paymentInstructions: null,
+      correlationId: 'cor_test_journey',
       createdAt: at,
       updatedAt: at,
       attempts: [

@@ -90,6 +90,7 @@ describe('ChargeProcessor', () => {
         },
         {
           id: 'ch_1',
+          correlationId: 'cor_test_journey',
           subscriptionId: 'sub_1',
           amountCents: 1990,
           method,
@@ -520,6 +521,7 @@ describe('ChargeProcessor', () => {
         },
         {
           id: 'ch_9',
+          correlationId: 'cor_test_journey',
           subscriptionId: 'sub_2',
           amountCents: 1990,
           method: 'card',

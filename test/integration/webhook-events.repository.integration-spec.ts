@@ -79,6 +79,7 @@ describe('PrismaWebhookEventsRepository (integration)', () => {
     };
     const charge: NewCharge = {
       id: generateId(ID_PREFIXES.charge),
+      correlationId: 'cor_test_journey',
       subscriptionId: subscription.id,
       amountCents: 1990,
       method: 'pix',
@@ -413,5 +414,14 @@ describe('PrismaWebhookEventsRepository (integration)', () => {
 
     expect(await prisma.webhookEvent.count()).toBe(0);
     expect((await chargeRow()).status).toBe('pending');
+  });
+
+  it('finds the correlation id recorded on a charge', async () => {
+    await expect(repository.findChargeCorrelationId(chargeId)).resolves.toBe(
+      'cor_test_journey',
+    );
+    await expect(
+      repository.findChargeCorrelationId('ch_unknown'),
+    ).resolves.toBeNull();
   });
 });

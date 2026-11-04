@@ -13,6 +13,8 @@ import type { SubscriptionStatus } from '../subscriptions/subscription-status.js
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
 import { InMemoryWebhookEventsRepository } from './testing/in-memory-webhook-events.repository.js';
 import { WebhookEventProcessor } from './webhook-event.processor.js';
+import { runWithCorrelationId } from '../../shared/correlation/index.js';
+import { correlationIdsSeenBy } from '../../shared/correlation/testing/correlation-ids-seen-by.js';
 
 describe('WebhookEventProcessor', () => {
   const periodStart = new Date('2026-03-01T10:00:00.000Z');
@@ -73,6 +75,7 @@ describe('WebhookEventProcessor', () => {
       },
       {
         id: 'ch_1',
+        correlationId: 'cor_test_journey',
         subscriptionId: 'sub_1',
         amountCents: 1990,
         method: 'pix',
@@ -462,5 +465,39 @@ describe('WebhookEventProcessor', () => {
       processor.process(event('charge.failed', {}, 'evt_failed')),
     ).resolves.toEqual({ kind: 'processed', outcome: 'rejected_out_of_order' });
     expect(error).not.toHaveBeenCalled();
+  });
+
+  describe('correlation', () => {
+    it('processes the event within the correlation id of its charge and logs the event id', async () => {
+      await seed('active');
+      const log = vi
+        .spyOn(Logger.prototype, 'log')
+        .mockImplementation(() => undefined);
+      const seen = correlationIdsSeenBy(queue, 'scheduleRetry');
+
+      await runWithCorrelationId('cor_webhook_request', () =>
+        processor.process(event('charge.failed')),
+      );
+
+      expect(seen).toEqual(['cor_test_journey']);
+      expect(log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          gatewayEventId: 'evt_1',
+          chargeId: 'ch_1',
+          requestCorrelationId: 'cor_webhook_request',
+        }),
+      );
+    });
+
+    it('stays within the request correlation id for an unknown charge', async () => {
+      await seed();
+      const seen = correlationIdsSeenBy(events, 'ingest');
+
+      await runWithCorrelationId('cor_webhook_request', () =>
+        processor.process(event('charge.paid', { externalRef: 'ch_unknown' })),
+      );
+
+      expect(seen).toEqual(['cor_webhook_request']);
+    });
   });
 });

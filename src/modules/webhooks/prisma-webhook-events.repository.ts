@@ -47,6 +47,14 @@ export class PrismaWebhookEventsRepository extends WebhookEventsRepository {
     });
   }
 
+  async findChargeCorrelationId(chargeId: string): Promise<string | null> {
+    const charge = await this.prisma.charge.findUnique({
+      where: { id: chargeId },
+      select: { correlationId: true },
+    });
+    return charge?.correlationId ?? null;
+  }
+
   private async lockTarget(
     tx: Prisma.TransactionClient,
     { chargeId, gatewayChargeId }: IncomingWebhookEvent,

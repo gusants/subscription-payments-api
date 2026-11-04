@@ -1,14 +1,15 @@
-import type { Charge, NewCharge } from '../charge.js';
+import type { Charge, NewCharge, NewChargeIdentity } from '../charge.js';
 import { nextGatewayAttempt } from './gateway-attempt.js';
 
 export function newRetryCharge(
   expired: Charge,
   retryNumber: number,
-  id: string,
+  { id, correlationId }: NewChargeIdentity,
   startedAt: Date,
 ): NewCharge {
   return {
     id,
+    correlationId: expired.correlationId ?? correlationId,
     subscriptionId: expired.subscriptionId,
     amountCents: expired.amountCents,
     method: expired.method,

@@ -8,6 +8,7 @@ import {
   type GatewayFailureReason,
 } from '../../gateway/index.js';
 import { Clock } from '../../shared/clock/index.js';
+import { currentOrNewCorrelationId } from '../../shared/correlation/index.js';
 import {
   ConflictError,
   NotFoundError,
@@ -24,6 +25,7 @@ import { ChargeSettlementConflictError } from './charge-settlement-conflict.erro
 import type {
   Charge,
   ChargeSettlementRecord,
+  NewChargeIdentity,
   RecordedOutcome,
   RenewalCandidate,
 } from './charge.js';
@@ -75,6 +77,11 @@ function isCapturedAgainstSettledCharge(
     (currentStatus === 'expired' || currentStatus === 'paid')
   );
 }
+
+const newChargeIdentity = (): NewChargeIdentity => ({
+  id: generateId(ID_PREFIXES.charge),
+  correlationId: currentOrNewCorrelationId(),
+});
 
 const toChargeResponse = (gatewayCharge: GatewayCharge): AttemptResponse => ({
   kind: 'charge',
@@ -142,7 +149,7 @@ export class ChargeProcessor {
       newRetryCharge(
         expired,
         retryNumber,
-        generateId(ID_PREFIXES.charge),
+        newChargeIdentity(),
         this.clock.now(),
       ),
     );
@@ -159,11 +166,7 @@ export class ChargeProcessor {
     assertBillable(subscription);
     const customer = await this.resolveCustomer(subscription);
     const created = await this.billing.createPeriodCharge(
-      newRenewalCharge(
-        candidate,
-        generateId(ID_PREFIXES.charge),
-        this.clock.now(),
-      ),
+      newRenewalCharge(candidate, newChargeIdentity(), this.clock.now()),
     );
     return created
       ? this.process({ charge: created, subscription, customer })

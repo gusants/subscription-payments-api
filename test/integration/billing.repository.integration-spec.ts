@@ -70,6 +70,7 @@ describe('PrismaBillingRepository (integration)', () => {
     const id = generateId(ID_PREFIXES.charge);
     return {
       id,
+      correlationId: 'cor_test_journey',
       subscriptionId: subscription.id,
       amountCents: 1990,
       method: 'card',

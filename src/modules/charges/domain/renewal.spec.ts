@@ -67,8 +67,15 @@ describe('newRenewalCharge', () => {
   it('bills the plan amount for the next period with a fresh gateway attempt', () => {
     const startedAt = at('2026-03-01T00:00:00.000Z');
 
-    expect(newRenewalCharge(candidate(), 'chg_9', startedAt)).toEqual({
+    expect(
+      newRenewalCharge(
+        candidate(),
+        { id: 'chg_9', correlationId: 'cor_renewal' },
+        startedAt,
+      ),
+    ).toEqual({
       id: 'chg_9',
+      correlationId: 'cor_renewal',
       subscriptionId: 'sub_1',
       amountCents: 1990,
       method: 'card',

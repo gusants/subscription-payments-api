@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { currentCorrelationId } from '../../shared/correlation/index.js';
 import {
   ConflictError,
   NotFoundError,
@@ -14,6 +15,7 @@ import { CustomersRepository } from '../customers/customers.repository.js';
 import { MAX_DUNNING_RETRIES } from './domain/retry-schedule.js';
 import type { Subscription } from '../subscriptions/subscription.js';
 import type { ChargeWithAttempts, ChargeWithSubscription } from './charge.js';
+import { runWithinChargeCorrelation } from './charge-correlation.js';
 import { ChargeDunning } from './charge-dunning.js';
 import { ChargeProcessor } from './charge-processor.js';
 import { ChargesRepository } from './charges.repository.js';
@@ -55,6 +57,21 @@ export class ChargesService {
     if (!found) {
       throw new NotFoundError(`Charge ${id} not found`);
     }
+    const requestCorrelationId = currentCorrelationId();
+    return runWithinChargeCorrelation(found.charge, () => {
+      this.logger.log({
+        msg: `Manual retry of charge ${id} requested`,
+        chargeId: id,
+        requestCorrelationId,
+      });
+      return this.retryFound(found);
+    });
+  }
+
+  private async retryFound(
+    found: ChargeWithSubscription,
+  ): Promise<ChargeRetryResult> {
+    const { id } = found.charge;
     if (found.charge.status === 'pending') {
       const { subscription } = await this.chargeProcessor.reconcile(
         found.charge,
