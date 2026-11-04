@@ -63,9 +63,12 @@ describe('Billing queues (e2e)', () => {
     const app = await start({ WORKERS_ENABLED: 'false' });
     const chargeId = `ch_e2e_${Date.now()}`;
 
-    await app
-      .get(BillingQueue)
-      .scheduleRetry({ chargeId, attempt: 1, delayMs: 3_600_000 });
+    await app.get(BillingQueue).scheduleRetry({
+      chargeId,
+      attempt: 1,
+      correlationId: 'cor_test_journey',
+      delayMs: 3_600_000,
+    });
 
     const queue = app.get<Queue>(getQueueToken('charge-retries'));
     const job = await queue.getJob(`retry:${chargeId}:1`);
@@ -137,9 +140,12 @@ describe('Billing queues (e2e)', () => {
       const app = await startWithWorkers({ WORKERS_ENABLED: 'true' });
       const chargeId = `ch_missing_${Date.now()}`;
 
-      await app
-        .get(BillingQueue)
-        .scheduleRetry({ chargeId, attempt: 1, delayMs: 0 });
+      await app.get(BillingQueue).scheduleRetry({
+        chargeId,
+        attempt: 1,
+        correlationId: 'cor_test_journey',
+        delayMs: 0,
+      });
 
       const queue = app.get<Queue>(getQueueToken('charge-retries'));
       await vi.waitFor(
@@ -155,9 +161,12 @@ describe('Billing queues (e2e)', () => {
       const app = await startWithWorkers({ WORKERS_ENABLED: 'false' });
       const chargeId = `ch_idle_${Date.now()}`;
 
-      await app
-        .get(BillingQueue)
-        .scheduleRetry({ chargeId, attempt: 1, delayMs: 0 });
+      await app.get(BillingQueue).scheduleRetry({
+        chargeId,
+        attempt: 1,
+        correlationId: 'cor_test_journey',
+        delayMs: 0,
+      });
 
       const queue = app.get<Queue>(getQueueToken('charge-retries'));
       await new Promise((resolve) => setTimeout(resolve, 500));

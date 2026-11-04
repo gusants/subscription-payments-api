@@ -204,7 +204,12 @@ describe('ChargeRetryRunner', () => {
     await runner.run({ chargeId: 'ch_1', attempt: 1 });
 
     expect(queue.scheduled()).toEqual([
-      { chargeId: 'ch_1', attempt: 2, delayMs: 2 * dayMs },
+      {
+        chargeId: 'ch_1',
+        attempt: 2,
+        delayMs: 2 * dayMs,
+        correlationId: 'cor_test_journey',
+      },
     ]);
   });
 
@@ -264,7 +269,12 @@ describe('ChargeRetryRunner', () => {
         retryCount: 1,
       });
       expect(queue.scheduled()).toEqual([
-        { chargeId: 'ch_1', attempt: 2, delayMs: 2 * dayMs },
+        {
+          chargeId: 'ch_1',
+          attempt: 2,
+          delayMs: 2 * dayMs,
+          correlationId: 'cor_test_journey',
+        },
       ]);
     });
 

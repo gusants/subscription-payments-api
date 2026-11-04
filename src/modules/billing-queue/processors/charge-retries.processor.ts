@@ -7,7 +7,9 @@ import type { ChargeRetryJobData } from '../bullmq-billing-queue.js';
 export class ChargeRetriesProcessor {
   constructor(private readonly runner: ChargeRetryRunner) {}
 
-  async process({ data }: Job<ChargeRetryJobData>): Promise<void> {
-    await this.runner.run(data);
+  async process({
+    data: { chargeId, attempt },
+  }: Job<ChargeRetryJobData>): Promise<void> {
+    await this.runner.run({ chargeId, attempt });
   }
 }

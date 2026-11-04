@@ -20,15 +20,30 @@ describe('DevRetriesController', () => {
   });
 
   it('reports how many delayed retries were promoted', async () => {
-    await queue.scheduleRetry({ chargeId: 'ch_1', attempt: 1, delayMs: 1000 });
-    await queue.scheduleRetry({ chargeId: 'ch_2', attempt: 1, delayMs: 5000 });
+    await queue.scheduleRetry({
+      chargeId: 'ch_1',
+      attempt: 1,
+      correlationId: 'cor_test_journey',
+      delayMs: 1000,
+    });
+    await queue.scheduleRetry({
+      chargeId: 'ch_2',
+      attempt: 1,
+      correlationId: 'cor_test_journey',
+      delayMs: 5000,
+    });
 
     expect(await controller.runNow()).toEqual({ promoted: 2 });
     expect(queue.scheduled().every(({ delayMs }) => delayMs === 0)).toBe(true);
   });
 
   it('reports zero when nothing is delayed', async () => {
-    await queue.scheduleRetry({ chargeId: 'ch_1', attempt: 1, delayMs: 0 });
+    await queue.scheduleRetry({
+      chargeId: 'ch_1',
+      attempt: 1,
+      correlationId: 'cor_test_journey',
+      delayMs: 0,
+    });
 
     expect(await controller.runNow()).toEqual({ promoted: 0 });
   });

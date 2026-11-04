@@ -284,7 +284,12 @@ describe('WebhookEventProcessor', () => {
 
       expect(chargeNow().firstFailedAt).toEqual(now);
       expect(queue.scheduled()).toEqual([
-        { chargeId: 'ch_1', attempt: 1, delayMs: dayMs },
+        {
+          chargeId: 'ch_1',
+          attempt: 1,
+          delayMs: dayMs,
+          correlationId: 'cor_test_journey',
+        },
       ]);
     });
 
@@ -294,7 +299,12 @@ describe('WebhookEventProcessor', () => {
       await processor.process(event('charge.expired'));
 
       expect(queue.scheduled()).toEqual([
-        { chargeId: 'ch_1', attempt: 1, delayMs: dayMs },
+        {
+          chargeId: 'ch_1',
+          attempt: 1,
+          delayMs: dayMs,
+          correlationId: 'cor_test_journey',
+        },
       ]);
     });
 

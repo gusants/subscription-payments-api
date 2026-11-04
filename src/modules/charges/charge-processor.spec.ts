@@ -898,7 +898,12 @@ describe('ChargeProcessor', () => {
         firstFailedAt: periodStart,
       });
       expect(queue.scheduled()).toEqual([
-        { chargeId: 'ch_1', attempt: 1, delayMs: dayMs },
+        {
+          chargeId: 'ch_1',
+          attempt: 1,
+          delayMs: dayMs,
+          correlationId: 'cor_test_journey',
+        },
       ]);
     });
 
@@ -985,6 +990,7 @@ describe('ChargeProcessor', () => {
           chargeId: 'ch_1',
           attempt: 1,
           delayMs: dayMs,
+          correlationId: 'cor_test_journey',
         },
       ]);
     });

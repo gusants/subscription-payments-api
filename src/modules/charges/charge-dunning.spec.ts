@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { runWithCorrelationId } from '../../shared/correlation/index.js';
 import { FixedClock } from '../../shared/clock/testing/fixed-clock.js';
 import { RecordingBillingQueue } from '../billing-queue/testing/recording-billing-queue.js';
 import { InMemorySubscriptionsRepository } from '../subscriptions/testing/in-memory-subscriptions.repository.js';
@@ -86,7 +87,12 @@ describe('ChargeDunning', () => {
     await dunning.afterSettlement({ charge, subscription });
 
     expect(queue.scheduled()).toEqual([
-      { chargeId: 'ch_1', attempt: 1, delayMs: dayMs },
+      {
+        chargeId: 'ch_1',
+        attempt: 1,
+        delayMs: dayMs,
+        correlationId: 'cor_test_journey',
+      },
     ]);
   });
 
@@ -148,7 +154,22 @@ describe('ChargeDunning', () => {
     await dunning.requestRetryNow(charge);
 
     expect(queue.scheduled()).toEqual([
-      { chargeId: 'ch_1', attempt: 2, delayMs: 0 },
+      {
+        chargeId: 'ch_1',
+        attempt: 2,
+        delayMs: 0,
+        correlationId: 'cor_test_journey',
+      },
     ]);
+  });
+
+  it('tags the job with the current correlation id for a charge that has none', async () => {
+    const charge = await seedFailedCharge(1);
+
+    await runWithCorrelationId('cor_request_0001', () =>
+      dunning.requestRetryNow({ ...charge, correlationId: null }),
+    );
+
+    expect(queue.scheduled()[0]?.correlationId).toBe('cor_request_0001');
   });
 });

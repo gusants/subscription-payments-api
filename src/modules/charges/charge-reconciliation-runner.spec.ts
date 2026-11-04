@@ -270,7 +270,12 @@ describe('ChargeReconciliationRunner', () => {
 
       expect(summary.dunningFollowUps).toBe(1);
       expect(queue.scheduled()).toEqual([
-        { chargeId: 'ch_1', attempt: 1, delayMs: 0 },
+        {
+          chargeId: 'ch_1',
+          attempt: 1,
+          delayMs: 0,
+          correlationId: 'cor_test_journey',
+        },
       ]);
     });
 
@@ -301,7 +306,12 @@ describe('ChargeReconciliationRunner', () => {
       await runner.run();
 
       expect(queue.scheduled()).toEqual([
-        { chargeId: 'ch_1', attempt: 2, delayMs: 0 },
+        {
+          chargeId: 'ch_1',
+          attempt: 2,
+          delayMs: 0,
+          correlationId: 'cor_test_journey',
+        },
       ]);
     });
 

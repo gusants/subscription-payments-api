@@ -2,6 +2,7 @@ export interface ChargeRetryRequest {
   chargeId: string;
   attempt: number;
   delayMs: number;
+  correlationId: string;
 }
 
 export abstract class BillingQueue {

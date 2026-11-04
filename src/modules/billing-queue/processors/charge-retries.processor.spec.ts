@@ -13,7 +13,9 @@ describe('ChargeRetriesProcessor', () => {
       run,
     } as unknown as ChargeRetryRunner);
 
-    await processor.process(job({ chargeId: 'ch_1', attempt: 2 }));
+    await processor.process(
+      job({ chargeId: 'ch_1', attempt: 2, correlationId: 'cor_test_journey' }),
+    );
 
     expect(run).toHaveBeenCalledWith({ chargeId: 'ch_1', attempt: 2 });
   });
@@ -24,7 +26,13 @@ describe('ChargeRetriesProcessor', () => {
     } as unknown as ChargeRetryRunner);
 
     await expect(
-      processor.process(job({ chargeId: 'ch_1', attempt: 1 })),
+      processor.process(
+        job({
+          chargeId: 'ch_1',
+          attempt: 1,
+          correlationId: 'cor_test_journey',
+        }),
+      ),
     ).rejects.toThrow('boom');
   });
 });

@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Clock } from '../../shared/clock/index.js';
+import { currentOrNewCorrelationId } from '../../shared/correlation/index.js';
 import { BillingQueue } from '../billing-queue/billing-queue.port.js';
 import type { RetryIntervalUnit } from './domain/retry-schedule.js';
 import { BillingRepository } from './billing.repository.js';
@@ -8,6 +9,11 @@ import { DUNNING_INTERVAL_UNIT } from './dunning-interval-unit.js';
 import { dunningStepAfterFailure, type DunningStep } from './domain/index.js';
 
 const NO_DELAY_MS = 0;
+
+const correlationIdOf = ({
+  correlationId,
+}: Pick<Charge, 'correlationId'>): string =>
+  correlationId ?? currentOrNewCorrelationId();
 
 @Injectable()
 export class ChargeDunning {
@@ -41,14 +47,14 @@ export class ChargeDunning {
     }
   }
 
-  requestRetryNow({
-    id,
-    retryCount,
-  }: Pick<Charge, 'id' | 'retryCount'>): Promise<void> {
+  requestRetryNow(
+    charge: Pick<Charge, 'id' | 'retryCount' | 'correlationId'>,
+  ): Promise<void> {
     return this.queue.scheduleRetry({
-      chargeId: id,
-      attempt: retryCount + 1,
+      chargeId: charge.id,
+      attempt: charge.retryCount + 1,
       delayMs: NO_DELAY_MS,
+      correlationId: correlationIdOf(charge),
     });
   }
 
@@ -58,6 +64,7 @@ export class ChargeDunning {
         chargeId: charge.id,
         attempt: step.attempt,
         delayMs: step.delayMs,
+        correlationId: correlationIdOf(charge),
       });
       return false;
     }

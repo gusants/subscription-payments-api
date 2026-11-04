@@ -208,7 +208,12 @@ describe('ChargesService', () => {
 
       expect(queued).toBe(true);
       expect(queue.scheduled()).toEqual([
-        { chargeId: 'ch_1', attempt: 1, delayMs: 0 },
+        {
+          chargeId: 'ch_1',
+          attempt: 1,
+          delayMs: 0,
+          correlationId: 'cor_test_journey',
+        },
       ]);
       expect(charge).toMatchObject({ id: 'ch_1', status: 'failed' });
       expect(subscription).toMatchObject({
@@ -225,7 +230,12 @@ describe('ChargesService', () => {
       await service.retry('ch_1');
 
       expect(queue.scheduled()).toEqual([
-        { chargeId: 'ch_1', attempt: 3, delayMs: 0 },
+        {
+          chargeId: 'ch_1',
+          attempt: 3,
+          delayMs: 0,
+          correlationId: 'cor_test_journey',
+        },
       ]);
     });
 
@@ -289,7 +299,9 @@ describe('ChargesService', () => {
       const result = await service.retry(chargeId);
 
       expect(result.queued).toBe(true);
-      expect(queue.scheduled()).toEqual([{ chargeId, attempt: 1, delayMs: 0 }]);
+      expect(queue.scheduled()).toEqual([
+        { chargeId, attempt: 1, delayMs: 0, correlationId: 'cor_test_journey' },
+      ]);
     });
 
     it('rejects retrying an expired charge a newer charge of its period superseded', async () => {

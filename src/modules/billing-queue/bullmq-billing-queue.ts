@@ -9,10 +9,11 @@ import {
   ENQUEUE_TIMEOUT_MS,
 } from './billing-queue.options.js';
 import { retryJobId } from './domain/retry-job-id.js';
+import type { JobContext } from './job-context.js';
 
 export const CHARGE_RETRY_JOB_NAME = 'charge-retry';
 
-export interface ChargeRetryJobData {
+export interface ChargeRetryJobData extends JobContext {
   chargeId: string;
   attempt: number;
 }
@@ -47,9 +48,10 @@ export class BullMqBillingQueue extends BillingQueue {
     chargeId,
     attempt,
     delayMs,
+    correlationId,
   }: ChargeRetryRequest): Promise<void> {
     return withTimeout(
-      this.enqueue(chargeId, attempt, delayMs),
+      this.enqueue({ chargeId, attempt, correlationId }, delayMs),
       ENQUEUE_TIMEOUT_MS,
     );
   }
@@ -61,17 +63,16 @@ export class BullMqBillingQueue extends BillingQueue {
   }
 
   private async enqueue(
-    chargeId: string,
-    attempt: number,
+    data: ChargeRetryJobData,
     delayMs: number,
   ): Promise<void> {
-    const jobId = retryJobId(chargeId, attempt);
+    const jobId = retryJobId(data.chargeId, data.attempt);
     await this.discardCompletedJob(jobId);
-    const job = await this.chargeRetries.add(
-      CHARGE_RETRY_JOB_NAME,
-      { chargeId, attempt },
-      { ...CHARGE_RETRY_JOB_OPTIONS, jobId, delay: delayMs },
-    );
+    const job = await this.chargeRetries.add(CHARGE_RETRY_JOB_NAME, data, {
+      ...CHARGE_RETRY_JOB_OPTIONS,
+      jobId,
+      delay: delayMs,
+    });
     if (await job.isFailed()) {
       await rerunIfStillFailed(job);
     } else if (delayMs === 0 && (await job.isDelayed())) {

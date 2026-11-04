@@ -131,8 +131,18 @@ describe('Billing queues end to end (e2e)', () => {
     const queue = app.get(BillingQueue);
 
     await Promise.all([
-      queue.scheduleRetry({ chargeId, attempt: 1, delayMs: 86_400_000 }),
-      queue.scheduleRetry({ chargeId, attempt: 1, delayMs: 0 }),
+      queue.scheduleRetry({
+        chargeId,
+        attempt: 1,
+        correlationId: 'cor_test_journey',
+        delayMs: 86_400_000,
+      }),
+      queue.scheduleRetry({
+        chargeId,
+        attempt: 1,
+        correlationId: 'cor_test_journey',
+        delayMs: 0,
+      }),
     ]);
 
     const jobs = await retryJobsOf(chargeId);

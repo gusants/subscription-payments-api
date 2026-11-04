@@ -48,13 +48,18 @@ describe('BullMqBillingQueue (integration)', () => {
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
+      correlationId: 'cor_test_journey',
       delayMs: FAR_FUTURE_MS,
     });
 
     const job = await queue.getJob(retryJobId('ch_01abc', 1));
 
     expect(job?.id).toBe('retry:ch_01abc:1');
-    expect(job?.data).toEqual({ chargeId: 'ch_01abc', attempt: 1 });
+    expect(job?.data).toEqual({
+      chargeId: 'ch_01abc',
+      attempt: 1,
+      correlationId: 'cor_test_journey',
+    });
     expect(await job?.getState()).toBe('delayed');
     expect(await queue.getDelayedCount()).toBe(1);
   });
@@ -63,11 +68,13 @@ describe('BullMqBillingQueue (integration)', () => {
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
+      correlationId: 'cor_test_journey',
       delayMs: FAR_FUTURE_MS,
     });
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01def',
       attempt: 2,
+      correlationId: 'cor_test_journey',
       delayMs: FAR_FUTURE_MS,
     });
 
@@ -87,6 +94,7 @@ describe('BullMqBillingQueue (integration)', () => {
       chargeId: 'ch_01abc',
       attempt: 2,
       delayMs: FAR_FUTURE_MS,
+      correlationId: 'cor_test_journey',
     };
 
     await Promise.all([
@@ -98,15 +106,37 @@ describe('BullMqBillingQueue (integration)', () => {
     expect(await queue.getJobCountByTypes('delayed', 'waiting')).toBe(1);
   });
 
+  it('keeps one job per charge and attempt whatever correlation id each request carries', async () => {
+    const request = { chargeId: 'ch_01abc', attempt: 2, delayMs: 0 };
+
+    await billingQueue.scheduleRetry({
+      ...request,
+      correlationId: 'cor_first_request',
+    });
+    await billingQueue.scheduleRetry({
+      ...request,
+      correlationId: 'cor_second_request',
+    });
+
+    expect(await queue.getJobCountByTypes('delayed', 'waiting')).toBe(1);
+    expect((await queue.getJob(retryJobId('ch_01abc', 2)))?.data).toEqual({
+      chargeId: 'ch_01abc',
+      attempt: 2,
+      correlationId: 'cor_first_request',
+    });
+  });
+
   it('keeps different attempts of the same charge as distinct jobs', async () => {
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
+      correlationId: 'cor_test_journey',
       delayMs: FAR_FUTURE_MS,
     });
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 2,
+      correlationId: 'cor_test_journey',
       delayMs: FAR_FUTURE_MS,
     });
 
@@ -130,12 +160,17 @@ describe('BullMqBillingQueue (integration)', () => {
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 3,
+      correlationId: 'cor_test_journey',
       delayMs: 0,
     });
 
     expect(await processed).toEqual({
       id: 'retry:ch_01abc:3',
-      data: { chargeId: 'ch_01abc', attempt: 3 },
+      data: {
+        chargeId: 'ch_01abc',
+        attempt: 3,
+        correlationId: 'cor_test_journey',
+      },
     });
   });
 
@@ -143,12 +178,14 @@ describe('BullMqBillingQueue (integration)', () => {
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
+      correlationId: 'cor_test_journey',
       delayMs: FAR_FUTURE_MS,
     });
 
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
+      correlationId: 'cor_test_journey',
       delayMs: 0,
     });
 
@@ -161,6 +198,7 @@ describe('BullMqBillingQueue (integration)', () => {
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
+      correlationId: 'cor_test_journey',
       delayMs: FAR_FUTURE_MS,
     });
 
@@ -187,7 +225,7 @@ describe('BullMqBillingQueue (integration)', () => {
 
     await queue.add(
       'charge-retry',
-      { chargeId: 'ch_01abc', attempt: 1 },
+      { chargeId: 'ch_01abc', attempt: 1, correlationId: 'cor_test_journey' },
       {
         jobId: 'retry:ch_01abc:1',
         attempts: 3,
@@ -228,7 +266,7 @@ describe('BullMqBillingQueue (integration)', () => {
   it('re-runs a failed job when the same retry is scheduled again, with its attempts reset', async () => {
     await queue.add(
       'charge-retry',
-      { chargeId: 'ch_01abc', attempt: 1 },
+      { chargeId: 'ch_01abc', attempt: 1, correlationId: 'cor_test_journey' },
       { jobId: 'retry:ch_01abc:1', attempts: 1 },
     );
     await runWorkerUntil('failed', () =>
@@ -238,6 +276,7 @@ describe('BullMqBillingQueue (integration)', () => {
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
+      correlationId: 'cor_test_journey',
       delayMs: FAR_FUTURE_MS,
     });
 
@@ -251,6 +290,7 @@ describe('BullMqBillingQueue (integration)', () => {
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
+      correlationId: 'cor_test_journey',
       delayMs: 0,
     });
     await runWorkerUntil('completed', () => Promise.resolve());
@@ -258,6 +298,7 @@ describe('BullMqBillingQueue (integration)', () => {
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
+      correlationId: 'cor_test_journey',
       delayMs: 0,
     });
 
@@ -270,6 +311,7 @@ describe('BullMqBillingQueue (integration)', () => {
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
+      correlationId: 'cor_test_journey',
       delayMs: FAR_FUTURE_MS,
     });
     const before = await queue.getJob('retry:ch_01abc:1');
@@ -277,6 +319,7 @@ describe('BullMqBillingQueue (integration)', () => {
     await billingQueue.scheduleRetry({
       chargeId: 'ch_01abc',
       attempt: 1,
+      correlationId: 'cor_test_journey',
       delayMs: FAR_FUTURE_MS,
     });
 
@@ -315,6 +358,7 @@ describe('BullMqBillingQueue (integration)', () => {
         new BullMqBillingQueue(downQueue).scheduleRetry({
           chargeId: 'ch_01abc',
           attempt: 1,
+          correlationId: 'cor_test_journey',
           delayMs: FAR_FUTURE_MS,
         }),
       ).rejects.toThrow();
