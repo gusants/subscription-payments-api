@@ -114,6 +114,32 @@ describe('charges schema (integration)', () => {
     ).rejects.toMatchObject({ code: 'P2002' });
   });
 
+  it('stores the expiry and payment instructions of an asynchronous charge', async () => {
+    const instructions = { type: 'pix', copyPaste: '000201' };
+
+    const charge = await prisma.charge.create({
+      data: chargeData({
+        method: 'pix',
+        expiresAt: new Date('2026-02-01T00:00:00.000Z'),
+        paymentInstructions: instructions,
+      }),
+    });
+
+    expect(charge).toMatchObject({
+      expiresAt: new Date('2026-02-01T00:00:00.000Z'),
+      paymentInstructions: instructions,
+    });
+  });
+
+  it('leaves expiry and payment instructions null on a card charge', async () => {
+    const charge = await prisma.charge.create({ data: chargeData() });
+
+    expect(charge).toMatchObject({
+      expiresAt: null,
+      paymentInstructions: null,
+    });
+  });
+
   it('rejects a charge for an unknown subscription', async () => {
     await expect(
       prisma.charge.create({

@@ -135,6 +135,8 @@ describe('PrismaBillingRepository (integration)', () => {
         attemptCount: 0,
         nextRetryAt: null,
         paidAt: null,
+        expiresAt: null,
+        paymentInstructions: null,
         createdAt: expect.any(Date),
         updatedAt: expect.any(Date),
       });

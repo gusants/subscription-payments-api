@@ -16,6 +16,7 @@ import type {
   RecordedOutcome,
   SubscriptionWithCharge,
 } from './charge.js';
+import { toCharge } from './prisma-charge.mapper.js';
 
 @Injectable()
 export class PrismaBillingRepository extends BillingRepository {
@@ -29,7 +30,7 @@ export class PrismaBillingRepository extends BillingRepository {
   ): Promise<SubscriptionWithCharge> {
     return this.prisma.$transaction(async (tx) => ({
       subscription: await tx.subscription.create({ data: subscription }),
-      charge: await tx.charge.create({ data: charge }),
+      charge: toCharge(await tx.charge.create({ data: charge })),
     }));
   }
 
@@ -42,9 +43,7 @@ export class PrismaBillingRepository extends BillingRepository {
       where: { id, status: { in: [...fromAnyOf] } },
       data: { status: 'pending', ...attempt },
     });
-    return count === 0
-      ? null
-      : this.prisma.charge.findUniqueOrThrow({ where: { id } });
+    return count === 0 ? null : this.findChargeOrThrow(id);
   }
 
   async takeAttemptLease(
@@ -63,9 +62,7 @@ export class PrismaBillingRepository extends BillingRepository {
       },
       data: { attemptStartedAt: startedAt },
     });
-    return count === 0
-      ? null
-      : this.prisma.charge.findUniqueOrThrow({ where: { id } });
+    return count === 0 ? null : this.findChargeOrThrow(id);
   }
 
   async attachGatewayCharge(
@@ -111,9 +108,17 @@ export class PrismaBillingRepository extends BillingRepository {
         subscription: await tx.subscription.findUniqueOrThrow({
           where: { id: subscription.id },
         }),
-        charge: await tx.charge.findUniqueOrThrow({ where: { id: charge.id } }),
+        charge: toCharge(
+          await tx.charge.findUniqueOrThrow({ where: { id: charge.id } }),
+        ),
       };
     });
+  }
+
+  private async findChargeOrThrow(id: string): Promise<Charge> {
+    return toCharge(
+      await this.prisma.charge.findUniqueOrThrow({ where: { id } }),
+    );
   }
 
   private changeSubscription(

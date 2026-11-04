@@ -51,6 +51,8 @@ describe('toChargeHistoryItemResponse', () => {
       periodStart: at,
       periodEnd: at,
       paidAt: null,
+      expiresAt: null,
+      paymentInstructions: null,
       createdAt: at,
       updatedAt: at,
       attempts: [

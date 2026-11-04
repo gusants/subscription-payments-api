@@ -34,6 +34,8 @@ export class InMemoryBillingRepository extends BillingRepository {
       attemptCount: 0,
       nextRetryAt: null,
       paidAt: null,
+      expiresAt: null,
+      paymentInstructions: null,
       createdAt: now,
       updatedAt: now,
     };

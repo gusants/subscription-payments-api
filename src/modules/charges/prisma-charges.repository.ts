@@ -8,6 +8,7 @@ import type {
   ChargeWithSubscription,
 } from './charge.js';
 import { ChargesRepository } from './charges.repository.js';
+import { toCharge } from './prisma-charge.mapper.js';
 
 const withAttempts = {
   attempts: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
@@ -18,7 +19,7 @@ type StoredCharge = Prisma.ChargeGetPayload<{ include: typeof withAttempts }>;
 const toChargeWithAttempts = ({
   attempts,
   ...charge
-}: StoredCharge): ChargeWithAttempts => ({ ...charge, attempts });
+}: StoredCharge): ChargeWithAttempts => ({ ...toCharge(charge), attempts });
 
 @Injectable()
 export class PrismaChargesRepository extends ChargesRepository {
@@ -35,7 +36,7 @@ export class PrismaChargesRepository extends ChargesRepository {
     });
     if (!found) return null;
     const { subscription, ...charge } = found;
-    return { charge, subscription };
+    return { charge: toCharge(charge), subscription };
   }
 
   async findWithAttempts(id: string): Promise<ChargeWithAttempts | null> {

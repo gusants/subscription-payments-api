@@ -1,4 +1,7 @@
-import type { GatewayFailureReason } from '../../gateway/index.js';
+import type {
+  GatewayFailureReason,
+  PaymentInstructions,
+} from '../../gateway/index.js';
 import type {
   PaymentMethod,
   StatusChange,
@@ -21,6 +24,8 @@ export interface Charge {
   periodStart: Date;
   periodEnd: Date;
   paidAt: Date | null;
+  expiresAt: Date | null;
+  paymentInstructions: PaymentInstructions | null;
   createdAt: Date;
   updatedAt: Date;
 }

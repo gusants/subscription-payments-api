@@ -6,6 +6,7 @@ export const ID_PREFIXES = {
   paymentAttempt: 'pa_',
   gatewayCustomer: 'gcus_',
   gatewayCharge: 'gch_',
+  webhookEvent: 'whe_',
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIXES)[keyof typeof ID_PREFIXES];

@@ -108,24 +108,26 @@ enum ChargeFailureReason {
 }
 
 model Charge {
-  id                String           @id
-  subscriptionId    String           @map("subscription_id")
-  amountCents       Int              @map("amount_cents")
-  method            PaymentMethod
-  status            ChargeStatus     @default(pending)
-  gatewayChargeId   String?          @unique @map("gateway_charge_id")
-  gatewayAttemptKey String?          @unique @map("gateway_attempt_key")
-  attemptStartedAt  DateTime?        @map("attempt_started_at") @db.Timestamptz(3)
-  attemptCount      Int              @default(0) @map("attempt_count")
-  nextRetryAt       DateTime?        @map("next_retry_at") @db.Timestamptz(3)
-  dueDate           DateTime         @map("due_date") @db.Timestamptz(3)
-  periodStart       DateTime         @map("period_start") @db.Timestamptz(3)
-  periodEnd         DateTime         @map("period_end") @db.Timestamptz(3)
-  paidAt            DateTime?        @map("paid_at") @db.Timestamptz(3)
-  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
-  subscription      Subscription     @relation(fields: [subscriptionId], references: [id])
-  attempts          PaymentAttempt[]
+  id                  String           @id
+  subscriptionId      String           @map("subscription_id")
+  amountCents         Int              @map("amount_cents")
+  method              PaymentMethod
+  status              ChargeStatus     @default(pending)
+  gatewayChargeId     String?          @unique @map("gateway_charge_id")
+  gatewayAttemptKey   String?          @unique @map("gateway_attempt_key")
+  attemptStartedAt    DateTime?        @map("attempt_started_at") @db.Timestamptz(3)
+  attemptCount        Int              @default(0) @map("attempt_count")
+  nextRetryAt         DateTime?        @map("next_retry_at") @db.Timestamptz(3)
+  dueDate             DateTime         @map("due_date") @db.Timestamptz(3)
+  periodStart         DateTime         @map("period_start") @db.Timestamptz(3)
+  periodEnd           DateTime         @map("period_end") @db.Timestamptz(3)
+  paidAt              DateTime?        @map("paid_at") @db.Timestamptz(3)
+  expiresAt           DateTime?        @map("expires_at") @db.Timestamptz(3)
+  paymentInstructions Json?            @map("payment_instructions")
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  subscription        Subscription     @relation(fields: [subscriptionId], references: [id])
+  attempts            PaymentAttempt[]
 
   @@unique([subscriptionId, periodStart])
   @@index([status, nextRetryAt])
@@ -143,4 +145,27 @@ model PaymentAttempt {
 
   @@index([chargeId])
   @@map("payment_attempts")
+}
+
+enum WebhookEventOutcome {
+  applied
+  ignored_duplicate_state
+  ignored_unknown_charge
+  rejected_out_of_order
+
+  @@map("webhook_event_outcome")
+}
+
+model WebhookEvent {
+  id              String               @id
+  gatewayEventId  String               @unique @map("gateway_event_id")
+  type            String
+  gatewayChargeId String?              @map("gateway_charge_id")
+  payload         Json
+  receivedAt      DateTime             @default(now()) @map("received_at") @db.Timestamptz(3)
+  processedAt     DateTime?            @map("processed_at") @db.Timestamptz(3)
+  outcome         WebhookEventOutcome?
+
+  @@index([gatewayChargeId])
+  @@map("webhook_events")
 }
