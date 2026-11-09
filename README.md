@@ -138,7 +138,7 @@ pnpm start:dev
 
 ### Demo data and the demo script
 
-`scripts/demo.sh` reads `BASE_URL` (default `http://localhost:3000`) and fails with a clear message if `POST /dev/retries/run-now` answers 404 (dev routes off) or if the subscription does not become `active` within `POLL_TIMEOUT_SECONDS` (default 30). It works under either retry unit because it fires the scheduled retry through the dev route instead of waiting for it.
+`scripts/demo.sh` reads `BASE_URL` (default `http://localhost:3000`) and fails with a clear message if `POST /dev/retries/run-now` answers 404 (dev routes off) or if the subscription does not become `active` within `POLL_TIMEOUT_SECONDS` (default 30). `STEP_PAUSE_SECONDS` (default 0) pauses before each step, which the recorded GIF uses. It works under either retry unit because it fires the scheduled retry through the dev route instead of waiting for it.
 
 The seed (`pnpm db:seed`, or `docker compose run --rm seed`) is a development tool and refuses to run unless the target is clearly a throwaway database:
 
@@ -385,7 +385,13 @@ TODO: add the link to the live demo of the dashboard (Project 2). No URL is defi
 
 ## Demo
 
-TODO: record the demo GIF and save it as `docs/demo.gif`. The file does not exist yet.
+![Demo: a declined card goes past_due, the retry recovers it, then the AI summary and the metrics overview](docs/demo.gif)
+
+`scripts/demo.sh` against the compose stack with the demo seed. The GIF is recorded with [VHS](https://github.com/charmbracelet/vhs) from [`docs/demo.tape`](docs/demo.tape); to re-record it, start the stack, run the seed and then `vhs docs/demo.tape`.
+
+Scheduled dunning retries in Bull Board (`/queues`), one delayed job per failed charge with a deterministic `retry:{chargeId}:{attempt}` id and the correlation id carried in the job data:
+
+![Bull Board showing delayed charge-retry jobs](docs/images/bull-board-retries.png)
 
 ## Production changes
 

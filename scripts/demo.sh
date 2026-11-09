@@ -4,6 +4,7 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://localhost:3000}"
 POLL_TIMEOUT_SECONDS="${POLL_TIMEOUT_SECONDS:-30}"
 POLL_INTERVAL_SECONDS=1
+STEP_PAUSE_SECONDS="${STEP_PAUSE_SECONDS:-0}"
 
 for tool in curl jq; do
   command -v "$tool" >/dev/null 2>&1 || {
@@ -14,7 +15,10 @@ done
 
 if [[ -t 1 ]]; then BOLD=$'\033[1m' RESET=$'\033[0m'; else BOLD='' RESET=''; fi
 
-step() { printf '\n%s%s%s\n' "$BOLD" "$*" "$RESET"; }
+step() {
+  sleep "$STEP_PAUSE_SECONDS"
+  printf '\n%s%s%s\n' "$BOLD" "$*" "$RESET"
+}
 
 request() {
   local method="$1" path="$2" body="${3:-}"
