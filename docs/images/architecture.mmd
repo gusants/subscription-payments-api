@@ -1,0 +1,42 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "arial, sans-serif", "fontSize": "15px", "primaryColor": "#eef2ff", "primaryBorderColor": "#6366f1", "primaryTextColor": "#1e1b4b", "lineColor": "#64748b", "clusterBkg": "#f8fafc", "clusterBorder": "#cbd5e1", "edgeLabelBackground": "#ffffff"}, "flowchart": {"curve": "basis", "nodeSpacing": 45, "rankSpacing": 70, "padding": 18}}}%%
+flowchart TB
+  client["HTTP client / dashboard"]
+
+  subgraph apiproc["API process · NestJS"]
+    direction TB
+    api["HTTP API<br/><small>controllers · Swagger · /queues</small>"]
+    worker["BullMQ workers<br/><small>retries · renewals · reconciliation</small>"]
+    fake["Fake gateway adapter<br/><small>PaymentGateway port</small>"]
+  end
+
+  subgraph data["Data"]
+    direction LR
+    pg[("PostgreSQL 17")]
+    redis[("Redis 7.4<br/><small>queues · idempotency · cache</small>")]
+    store[("data/fake-gateway.json")]
+  end
+
+  subgraph ext["External / optional"]
+    direction LR
+    jaeger["Jaeger<br/><small>OTLP · optional</small>"]
+    llm["LLM provider<br/><small>fake or Gemini</small>"]
+  end
+
+  client -->|"HTTP + x-correlation-id"| api
+  api -->|"enqueue jobs"| redis
+  redis -->|"consume jobs"| worker
+  api -->|"charge"| fake
+  worker -->|"charge"| fake
+  fake -.->|"webhook · HMAC-SHA256"| api
+  fake --> store
+  api -->|"Prisma"| pg
+  worker -->|"Prisma"| pg
+  api -->|"LlmProvider port"| llm
+  api -.->|"traces when OTEL_ENABLED"| jaeger
+
+  classDef store fill:#ecfeff,stroke:#0891b2,color:#164e63
+  classDef optional fill:#fff7ed,stroke:#ea580c,color:#7c2d12,stroke-dasharray:4 3
+  classDef edge fill:#f1f5f9,stroke:#475569,color:#0f172a
+  class pg,redis,store store
+  class llm,jaeger optional
+  class client edge

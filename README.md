@@ -32,34 +32,12 @@ The payment gateway is a fake adapter behind a `PaymentGateway` port. Everything
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  client["HTTP client or dashboard"]
-  subgraph apiproc["API process (NestJS, default)"]
-    api["HTTP API"]
-    worker["BullMQ workers"]
-    fake["Fake gateway adapter"]
-  end
-  pg[("PostgreSQL 17")]
-  redis[("Redis 7.4")]
-  queues["Queues: charge-retries, subscription-renewals, charge-reconciliation"]
-  store[("data/fake-gateway.json")]
-  llm["LLM provider: fake or Gemini"]
-  jaeger["Jaeger (optional, OTLP)"]
+![Architecture: the API process (HTTP API, BullMQ workers, fake gateway adapter), PostgreSQL, Redis, the LLM provider and optional Jaeger](docs/images/architecture.png)
 
-  client -->|"HTTP, x-correlation-id"| api
-  api -->|"Prisma"| pg
-  worker -->|"Prisma"| pg
-  api -->|"idempotency keys, summary cache, health"| redis
-  api -->|"enqueue"| queues
-  queues -->|"jobs"| worker
-  queues -.->|"stored in"| redis
-  api -->|"PaymentGateway port"| fake
-  worker -->|"PaymentGateway port"| fake
-  fake --> store
-  fake -->|"webhook, HMAC-SHA256"| api
-  api -->|"LlmProvider port"| llm
-  api -.->|"OTLP/HTTP, when OTEL_ENABLED=true"| jaeger
+The source is [`docs/images/architecture.mmd`](docs/images/architecture.mmd) (also as [SVG](docs/images/architecture.svg)). To regenerate it with [mermaid-cli](https://github.com/mermaid-js/mermaid-cli):
+
+```bash
+npx -y @mermaid-js/mermaid-cli@11.4.2 -c docs/images/architecture.config.json -i docs/images/architecture.mmd -o docs/images/architecture.png -b white -s 3
 ```
 
 The workers run in the API process by default (`WORKERS_ENABLED=true`). They can run in their own process (`pnpm start:worker`), but only with a real gateway: the fake gateway's JSON store is single-process.
