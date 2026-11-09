@@ -143,7 +143,7 @@ pnpm start:dev
 The seed (`pnpm db:seed`, or `docker compose run --rm seed`) is a development tool and refuses to run unless the target is clearly a throwaway database:
 
 - It refuses when `NODE_ENV=production` or when `DATABASE_URL` points at a host other than `localhost`, `127.0.0.1` or `[::1]`.
-- `SEED_ALLOW_REMOTE=true` overrides both refusals. The compose `seed` service sets it, because from inside the compose network the database host is `postgres` and the container runs with `NODE_ENV=production`. Do not set it against a database you care about: the seed deletes and recreates its own rows (ids starting with `sub_demo`, and their charges and attempts) and upserts the plans and customers.
+- `SEED_ALLOW_REMOTE=true` overrides both refusals. The compose `seed` service sets it, because from inside the compose network the database host is `postgres` and the container runs with `NODE_ENV=production`. Do not set it against a database you care about: the seed deletes and recreates its own rows (subscriptions whose id starts with `sub_seed_`, and their charges and attempts) and upserts the plans and customers.
 
 #### Seeded past-due subscriptions
 
