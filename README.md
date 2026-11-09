@@ -361,6 +361,14 @@ CI (`.github/workflows/ci.yml`) runs on push and pull request. The `quality` job
 
 [Cadência Billing](https://cadencia-billing.gusantos1704.workers.dev) is the React dashboard built on this API ([source](https://github.com/gusants/subscription-billing-dashboard)). The live demo runs the same OpenAPI contract in the browser with Mock Service Worker, so it needs no backend; locally it can also point at this API (`VITE_API_MODE=api`).
 
+The customer page reads straight from this API's resources: the subscription status, the charges with every attempt and its decline reason, the next dunning retry, and the AI summary from `GET /customers/{id}/summary`.
+
+![Dashboard customer page: declined card attempts, the retry schedule and the AI summary](https://raw.githubusercontent.com/gusants/subscription-billing-dashboard/main/docs/media/customer-detail.png)
+
+| Overview (metrics) | Simulator (fake gateway) |
+| --- | --- |
+| ![Dashboard overview with MRR, delinquency and revenue by month](https://raw.githubusercontent.com/gusants/subscription-billing-dashboard/main/docs/media/overview.png) | ![Dashboard simulator panel that drives the fake gateway](https://raw.githubusercontent.com/gusants/subscription-billing-dashboard/main/docs/media/simulator.png) |
+
 ## Demo
 
 ![Demo: a declined card goes past_due, the retry recovers it, then the AI summary and the metrics overview](docs/demo.gif)
