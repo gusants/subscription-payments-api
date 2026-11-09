@@ -381,7 +381,7 @@ CI (`.github/workflows/ci.yml`) runs on push and pull request. The `quality` job
 
 ## Live dashboard
 
-TODO: add the link to the live demo of the dashboard (Project 2). No URL is defined yet.
+[Cadência Billing](https://cadencia-billing.gusantos1704.workers.dev) is the React dashboard built on this API ([source](https://github.com/gusants/subscription-billing-dashboard)). The live demo runs the same OpenAPI contract in the browser with Mock Service Worker, so it needs no backend; locally it can also point at this API (`VITE_API_MODE=api`).
 
 ## Demo
 
