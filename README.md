@@ -359,7 +359,7 @@ CI (`.github/workflows/ci.yml`) runs on push and pull request. The `quality` job
 
 ## Live dashboard
 
-[Cadência Billing](https://cadencia-billing.gusantos1704.workers.dev) is the React dashboard built on this API ([source](https://github.com/gusants/subscription-billing-dashboard)). The live demo runs the same OpenAPI contract in the browser with Mock Service Worker, so it needs no backend; locally it can also point at this API (`VITE_API_MODE=api`).
+[Cadência Billing](https://gusants.github.io/subscription-billing-dashboard/) is the React dashboard built on this API ([source](https://github.com/gusants/subscription-billing-dashboard)). The live demo runs the same OpenAPI contract in the browser with Mock Service Worker, so it needs no backend; locally it can also point at this API (`VITE_API_MODE=api`).
 
 The customer page reads straight from this API's resources: the subscription status, the charges with every attempt and its decline reason, the next dunning retry, and the AI summary from `GET /customers/{id}/summary`.
 
